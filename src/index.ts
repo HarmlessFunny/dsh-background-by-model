@@ -462,44 +462,119 @@ async function handleVideoUpload(req: any, res: any): Promise<void> {
 }
 
 const NS = 'dshAnyBackground'
+const RPC_CHANNEL = '/dsh-any-background'
+const RPC_BODY_MAX = 300 * 1024 * 1024
+
+/** Dispatch one decoded RPC method to the matching persistence routine and
+ *  return the wire `result` half of the server-response envelope. */
+async function handleRpcMethod(
+  endpoint: string,
+  payload: unknown,
+): Promise<{ ok: boolean; value?: unknown; error?: { code: string; message: string; details: object } }> {
+  const method = endpoint.slice(`${NS}/`.length)
+  try {
+    switch (method) {
+      case 'read':
+        // The video travels as a URL, never as bytes.
+        return { ok: true, value: { config: await readConfig(), wallpaper: await readWallpaper(), videoUrl: await videoUrl() } }
+      case 'writeConfig':
+        return { ok: true, value: await writeConfig((payload as { config?: unknown } | null)?.config as ThemeConfig ?? {}) }
+      case 'setWallpaper':
+        return { ok: true, value: await writeWallpaper(((payload as { dataUrl?: unknown } | null)?.dataUrl ?? null) as string | null) }
+      case 'setVideo':
+        return { ok: true, value: await writeVideo(((payload as { dataUrl?: unknown } | null)?.dataUrl ?? null) as string | null) }
+      case 'setWallpaperUrl':
+        return { ok: true, value: await writeWallpaperFromUrl(((payload as { url?: unknown } | null)?.url ?? null) as string | null) }
+      default:
+        return { ok: false, error: { code: 'dsh-any-background/bad-request', message: `unknown endpoint ${endpoint}`, details: { issues: [] } } }
+    }
+  } catch (e) {
+    return { ok: false, error: { code: 'dsh-any-background/internal', message: e instanceof Error ? e.message : String(e), details: {} } }
+  }
+}
 
 export function apply(ctx: any): void {
-  // Dedicated RPC channel (never the shared `/api`), so DSH slash commands
-  // stay intact.
-  const dispose = ctx.connection.rpc.handle(
-    '/dsh-any-background',
-    async (ep: string, payload: any) => {
-      const method = ep.slice(`${NS}/`.length)
-      try {
-        switch (method) {
-          case 'read':
-            // The video travels as a URL, never as bytes.
-            return { ok: true, value: { config: await readConfig(), wallpaper: await readWallpaper(), videoUrl: await videoUrl() } }
-          case 'writeConfig':
-            return { ok: true, value: await writeConfig((payload?.config ?? {}) as ThemeConfig) }
-          case 'setWallpaper':
-            return { ok: true, value: await writeWallpaper((payload?.dataUrl ?? null) as string | null) }
-          case 'setVideo':
-            return { ok: true, value: await writeVideo((payload?.dataUrl ?? null) as string | null) }
-          case 'setWallpaperUrl':
-            return { ok: true, value: await writeWallpaperFromUrl((payload?.url ?? null) as string | null) }
-          default:
-            return { ok: false, error: { code: 'dsh-any-background/bad-request', message: `unknown endpoint ${ep}`, details: { issues: [] } } }
+  // Register every route inside a connection+webServer-injected scope, exactly
+  // as the connection plugin mounts its own `/api` transport. Doing this
+  // synchronously in `apply` fails with "cannot get property webServer without
+  // inject" on hosts where webServer is not yet resolvable at apply time.
+  // The RPC channel is mounted here directly through `webServer.register`
+  // (rather than `connection.rpc.handle`, whose effect binds to the connection
+  // service's own context and never mounts on some 0.1.5 hosts), mirroring the
+  // working `/api` route: keep the Host/Origin fence + browser auth via
+  // `requestRejection`, then bridge the JSON envelope inline.
+  ctx.inject(['connection', 'webServer'], (webCtx: any) => {
+    webCtx.effect(
+      () => webCtx.webServer.register({
+        kind: 'prefix',
+        path: RPC_CHANNEL,
+        handler: async (req: any, res: any) => {
+          const rejection = webCtx.connection.requestRejection(req)
+          if (rejection !== undefined) {
+            res.writeHead(rejection)
+            res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
+            return
           }
-        } catch (e) {
-        return { ok: false, error: { code: 'dsh-any-background/internal', message: e instanceof Error ? e.message : String(e), details: {} } }
-      }
-    },
-    { authority: 'trusted-host' },
-  )
-  // Longest prefix wins over the RPC channel's shorter one; exact beats
-  // prefix, so uploads land in the upload handler even though UPLOAD_ROUTE
-  // sits inside VIDEO_ROUTE. Disposing the plugin removes both routes.
-  const disposeRoute = ctx.webServer.register({ kind: 'prefix', path: VIDEO_ROUTE, handler: serveVideo })
-  const disposeUpload = ctx.webServer.register({ kind: 'exact', path: UPLOAD_ROUTE, handler: handleVideoUpload })
-  ctx.on('dispose', () => {
-    disposeRoute()
-    disposeUpload()
-    void dispose()
+          if (req.method !== 'POST') {
+            res.writeHead(405, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-any-background/bad-request', message: 'expected POST', details: {} } }))
+            return
+          }
+          const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
+          const endpoint = pathname.startsWith(`${RPC_CHANNEL}/`) ? pathname.slice(RPC_CHANNEL.length + 1) : undefined
+          if (endpoint === undefined || endpoint.length === 0) {
+            res.writeHead(404)
+            res.end()
+            return
+          }
+          const chunks: Buffer[] = []
+          let received = 0
+          for await (const chunk of req) {
+            const buf = chunk as Buffer
+            received += buf.byteLength
+            if (received > RPC_BODY_MAX) {
+              res.writeHead(413, { connection: 'close' })
+              res.end()
+              req.destroy()
+              return
+            }
+            chunks.push(buf)
+          }
+          let env: { type?: unknown; rpcId?: unknown; method?: unknown; payload?: unknown }
+          try {
+            env = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-any-background/bad-request', message: 'body is not JSON', details: {} } }))
+            return
+          }
+          if (env === null || typeof env !== 'object' || env.type !== 'client-request' || typeof env.rpcId !== 'string' || typeof env.method !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-any-background/bad-request', message: 'invalid client-request envelope', details: {} } }))
+            return
+          }
+          if (env.method !== endpoint) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ type: 'server-response', rpcId: env.rpcId, result: { ok: false, error: { code: 'dsh-any-background/bad-request', message: `method ${env.method} does not match endpoint ${endpoint}`, details: { issues: [] } } } }))
+            return
+          }
+          const result = await handleRpcMethod(endpoint, env.payload)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ type: 'server-response', rpcId: env.rpcId, result }))
+        },
+      }),
+      'dsh-any-background: rpc channel',
+    )
+    // Longest prefix wins over the RPC channel's shorter one; exact beats
+    // prefix, so uploads land in the upload handler even though UPLOAD_ROUTE
+    // sits inside VIDEO_ROUTE. Effects auto-dispose with the injected scope.
+    webCtx.effect(
+      () => webCtx.webServer.register({ kind: 'prefix', path: VIDEO_ROUTE, handler: serveVideo }),
+      'dsh-any-background: video route',
+    )
+    webCtx.effect(
+      () => webCtx.webServer.register({ kind: 'exact', path: UPLOAD_ROUTE, handler: handleVideoUpload }),
+      'dsh-any-background: upload route',
+    )
   })
 }

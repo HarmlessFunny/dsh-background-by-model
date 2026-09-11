@@ -13,6 +13,7 @@ const EXTERNALS = [
   '@deepseek-ai/dsh-home-paths',
   'react',
   'react-dom',
+  'react-dom/client',
   'react/jsx-runtime',
   '@deepseek-ai/dsh-client-connection',
   '@deepseek-ai/dsh-client-runtime',

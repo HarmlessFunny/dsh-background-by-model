@@ -1,8 +1,9 @@
 # dsh-any-background
 
-<a href="https://github.com/Tkingxiao/dsh-any-background" target="_blank">
-  <img src="https://img.shields.io/github/stars/Tkingxiao/dsh-any-background?style=social" alt="GitHub stars" />
-</a>
+<p align="center">
+  <a href="https://github.com/Tkingxiao/dsh-any-background"><img src="https://img.shields.io/github/stars/Tkingxiao/dsh-any-background?style=social" alt="GitHub stars"></a>
+  <a href="https://dsh.directory/plugins/tkingxiao/dsh-any-background"><img src="https://dsh.directory/badges/listed.svg" alt="dsh.directory listed"></a>
+</p>
 
 English | [中文](README.zh.md)
 
@@ -75,20 +76,18 @@ A **DeepSeek Harness** appearance plugin that lets you fully customize the Web U
 
 ## Recent Optimizations
 
+### v0.2.4
+
+- **dsh 0.1.5 persistence fixed** — The theme/wallpaper RPC channel is now registered directly in the plugin's own `webServer` scope as a prefix route (keeping the same Host/Origin auth fence), instead of through `connection.rpc.handle`, whose effect binds to the connection service's context and never mounted on some 0.1.5 hosts — requests that previously dropped to the SPA fallback with 405 and never reached the disk now persist again. Verified working on both 0.1.2 and 0.1.5.
+- **Host compatibility declared** — Added `engines.dsh: ">=0.1.2-rc.1"` to declare which DeepSeek Harness host versions the plugin supports.
+- **Dark badge tokens fixed (issue #9)** — In the dark preset, the `*-tertiary` badge surfaces (trajectory tool/context badges, connection pill, plan chip) were tinted nearly the same as their background, making light label text unreadable. They now use the native dark 800/900 steps, so bright text sits on a properly dark badge.
+
 ### v0.2.3
 
 - **Wide tables stay in the column** — When the chat region opacity/blur is raised (which makes the chat border visible), wide markdown tables are pulled back inside the text column and scroll horizontally at the border instead of bleeding past it. Left untouched while the border is invisible, preserving DSH's default behavior.
 - **Network URL wallpaper** — Paste an image URL and the plugin downloads it and writes it to the local wallpaper file (replacing the previous image). Because the remote source lands as a local persisted file, theme export/import keep working with no extra steps: an exported theme embeds the image data, and the receiving side never needs access to the original URL.
 - **Editor confirm button visible in dark mode** — The background-editor "Confirm" button now matches the Cancel/Reset buttons (solid surface with a clear frame and legible label) instead of a translucent primary tint, so it no longer disappears in dark themes.
 - **Maintenance cleanup** — Removed an unused `@deepseek-ai/dsh-client-ui-renderer` entry from the client inject list and aligned self-owned RPC error codes with the new harness convention.
-
-### v0.2.2
-
-- **Dark host surfaces fully themed** — Message bubbles, setting-box inputs/cards, selectors, ghost/toolbar buttons, and module-platform surfaces now carry explicit dark tokens, eliminating white-on-white and white-icon-on-bright bugs across the conversation view, settings page, and interactive controls.
-- **Refresh white-flash eliminated** — A theme-reset watcher re-asserts the plugin's forced scheme within the same frame the host re-applies its light `:root/body` rules; the `!important` token stylesheet survives host theme resets, so entering, refreshing, and set-changes no longer paint a white frame.
-- **Brand badge & code banner contrast** — The sidebar brand badge and the code-block info banner now use dark surfaces with legible labels and icons.
-- **Placeholder reads as a hint** — The composer placeholder is rendered with the weak caption token and italic styling, clearly distinct from real input text.
-- **Dual harness compatibility** — `defineStore` is resolved through a runtime adapter that prefers the new `@deepseek-ai/dsh-client-store` and falls back to the legacy `@deepseek-ai/dsh-client-runtime/client`. A single bundle loads on both the npm release and the new deepseek-harness source, with no "missed the module table" boot failure.
 
 ## Installation
 
@@ -131,7 +130,7 @@ pnpm dsh web
 ## Compatibility
 
 - **[`dsh web`](https://github.com/deepseek-ai/deepseek-harness)** — Full support on both the npm release and the new source build. The plugin auto-detects which client-module table the host ships (the new `@deepseek-ai/dsh-client-store` or the legacy `@deepseek-ai/dsh-client-runtime`) and resolves `defineStore` accordingly at runtime.
-- **[deepseek-harness-desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)** — Supported; a known Electron packaging issue makes the left sidebar and center area opacity appear inverted — awaiting a desktop-client update to fix it.
+- **[deepseek-harness-desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)** — Supported
 
 ## Star History
 
