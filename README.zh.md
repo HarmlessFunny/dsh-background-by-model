@@ -1,8 +1,9 @@
 # dsh-any-background
 
-<a href="https://github.com/Tkingxiao/dsh-any-background" target="_blank">
-  <img src="https://img.shields.io/github/stars/Tkingxiao/dsh-any-background?style=social" alt="GitHub stars" />
-</a>
+<p align="center">
+  <a href="https://github.com/Tkingxiao/dsh-any-background"><img src="https://img.shields.io/github/stars/Tkingxiao/dsh-any-background?style=social" alt="GitHub stars"></a>
+  <a href="https://dsh.directory/plugins/tkingxiao/dsh-any-background"><img src="https://dsh.directory/badges/listed.svg" alt="dsh.directory listed"></a>
+</p>
 
 [English](README.md) | 中文
 
@@ -75,20 +76,18 @@
 
 ## 近期优化
 
+### v0.2.4
+
+- **修复 dsh 0.1.5 持久化失效** — 主题/背景图的 RPC 通道改为在插件自身 `webServer` 作用域内直接注册为 prefix 路由（保留 Host/Origin 鉴权围墙），不再经由 `connection.rpc.handle`（其 effect 绑定到 connection 服务上下文，导致部分 0.1.5 宿主挂载失败）。此前请求落到 SPA 兜底并返回 405、从未写入磁盘的设置，现可正常持久化（0.1.2 与 0.1.5 均已验证）。
+- **声明宿主版本兼容** — 新增 `engines.dsh: ">=0.1.2-rc.1"`，声明插件所支持的 DeepSeek Harness 宿主版本范围。
+- **修复深色徽章令牌（issue #9）** — 深色预设下 `*-tertiary` 徽章表面（轨迹工具/上下文徽章、连接胶囊、计划 chip）与背景色过于接近，浅色标签文字不可读；现已对齐原生深色 800/900 阶令牌，亮色文字落在正确深色徽章上。
+
 ### v0.2.3
 
 - **宽表格收进文本栏** — 当对话区透明度/模糊度被调大（边框因此可见）时，宽 Markdown 表格被收回文本栏宽度内、在边框处横向滚动，不再向右溢出裁切；边框不可见时不干预，保留 DSH 官方默认外扩行为。
 - **网络 URL 壁纸** — 填入图片网址即可直接作为壁纸：插件下载图片并写入本地壁纸文件（替换原有持久化图片）。由于远程来源最终落到本地持久化文件，主题导出/导入无需任何额外适配：导出主题时内嵌图片数据，接收方无需访问原始网址也能还原。
 - **深色主题下编辑器确认按钮清晰可见** — 背景编辑器「确认」按钮改为与「取消/重置」一致的实色表面 + 清晰边框 + 可读文字，不再使用半透明的主题色淡染，深色主题下不再看不清。
 - **维护性清理** — 移除 `dsh.client.inject` 中未使用的 `@deepseek-ai/dsh-client-ui-renderer` 条目，并将插件自有 RPC 错误码对齐新版 harness 的命名规范。
-
-### v0.2.2
-
-- **深色宿主表面全面主题化** — 消息气泡、设置框输入框/卡片、选择器、ghost/工具条按钮、module-platform 表面均补全了显式深色令牌，消除对话区、设置页与交互控件中的白底白字、白底白图标问题。
-- **消除刷新白闪** — 新增主题重置监听：宿主重新施加浅色 `:root/body` 规则后，插件在同帧内重新断言强制主题；`!important` 令牌样式表可抵御宿主主题服务的重置，进入、刷新、修改设置不再闪现一帧白底。
-- **品牌徽章与代码信息条对比提升** — 侧边栏品牌徽章与代码块上方信息条改为深色表面，文字与图标保持清晰可辨。
-- **占位符与正式输入区分** — 发送框占位符改用较弱的 caption 令牌并加斜体，空态不会被误认为已输入内容。
-- **双版本兼容** — `defineStore` 通过运行时适配器解析：优先使用新版 `@deepseek-ai/dsh-client-store`，缺失时回退到旧版 `@deepseek-ai/dsh-client-runtime/client`；同一份 bundle 同时兼容 npm 老版本与新版 deepseek-harness 源码，不再出现 "missed the module table" 启动失败。
 
 ## 安装
 
@@ -131,7 +130,7 @@ pnpm dsh web
 ## 兼容性
 
 - **[`dsh web`](https://github.com/deepseek-ai/deepseek-harness)** — 同时兼容 npm 发布版与新版源码构建。插件会自动检测宿主携带的客户端模块表（新版 `@deepseek-ai/dsh-client-store` 或旧版 `@deepseek-ai/dsh-client-runtime`），并在运行时据此解析 `defineStore`。
-- **[deepseek-harness-desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)** — 支持；已知 Electron 打包问题导致左侧边栏与中心区域透明度显示相反，需等待桌面端更新修复。
+- **[deepseek-harness-desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)** — 支持
 
 ## Star History
 
