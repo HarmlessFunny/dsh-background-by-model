@@ -11,8 +11,7 @@
  *  a. **The session's own durable model selection** —
  *     `ctx.sessions.binding(id).session.projections.faceOf('modelSelection')`,
  *     the same `{ lastUsed, next }` value the composer model seat and the
- *     /model popup read. This is the authoritative per-session answer and it is
- *     reachable from an ordinary plugin context.
+ *     /model popup read. This is the authoritative per-session answer.
  *  b. **`ctx.modelDirectories`** — the shared per-session directory
  *     (ui-model-selection). It adds the provider-group catalog, so it is the
  *     only source that can supply a display name, but it lives in that plugin's
@@ -21,9 +20,14 @@
  *     (see index.tsx). It is a global default, NOT this session's selection, so
  *     it is reported as `default` and the settings page says so.
  *
- * A slow safety poll re-reads the snapshot every 1.5 s: a missed notification
- * used to leave the wallpaper pinned to a stale model, which is worse than one
- * cheap read per second and a half.
+ * TIMING is load-bearing. `sessions` is published by the api-session-controller
+ * client plugin, which this deployment loads AFTER this plugin's client bundle,
+ * so `ctx.get('sessions')` is normally still undefined when `apply()` runs.
+ * Giving up there — returning a no-op disposer — left the model pinned to the
+ * host default for the whole session with nothing to retry it. The service is
+ * now polled for until it appears, and every hop reports a `note` when it cannot
+ * answer, so the settings page can name the failing one instead of silently
+ * showing a value that is not this session's model.
  */
 import type {
   BgRule, Ctx, ModelDirectoryLike, ModelDirectoryResolverLike, ModelSelectionProjectionLike,
@@ -83,6 +87,20 @@ function displayNameOf(state: {
 /** Where the reported model text came from. */
 export type ModelSource = 'session' | 'default'
 
+/**
+ * Which hop could not answer when no per-session model was found. Surfaced in
+ * the settings readout: without it, a broken hop is indistinguishable from
+ * "this session really is on the host default".
+ */
+export type ModelNote = '' | 'no-service' | 'no-session' | 'no-projection' | 'empty-selection'
+
+/** How often to look for the sessions service that mounts after this plugin. */
+const ATTACH_RETRY_MS = 400
+/** Stop looking after this many tries (~2 minutes). */
+const ATTACH_RETRY_LIMIT = 300
+/** Safety re-read of every source, so a missed notification cannot pin a stale model. */
+const POLL_MS = 1500
+
 /** One selection out of a `modelSelection` projection value. */
 function selectionOf(value: ModelSelectionProjectionLike | undefined): { provider: string; model: string } | null {
   const pick = value?.next ?? value?.lastUsed ?? null
@@ -98,21 +116,17 @@ function selectionOf(value: ModelSelectionProjectionLike | undefined): { provide
  *
  * @param ctx - client root context.
  * @param onChange - called with the match text (provider + id + display name),
- *   the best available label, and which source answered — only when they change.
+ *   the best available label, which source answered, and — when nothing could be
+ *   read — the hop that failed.
  * @returns disposer.
  */
 export function watchModel(
   ctx: Ctx,
-  onChange: (text: string, label: string, source: ModelSource) => void,
+  onChange: (text: string, label: string, source: ModelSource, note: ModelNote) => void,
 ): () => void {
-  const sessions = ctx.get('sessions') as SessionsServiceLike | undefined
-  if (sessions === undefined) return () => undefined
-  const list = sessions.list
-  if (list === undefined || typeof list.subscribe !== 'function' || typeof list.getSnapshot !== 'function') {
-    return () => undefined
-  }
-  const directories = ctx.get('modelDirectories') as ModelDirectoryResolverLike | undefined
-
+  let service: SessionsServiceLike | null = null
+  let list: ObservableFaceLike<{ current?: string }> | null = null
+  let offList: (() => void) | null = null
   let sessionId: string | null = null
   let directory: ModelDirectoryLike | null = null
   let offDirectory: (() => void) | null = null
@@ -120,6 +134,9 @@ export function watchModel(
   let projected: ObservableFaceLike<ModelSelectionProjectionLike> | null = null
   let offProjected: (() => void) | null = null
   let lastKey = '\u0000'
+  let poll: number | null = null
+  let retry: number | null = null
+  let retries = 0
 
   const release = (): void => {
     if (offDirectory !== null) { offDirectory(); offDirectory = null }
@@ -130,13 +147,15 @@ export function watchModel(
 
   /** Bind the session's own durable model selection (the authoritative source). */
   const bindProjection = (id: string): void => {
+    const svc = service
+    if (svc === null) return
     try {
-      let binding = typeof sessions.binding === 'function' ? sessions.binding(id) : undefined
-      if (binding === undefined && typeof sessions.scope === 'function') {
+      let binding = typeof svc.binding === 'function' ? svc.binding(id) : undefined
+      if (binding === undefined && typeof svc.scope === 'function') {
         // Materialize the scope, then resolve again: a session that is merely
         // listed has no binding yet.
-        sessions.scope(id)
-        binding = typeof sessions.binding === 'function' ? sessions.binding(id) : undefined
+        svc.scope(id)
+        binding = typeof svc.binding === 'function' ? svc.binding(id) : undefined
       }
       const face = binding?.session?.projections?.faceOf?.('modelSelection')
       if (face === undefined || typeof face.subscribe !== 'function' || typeof face.getSnapshot !== 'function') return
@@ -146,6 +165,13 @@ export function watchModel(
       projected = null
       offProjected = null
     }
+  }
+
+  const note = (): ModelNote => {
+    if (service === null) return 'no-service'
+    if ((list?.getSnapshot()?.current ?? null) === null) return 'no-session'
+    if (projected === null && directory === null) return 'no-projection'
+    return 'empty-selection'
   }
 
   const emit = (force: boolean): void => {
@@ -160,14 +186,15 @@ export function watchModel(
     const model = sel?.model ?? ''
     const name = displayNameOf(state, provider, model)
     const text = [provider, model, name].filter(p => p !== '').join(' ').trim()
-    const key = `${text}\u0001${name}`
+    const noteValue: ModelNote = text === '' ? note() : ''
+    const key = `${text}\u0001${name}\u0001${noteValue}`
     if (!force && key === lastKey) return
     lastKey = key
-    onChange(text, name !== '' ? name : (model !== '' ? model : provider), 'session')
+    onChange(text, name !== '' ? name : (model !== '' ? model : provider), 'session', noteValue)
   }
 
   const bind = (): void => {
-    const id = list.getSnapshot()?.current ?? null
+    const id = list?.getSnapshot()?.current ?? null
     // Already bound to this session and holding at least one live source: only
     // refresh the value. A missing source keeps retrying on the poll below.
     if (id === sessionId && (directory !== null || projected !== null)) { emit(false); return }
@@ -175,39 +202,74 @@ export function watchModel(
     sessionId = id
     if (id !== null) {
       bindProjection(id)
-      if (directories !== undefined && typeof directories.directoryFor === 'function') {
-        try {
-          directory = directories.directoryFor(id)
-          offDirectory = directory.store.subscribe(() => { emit(false) })
-          // The advisory catalog (display names) loads lazily; a failure only
-          // costs us the pretty name, never the match.
-          const pending = directory.load?.()
-          if (pending !== undefined && pending !== null && typeof (pending as Promise<unknown>).catch === 'function') {
-            void (pending as Promise<unknown>).catch(() => undefined)
+      if (directory === null) {
+        const directories = ctx.get('modelDirectories') as ModelDirectoryResolverLike | undefined
+        if (directories !== undefined && typeof directories.directoryFor === 'function') {
+          try {
+            directory = directories.directoryFor(id)
+            offDirectory = directory.store.subscribe(() => { emit(false) })
+            // The advisory catalog (display names) loads lazily; a failure only
+            // costs us the pretty name, never the match.
+            const pending = directory.load?.()
+            if (pending !== undefined && pending !== null && typeof (pending as Promise<unknown>).catch === 'function') {
+              void (pending as Promise<unknown>).catch(() => undefined)
+            }
+          } catch {
+            directory = null
+            offDirectory = null
           }
-        } catch {
-          directory = null
-          offDirectory = null
         }
       }
     }
     // Forced: the sources may have appeared without the text changing (the host
-    // default was showing, the session now agrees with it), and the settings
-    // page must be able to correct its "default" badge.
+    // default was showing and the session now agrees with it), and the settings
+    // page must be able to correct its badge and its note.
     emit(true)
   }
 
-  const offList = list.subscribe(bind)
-  bind()
-  const poll = window.setInterval(() => {
-    if ((list.getSnapshot()?.current ?? null) !== sessionId) bind()
-    else if (directory === null && projected === null) bind()
+  const stopRetry = (): void => {
+    if (retry === null) return
+    window.clearInterval(retry)
+    retry = null
+  }
+
+  const tick = (): void => {
+    if (list === null) return
+    if ((list.getSnapshot()?.current ?? null) !== sessionId || (directory === null && projected === null)) bind()
     else emit(false)
-  }, 1500)
+  }
+
+  /**
+   * Look the sessions service up. It arrives after this plugin's bundle on this
+   * deployment, so the first attempt usually fails — which is exactly why this
+   * is a retry loop rather than a one-shot lookup.
+   */
+  const attach = (): boolean => {
+    const svc = ctx.get('sessions') as SessionsServiceLike | undefined
+    if (svc === undefined || svc === null) return false
+    const face = svc.list
+    if (face === undefined || typeof face.subscribe !== 'function' || typeof face.getSnapshot !== 'function') return false
+    service = svc
+    list = face
+    offList = face.subscribe(bind)
+    if (poll === null) poll = window.setInterval(tick, POLL_MS)
+    bind()
+    return true
+  }
+
+  if (!attach()) {
+    retry = window.setInterval(() => {
+      retries++
+      if (attach() || retries >= ATTACH_RETRY_LIMIT) stopRetry()
+    }, ATTACH_RETRY_MS)
+  }
 
   return () => {
-    offList()
-    window.clearInterval(poll)
+    stopRetry()
+    if (poll !== null) { window.clearInterval(poll); poll = null }
+    if (offList !== null) { offList(); offList = null }
+    service = null
+    list = null
     release()
   }
 }
