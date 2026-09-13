@@ -227,6 +227,7 @@ No. Both were removed in 0.3.0; each rule uses a static image.
 - **Export format v3** — `dsh-background-by-model-theme.json` now carries the full rule set and every rule's image (base64 inlined).
 - **Breaking removals** — Video wallpapers, generated dynamic backgrounds (mesh gradient / Shader / geometric patterns) and the global theme color are gone.
 - **Automatic legacy migration** — A pre-0.3.0 config becomes rule 1 with an empty match string, inheriting the old appearance, and stale video files are cleaned up.
+- **Smoother switching, with a cross-fade** — Wallpapers are painted from an object URL, so one image is decoded once instead of being re-decoded on every switch, and a rule change now cross-fades (320 ms: the new image fades in over the old one, which stays fully opaque so the backdrop never brightens mid-transition). The drag-time low-resolution wallpaper swap was removed: it re-decoded and re-scaled the whole photo on every change, and its low-res frame was overwritten by the next repaint anyway.
 
 ### v0.2.4
 

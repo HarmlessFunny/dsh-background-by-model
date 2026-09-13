@@ -12,8 +12,8 @@ import type {
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
-  cfg, adoptConfig, imageOf, setImage, newRule, nextSlot, nextRuleId, ruleById, normalizeRule,
-  setActive, setModelLabel, activeRuleId, activeMatched, modelLabel, rWp,
+  cfg, adoptConfig, imageOf, displayImageOf, setImage, newRule, nextSlot, nextRuleId, ruleById,
+  normalizeRule, setActive, setModelLabel, activeRuleId, activeMatched, modelLabel, rWp,
 } from './state'
 import {
   RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
@@ -21,7 +21,7 @@ import {
 } from './rpc'
 import {
   applyWp, teardownWp, applySettingsOverrides, SETTINGS_STYLE_RULE, TRAJECTORY_STYLE_RULE,
-  INPUT_BLUR_RULE, PLACEHOLDER_RULE, watchParts, watchThemeResets, watchWallpaperDragQuality,
+  INPUT_BLUR_RULE, PLACEHOLDER_RULE, watchParts, watchThemeResets,
 } from './wallpaper'
 import { genTokens, extractWallpaperColor } from './utils/color'
 import { matchRule, watchModel } from './modelbg'
@@ -85,10 +85,6 @@ export function apply(ctx: Ctx): void {
   styleEl.textContent = `body[data-ds-dark-theme="dsh-background-by-model"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${INPUT_BLUR_RULE}` + PLACEHOLDER_RULE
   document.head.appendChild(styleEl)
   ctx.effect(() => () => { styleEl?.parentNode?.removeChild(styleEl) }, 'dsh-background-by-model: gradient')
-
-  // Wallpaper downscales to a low-res copy during slider drags, restored on release.
-  const disposeDragQuality = watchWallpaperDragQuality()
-  ctx.effect(() => () => disposeDragQuality(), 'dsh-background-by-model: drag quality')
 
   // ── 3. State store ────────────────────────────────────────────────────────
   let rev = 0
@@ -229,7 +225,7 @@ export function apply(ctx: Ctx): void {
     sync()
     return {
       t: ctx.locale.bind(NS),
-      imageOf: (slot: string) => imageOf(slot),
+      imageOf: (slot: string) => displayImageOf(slot),
       addRule: (): string => {
         const rule = newRule(nextRuleId(), nextSlot())
         cfg.rules.push(rule)
@@ -295,7 +291,7 @@ export function apply(ctx: Ctx): void {
       extractColor: async (id: string): Promise<boolean> => {
         const rule = ruleById(id)
         if (rule === null) return false
-        const url = imageOf(rule.slot)
+        const url = displayImageOf(rule.slot)
         if (url === null) return false
         const hsl = await extractWallpaperColor(url, rule.bgState)
         if (hsl === null) return false
