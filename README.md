@@ -9,46 +9,74 @@ English | [中文](README.zh.md)
 
 > Forked from [`Tkingxiao/dsh-any-background`](https://github.com/Tkingxiao/dsh-any-background) and renamed to `dsh-background-by-model`.
 
-A **DeepSeek Harness** appearance plugin that lets you fully customize the Web UI — custom theme color, background wallpaper, and fine-grained per-part opacity & blur controls.
+A **DeepSeek Harness** appearance plugin built around an **ordered list of model rules**. Each rule carries its own wallpaper, theme color, layout mode, framing, opacity and blur — switch the model, and the background switches with it.
+
+> **v0.3.0 is a breaking release.** Video wallpapers, generated dynamic backgrounds and the single global theme color were removed. See [Upgrading from 0.2.x](#upgrading-from-02x).
 
 ---
+
+## How Model Rules Work
+
+A rule is a **match string** plus **one complete set of background settings**. When you switch models, the plugin reads the current session's model name, scans the list top-down, and applies the **first** rule whose match string appears anywhere in that model name (case-insensitive). If nothing matches, **rule 1** is used — rule 1 doubles as the fallback.
+
+Example list:
+
+| # | Match string | Wallpaper |
+| --- | --- | --- |
+| 1 | `deepseek` | Image A |
+| 2 | `flash` | Image B |
+| 3 | `glm` | Image C |
+
+| Current model | Result | Why |
+| --- | --- | --- |
+| `DeepSeek-Flash` | Rule 1 → Image A | `deepseek` matches first |
+| `GLM-Flash` | Rule 2 → Image B | `flash` is earlier in the list than `glm` |
+| `Qwen-Flash` | Rule 2 → Image B | `flash` matches |
+| `GLM-Turbo` | Rule 3 → Image C | only `glm` matches |
+| `Kimi-K3` | Fallback → Rule 1 → Image A | no rule matches |
+
+Notes:
+
+- **Order matters.** The first match wins, not the best match — drag rules to reorder them.
+- **An empty match string** makes a rule skip matching entirely and act purely as a fallback. A single rule with an empty match string is therefore "one wallpaper everywhere".
+- The match string is compared against the concatenation of **provider, model id and model display name**, so any of the three can be used to select a rule.
 
 ## Screenshots
 
 <p align="center">
   <img src="example_img/image.png" alt="Custom homepage" width="720">
   <br/>
-  <em>Custom homepage · wallpaper + theme color applied</em>
+  <em>Custom homepage · wallpaper + theme color of the matched rule applied</em>
 </p>
 
 <p align="center">
-  <img src="example_img/image-2.png" alt="Theme color picker" width="720">
+  <img src="example_img/image-2.png" alt="Per-rule theme color picker" width="720">
   <br/>
-  <em>Theme color picker · PS-style wheel + precise HSL/RGB inputs</em>
+  <em>Per-rule theme color · HSL wheel + numeric input + inspiration palette</em>
 </p>
 
 <p align="center">
-  <img src="example_img/image-3.png" alt="Per-part opacity and blur" width="720">
+  <img src="example_img/image-4.png" alt="Per-rule background editor" width="720">
   <br/>
-  <em>Per-part opacity and blur · main background, sidebar, cards, settings</em>
+  <em>Per-rule background editor · drag to pan and scroll to zoom (available in Fit mode)</em>
 </p>
 
 <p align="center">
-  <img src="example_img/image-4.png" alt="Background editor" width="720">
+  <img src="example_img/image-6.png" alt="Model background rules list" width="720">
   <br/>
-  <em>Background editor · image/video wallpapers support drag-to-pan and scroll-to-zoom</em>
+  <em>Model Background tab · ordered rule list with a live match readout</em>
 </p>
 
 <p align="center">
-  <img src="example_img/image-6.png" alt="Generated dynamic background" width="720">
+  <img src="example_img/image-3.png" alt="Global opacity and blur" width="720">
   <br/>
-  <em>Generated dynamic background · mesh gradient / Shader / geometric presets</em>
+  <em>Interface tab · global opacity and blur for each interface part</em>
 </p>
 
 <p align="center">
-  <img src="example_img/image-9.png" alt="Geometric background, low-poly mode" width="720">
+  <img src="example_img/image-9.png" alt="Layout modes" width="720">
   <br/>
-  <em>Generated dynamic background · geometric low-poly mode preview</em>
+  <em>Layout modes · Fit / Fill / Stretch / Tile / Center, per rule</em>
 </p>
 
 <p align="center">
@@ -59,37 +87,62 @@ A **DeepSeek Harness** appearance plugin that lets you fully customize the Web U
 
 ## Features
 
-- **PS-style Color Wheel** — Pick hue on the ring, adjust saturation & lightness in the inscribed square. Generates 30+ CSS design tokens in real time.
-- **Precise HSL / RGB Input** — Enter exact color values numerically with instant bidirectional sync to the wheel.
-- **Smart Color Extraction** — One click derives a theme color from your wallpaper by sampling the visible region, quantizing, and filtering out gray / near-black / near-white pixels. Video wallpapers contribute via an auto-captured frame. Fully client-side.
-- **Eyedropper** — Hover the wallpaper to preview a color and click to pick it as the theme color.
-- **Background Wallpaper** — Upload any image as your wallpaper. Drag to pan and scroll to zoom inside a viewport-proportional editor.
-- **Video Wallpaper** — Use a video as a live wallpaper: muted looping playback that survives refreshes (file persistence + HTTP streaming with Range seek), with an auto-captured frame powering the preview, theme-color extraction, and the position editor.
-- **Position Editor** — One shared editor for images and videos: drag to pan, scroll to zoom, one-click reset. Image and video placements are stored separately and never overwrite each other.
-- **Layout Modes** — Fit / Fill / Stretch / Tile / Center for both images and videos; in Fit mode the editor-committed framing stays consistent across window resizes and cross-monitor moves.
-- **Generated Dynamic Backgrounds** — Choose mesh gradient, Shader, or geometric patterns with adjustable spread, intensity, and seed locking.
-- **Per-part Interface Opacity** — Independent sliders for the main background, sidebar, cards & panels (including the dropdowns and menus around the dialog), the input & controls (composer box, Cordis panel), plus the settings panel and wallpaper.
-- **Per-part Interface Blur** — Frosted-glass `backdrop-filter` blur (0–60 px) for each interface part, including a real backdrop on the composer and Cordis panel via stable host selectors.
-- **Conversation View Cards** — The message list is wrapped in a translucent card automatically, and the trajectory page gets whole-page opacity & blur controls, letting the wallpaper shine through the content.
-- **Theme Export / Import** — One-click export to a self-contained `dsh-background-by-model-theme.json` (config + wallpaper, video embedded as a data URL) and import to restore it anywhere.
-- **File-based Persistence** — All settings are stored on the filesystem under `~/.dsh/.dsh-background-by-model-data/`, not `localStorage`.
+### Model rules
+
+- **Ordered Rule List** — Add, remove, reorder and name rules. Each rule is matched by its own match string; the first hit wins and rule 1 is the fallback.
+- **Live Match Readout** — The top of the Model Background tab shows the current state, e.g. `Current model deepseek-flash → matched · Rule 1`, so you can verify a rule on the spot. If the current model can't be detected, a hint is shown instead.
+- **Per-rule Appearance** — Every rule owns its wallpaper, theme color, layout mode, framing, opacity and blur. Nothing is shared globally except the Interface tab.
+- **Import / Export** — Export every rule **including its wallpaper** to a `dsh-background-by-model-theme.json` (format version 3, images inlined as base64) and restore it anywhere.
+- **File-based Persistence** — All settings and images are stored on the filesystem under `~/.dsh/.dsh-background-by-model-data/`, not `localStorage`.
+- **Automatic Migration** — Old single-wallpaper configs are upgraded in place on first read. See [Upgrading from 0.2.x](#upgrading-from-02x).
 - **Bilingual** — Full Chinese / English UI with automatic locale detection.
 - **Theme Watchdog** — Re-asserts the custom theme if the host resets it.
 
-## Recent Optimizations
+### Per-rule settings
 
-### v0.2.4
+- **Wallpaper** — Upload any image as this rule's wallpaper; each rule keeps its own file.
+- **Theme Color** — HSL wheel plus numeric input and an inspiration palette, with **Extract from this image** and an **eyedropper**. When a rule sets no theme color, the system theme is used. Generates the full CSS design-token set in real time.
+- **Layout Mode** — Fit / Fill / Stretch / Tile / Center.
+- **Framing** — Drag to pan and scroll to zoom inside a viewport-proportional editor; **only editable in Fit mode**, and the committed framing stays consistent across window resizes and cross-monitor moves.
+- **Background Opacity** — `0–100%` for the rule's wallpaper layer.
+- **Background Blur** — `0–60 px`, applied to the wallpaper layer.
 
-- **dsh 0.1.5 persistence fixed** — The theme/wallpaper RPC channel is now registered directly in the plugin's own `webServer` scope as a prefix route (keeping the same Host/Origin auth fence), instead of through `connection.rpc.handle`, whose effect binds to the connection service's context and never mounted on some 0.1.5 hosts — requests that previously dropped to the SPA fallback with 405 and never reached the disk now persist again. Verified working on both 0.1.2 and 0.1.5.
-- **Host compatibility declared** — Added `engines.dsh: ">=0.1.2-rc.1"` to declare which DeepSeek Harness host versions the plugin supports.
-- **Dark badge tokens fixed (issue #9)** — In the dark preset, the `*-tertiary` badge surfaces (trajectory tool/context badges, connection pill, plan chip) were tinted nearly the same as their background, making light label text unreadable. They now use the native dark 800/900 steps, so bright text sits on a properly dark badge.
+### Global settings (Interface tab)
 
-### v0.2.3
+- **Per-part Interface Opacity** — Independent sliders for the main background, sidebar, cards & panels (including the dropdowns and menus around the dialog), the input & controls (composer box, Cordis panel), plus the settings panel and the conversation text box.
+- **Per-part Interface Blur** — Frosted-glass `backdrop-filter` blur (`0–60 px`) for each interface part, including a real backdrop on the composer and Cordis panel via stable host selectors.
+- **Conversation & Trajectory** — The message list is wrapped in a translucent card automatically, and the trajectory page gets whole-page opacity & blur controls, letting the wallpaper shine through the content.
 
-- **Wide tables stay in the column** — When the chat region opacity/blur is raised (which makes the chat border visible), wide markdown tables are pulled back inside the text column and scroll horizontally at the border instead of bleeding past it. Left untouched while the border is invisible, preserving DSH's default behavior.
-- **Network URL wallpaper** — Paste an image URL and the plugin downloads it and writes it to the local wallpaper file (replacing the previous image). Because the remote source lands as a local persisted file, theme export/import keep working with no extra steps: an exported theme embeds the image data, and the receiving side never needs access to the original URL.
-- **Editor confirm button visible in dark mode** — The background-editor "Confirm" button now matches the Cancel/Reset buttons (solid surface with a clear frame and legible label) instead of a translucent primary tint, so it no longer disappears in dark themes.
-- **Maintenance cleanup** — Removed an unused `@deepseek-ai/dsh-client-ui-renderer` entry from the client inject list and aligned self-owned RPC error codes with the new harness convention.
+## Settings
+
+Settings → **Theme** now has three tabs:
+
+| Tab | Scope | Contents |
+| --- | --- | --- |
+| **Interface** | Global, shared by every model | Opacity & blur for the main background, sidebar, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
+| **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's wallpaper, theme color, layout mode, framing, opacity and blur |
+| **Config** | — | Import / export the whole rule set (`dsh-background-by-model-theme.json`) |
+
+The old **Color** tab is gone — the theme color is now a property of each rule. The old **Background** tab became **Model Background**.
+
+## Storage & Migration
+
+Data directory: `~/.dsh/.dsh-background-by-model-data/` (Windows: `C:\Users\<you>\.dsh\.dsh-background-by-model-data\`)
+
+| File | Contents |
+| --- | --- |
+| `theme-config.json` | The rule list plus the global Interface settings |
+| `modelbg-<slot>` | The image of each rule, stored as raw bytes without a file extension |
+
+### Upgrading from 0.2.x
+
+v0.3.0 **removed** three things:
+
+- **Video wallpapers** — no longer supported.
+- **Generated dynamic backgrounds** — mesh gradients, Shader and geometric patterns are gone.
+- **The global theme color** — it moved into each rule.
+
+Upgrading is otherwise automatic and non-destructive: on first read, a legacy config (one without a `rules` array) is migrated so that the old single `wallpaper.jpg` becomes **rule 1** with an **empty match string** (a pure fallback), inheriting the old theme color, layout mode, opacity, blur and framing. Leftover video files from the old version are cleaned up as well. Existing users keep the appearance they had — you only need to add more rules if you want a different background per model.
 
 ## Installation
 
@@ -101,11 +154,7 @@ dsh plugin --profile web add dsh-background-by-model
 dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model
 ```
 
-Then launch:
-
-```sh
-dsh web
-```
+Then restart `dsh web`.
 
 The plugin appears as a **"Theme"** section in Settings.
 
@@ -124,15 +173,66 @@ The `lib/` directory is committed, so installs need no build step. To rebuild af
 git clone https://github.com/HarmlessFunny/dsh-background-by-model.git
 cd dsh-background-by-model
 pnpm install
-pnpm run bundle
-pnpm dsh plugin --profile web add "dsh-background-by-model"
-pnpm dsh web
+pnpm run bundle      # output goes to lib/
+pnpm run typecheck
 ```
+
+To mount a working copy into a profile instead, add it to the profile's `package.json` and register the bundle:
+
+```jsonc
+{
+  "dependencies": {
+    "dsh-background-by-model": "link:E:/DeepSeek/dsh-background-by-model"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": ["dsh-background-by-model"]
+    }
+  }
+}
+```
+
+After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
 ## Compatibility
 
 - **[`dsh web`](https://github.com/deepseek-ai/deepseek-harness)** — Full support on both the npm release and the new source build. The plugin auto-detects which client-module table the host ships (the new `@deepseek-ai/dsh-client-store` or the legacy `@deepseek-ai/dsh-client-runtime`) and resolves `defineStore` accordingly at runtime.
 - **[deepseek-harness-desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)** — Supported
+
+## FAQ
+
+**Every model looks the same — why?**
+Your first rule probably has an empty match string, which makes it a pure fallback holding the whole list. Give rule 1 a match string (or add more specific rules *above* the fallback).
+
+**`GLM-Flash` picked the wrong rule.**
+Matching is first-hit, not best-hit. Put the more specific rule higher in the list, or reorder so the rule you want comes first.
+
+**Where are my wallpapers?**
+In `~/.dsh/.dsh-background-by-model-data/`, one `modelbg-<slot>` file per rule plus `theme-config.json`.
+
+**Can I share a setup?**
+Yes — export it from the **Config** tab; the JSON inlines every rule's image.
+
+**Are video or generated backgrounds supported?**
+No. Both were removed in 0.3.0; each rule uses a static image.
+
+## Recent Optimizations
+
+### v0.3.0
+
+- **Model rules replaced the single global wallpaper** — The background is now driven by an ordered list of rules, each selected by a match string against the current session's model name (first match wins, rule 1 falls back). The match string is compared against the provider, model id and display name together.
+- **Appearance moved from global to per rule** — Wallpaper, theme color, layout mode, framing, background opacity and background blur are now properties of each rule, so different models can look completely different.
+- **New tab layout** — Settings now has **Interface** (global), **Model Background** (the rule list) and **Config** (import/export). The **Color** tab was removed with the global theme color, and the old **Background** tab became **Model Background**.
+- **Live match readout** — The Model Background tab reports the current model and the rule it resolved to (for example `Current model deepseek-flash → matched · Rule 1`), or a hint when the model can't be detected.
+- **Export format v3** — `dsh-background-by-model-theme.json` now carries the full rule set and every rule's image (base64 inlined).
+- **Breaking removals** — Video wallpapers, generated dynamic backgrounds (mesh gradient / Shader / geometric patterns) and the global theme color are gone.
+- **Automatic legacy migration** — A pre-0.3.0 config becomes rule 1 with an empty match string, inheriting the old appearance, and stale video files are cleaned up.
+
+### v0.2.4
+
+- **dsh 0.1.5 persistence fixed** — The theme/wallpaper RPC channel is now registered directly in the plugin's own `webServer` scope as a prefix route (keeping the same Host/Origin auth fence), instead of through `connection.rpc.handle`, whose effect binds to the connection service's context and never mounted on some 0.1.5 hosts — requests that previously dropped to the SPA fallback with 405 and never reached the disk now persist again. Verified working on both 0.1.2 and 0.1.5.
+- **Host compatibility declared** — Added `engines.dsh: ">=0.1.2-rc.1"` to declare which DeepSeek Harness host versions the plugin supports.
+- **Dark badge tokens fixed (issue #9)** — In the dark preset, the `*-tertiary` badge surfaces (trajectory tool/context badges, connection pill, plan chip) were tinted nearly the same as their background, making light label text unreadable. They now use the native dark 800/900 steps, so bright text sits on a properly dark badge.
 
 ## Star History
 

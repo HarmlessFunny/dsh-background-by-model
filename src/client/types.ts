@@ -20,15 +20,36 @@ export interface SlotsService {
 export interface ConnectionService {
   rpc: { call(channel: string, endpoint: string, payload: unknown): Promise<unknown> }
 }
+/** Session list face: only `list` is read here (the current Session id). */
+export interface SessionsServiceLike {
+  list: { getSnapshot(): { current?: string } | undefined; subscribe(fn: () => void): () => void }
+}
+/** Per-session model directory face (see @deepseek-ai/dsh-client-ui-model-selection). */
+export interface ModelDirectoryLike {
+  store: { getSnapshot(): ModelDirectoryStateLike | undefined; subscribe(fn: () => void): () => void }
+  load?(): unknown
+}
+export interface ModelDirectoryResolverLike {
+  directoryFor(sessionId: string): ModelDirectoryLike
+}
+export interface ModelDirectoryStateLike {
+  current?: { provider?: string; model?: string; reasoningEffort?: string } | null
+  groups?: ReadonlyArray<{
+    id?: string; name?: string
+    models?: ReadonlyArray<{ id?: string; name?: string }>
+  }>
+}
 export interface Ctx {
+  get(service: string): any
   effect(cb: () => unknown, label?: string): void
   on(event: string, cb: (...a: any[]) => void): () => void
   locale: LocaleService; slots: SlotsService; theme: ThemeService; connection: ConnectionService
 }
 
+/** Placement state of one background image (zoom + fractional center + intrinsic size). */
 export interface BgState { zoom: number; x: number; y: number; iw: number; ih: number }
 
-/** Per-part main interface opacities (0..1). */
+/** Per-part main interface opacities (0..1). Global (Interface page). */
 export interface PartOpacities {
   /** Main background (--dsw-alias-bg-base). */
   bg: number
@@ -40,7 +61,7 @@ export interface PartOpacities {
   input: number
 }
 
-/** Per-part interface blur (px, 0..60), applied via backdrop-filter. */
+/** Per-part interface blur (px, 0..60). Global (Interface page). */
 export interface PartBlurs {
   /** Main background (AppFrame grid). */
   bg: number
@@ -58,39 +79,10 @@ export interface PartBlurs {
   input: number
 }
 
-export type BackgroundType = 'image' | 'video' | 'mesh' | 'shader' | 'pattern'
-
-/** Adaptive placement of a static (image/video) background. */
+/** Adaptive placement of a background image. */
 export type BgMode = 'fit' | 'fill' | 'stretch' | 'tile' | 'center'
 
-export interface MeshGradientParams {
-  type: 'mesh'
-  seed: number
-  scale: number
-  intensity: number
-}
-
-export interface ShaderParams {
-  type: 'shader'
-  preset: 'aurora' | 'nebula' | 'noise'
-  speed: number
-  scale: number
-  /** Visual random seed; changing it regenerates the same preset with new variation. */
-  seed: number
-}
-
-export interface PatternParams {
-  type: 'pattern'
-  preset: 'dots' | 'waves' | 'poly'
-  density: number
-  scale: number
-  /** Visual random seed; changing it regenerates the same preset with new variation. */
-  seed: number
-}
-
-export type GeneratedBgParams = MeshGradientParams | ShaderParams | PatternParams
-
-/** Material-You-style palette extracted from a wallpaper or generated background. */
+/** Material-You-style palette extracted from a background image. */
 export interface ColorPalette {
   /** Dominant / primary hue (HSL). */
   primary: [number, number, number]
@@ -104,87 +96,100 @@ export interface ColorPalette {
   luminance: number
 }
 
-export interface ThemeConfig {
-  /** Saved HSL theme color; null means "use the system theme". */
+/**
+ * One model rule: a match string plus everything the background needs while it
+ * is the active rule. Every appearance field lives HERE rather than globally —
+ * the settings UI edits a rule, and the render layer follows whichever rule the
+ * current model selected.
+ */
+export interface BgRule {
+  /** Stable id; also the render key. */
+  id: string
+  /**
+   * Case-insensitive substring tested against the current model text (provider,
+   * model id and display name joined with spaces). An EMPTY string never matches
+   * on its own — that rule then only ever serves as the fallback.
+   */
+  match: string
+  /** Image slot; the bytes live in `modelbg-<slot>` under the data dir. */
+  slot: string
+  /** Disabled rules are skipped by matching AND by the fallback pick. */
+  enabled: boolean
+  /** Saved HSL theme color of this rule; null = use the system theme. */
   color: [number, number, number] | null
-  /** Per-part main interface opacities. */
+  bgMode: BgMode
+  /** Wallpaper layer opacity (0..1). */
+  wallpaperOpacity: number
+  /** Wallpaper layer blur (px, 0..60) — NOT the interface part blur. */
+  blur: number
+  /** Image framing (zoom + fractional center + intrinsic size). */
+  bgState: BgState
+}
+
+/** The persisted plugin configuration. */
+export interface ThemeConfig {
+  /** Ordered rules: matching runs top→bottom, rule 1 doubles as the fallback. */
+  rules: BgRule[]
+  /** Global per-part opacities (Interface page). */
   opacities: PartOpacities
-  /** Per-part interface blur (px). */
+  /** Global per-part blur (Interface page). */
   blurs: PartBlurs
   /** Settings-panel opacity (0..1). */
   settingsOpacity: number
-  /** Wallpaper opacity (0..1). */
-  wallpaperOpacity: number
-  /** Wallpaper blur (px, 0..60). */
-  blur: number
-  /** Wallpaper placement state (zoom + fractional center + intrinsic size). */
-  bgState: BgState
-  /** Video placement state — a separate slot so editing the video framing
-   *  never clobbers the image framing and vice versa. */
-  videoBgState: BgState
-  /** Current background source type. */
-  backgroundType: BackgroundType
-  /** Placement mode for image/video backgrounds (default: editor-driven fit). */
-  bgMode: BgMode
-  /** MIME type of the persisted video background (null when none stored). */
-  videoMime: string | null
-  /** Parameters for generated backgrounds (not used for images). */
-  generatedBg: GeneratedBgParams | null
-  /** Whether to regenerate generated backgrounds on page reload. */
-  regenerateOnReload: boolean
   /** Translucent tint over the conversation text region (0 = none, 1 = solid). */
   chatTextOpacity: number
   /** Translucent tint over the trajectory view surface (0 = none, 1 = solid). */
   trajectoryOpacity: number
 }
 
-/** State shape of the section's reactive store (URL, color, background type). */
+/**
+ * State shape of the section's reactive store. The section's props object is
+ * built ONCE by the slot host, so every value that changes at runtime must be
+ * pushed through this store instead of riding the props.
+ */
 export interface ThemeStoreState {
+  /** Data URL of the active rule's image (preview source). */
   url: string | null
   rev: number
-  colorRev: number
-  color: [number, number, number] | null
-  backgroundType: BackgroundType
-  generatedBg: GeneratedBgParams | null
-  bgRev: number
-  regenerateOnReload: boolean
+  /** Bumped whenever the rule list itself changed (add/remove/reorder/edit). */
+  rulesRev: number
+  /** Model label the current match ran against ('' = nothing detected). */
+  model: string
+  /** Id of the rule the current model resolved to. */
+  activeRuleId: string | null
+  /** Whether the active rule was picked by a match (false = fallback). */
+  matched: boolean
 }
 
-/** Props the slots host injects into the theme section. */
+/** Result of a wallpaper fetch from a network URL. */
+export interface FetchResult { ok: boolean; dataUrl?: string | null; error?: string }
+
+/** Props the slots host injects into the theme section (built once). */
 export interface ThemeSectionProps {
   t: (key: string) => string
-  /** Wheel/input color in HSV space. */
-  hue: number
-  sat: number
-  lit: number
-  /** Commit a new color (HSV); the section converts to HSL for storage. */
-  setColor: (h: number, s: number, l: number) => void
-  setWp: (url: string | null) => void
-  /** Set/remove the background video. Prefers the raw Blob (streamed to
-   *  disk over the binary upload route); a data URL string is the small-file
-   *  legacy path through RPC. */
-  setVideo: (source: Blob | string | null, mime: string | null) => void
+  useStore: <T>(selector: (s: ThemeStoreState) => T) => T
+  /** Live image data URL of a slot, or null when none is stored yet. */
+  imageOf: (slot: string) => string | null
+  /** Create a rule at the END of the list; returns its id. */
+  addRule: () => string
+  removeRule: (id: string) => void
+  /** Move a rule one position up (-1) or down (+1). */
+  moveRule: (id: string, dir: -1 | 1) => void
+  /** Patch one rule; when it is the active rule the live background follows. */
+  setRule: (id: string, patch: Partial<BgRule>) => void
+  /** Store (or clear) a rule's image. */
+  setRuleImage: (id: string, dataUrl: string | null) => void
+  /** Download a rule's image from a network URL into its slot. */
+  setRuleImageFromUrl: (id: string, url: string) => Promise<FetchResult>
+  /** Derive a rule's theme color from its own image. */
+  extractColor: (id: string) => Promise<boolean>
   setOps: (ops: PartOpacities) => void
   setBlurs: (blurs: PartBlurs) => void
-  setWop: (v: number) => void
-  setBl: (v: number) => void
   setSop: (v: number) => void
-  setBgType: (type: BackgroundType) => void
-  setGeneratedBg: (params: GeneratedBgParams) => void
-  regenerateBg: () => void
-  setRegenerateOnReload: (v: boolean) => void
-  extractColor: () => Promise<boolean>
-  /** Download the current theme (config + wallpaper data URL) as JSON. */
+  /** Download every rule + its image as one JSON file. */
   exportTheme: () => void
-  /** Import a theme JSON: applies config + wallpaper and persists to disk. */
+  /** Import such a JSON file: replaces the whole rule set and its images. */
   importTheme: (file: File) => Promise<boolean>
-  useStore: <T>(selector: (s: ThemeStoreState) => T) => T
-}
-
-/** The store's bound actions the slots host hands to sectionInject. */
-export interface BoundActions {
-  syncBg: (url: string | null, rev: number, backgroundType?: BackgroundType, generatedBg?: GeneratedBgParams | null, bgRev?: number, regenerateOnReload?: boolean) => void
-  syncColor: (hsv: [number, number, number], rev: number) => void
 }
 
 export interface RpcResultLike { ok: boolean; value?: any; error?: any }

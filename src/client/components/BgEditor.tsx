@@ -1,18 +1,23 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { cfg } from '../state'
+import type { BgState } from '../types'
 import { Portal } from './Portal'
 
-/** Placement slot for the active background type: video framing lives in its
- *  own state so image and video edits never overwrite each other. */
-const activeState = () => cfg.backgroundType === 'video' ? cfg.videoBgState : cfg.bgState
-
-export function BgEditor({ url, t, onClose, onCommit }: {
-  url: string; t: (key: string) => string; onClose: () => void
+/**
+ * Framing editor for one rule's image.
+ *
+ * The placement state is passed IN rather than read from a global slot: every
+ * rule owns its own framing, and editing rule B must never touch rule A.
+ */
+export function BgEditor({ url, state, t, onClose, onCommit }: {
+  url: string
+  /** The rule's own framing. */
+  state: BgState
+  t: (key: string) => string; onClose: () => void
   onCommit: (zoom: number, x: number, y: number, iw: number, ih: number) => void
 }) {
   const pw = Math.min(window.innerWidth * 0.75, 860)
   const ph = Math.round(pw * window.innerHeight / window.innerWidth)
-  const saved = activeState()
+  const saved = state
   const [zoom, setZoom] = useState(saved.iw > 0 ? saved.zoom : 1)
   const [pos, setPos] = useState(saved.iw > 0 ? { x: saved.x * pw, y: saved.y * ph } : { x: 0, y: 0 })
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 })
@@ -26,7 +31,7 @@ export function BgEditor({ url, t, onClose, onCommit }: {
       const scale = Math.min(pw / img.width, ph / img.height)
       const w = img.width * scale, h = img.height * scale
       setImgSize({ w, h })
-      const s = activeState()
+      const s = state
       if (s.iw > 0 && s.iw === img.width && s.ih === img.height) {
         setZoom(s.zoom)
         // Saved x, y are CENTER fractions of the preview: the image center
@@ -39,7 +44,7 @@ export function BgEditor({ url, t, onClose, onCommit }: {
       }
     }
     img.src = url
-  }, [url, pw, ph])
+  }, [url, state, pw, ph])
 
   const onDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()

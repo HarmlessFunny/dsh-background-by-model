@@ -1,19 +1,19 @@
 /**
- * Node half of dsh-background-by-model: file-backed theme persistence.
+ * Node half of dsh-background-by-model: file-backed rule persistence.
  *
  * Owns the `~/.dsh/.dsh-background-by-model-data/` store and exposes a small RPC
  * surface on the dedicated `/dsh-background-by-model` channel (never the shared
  * `/api`, so slash commands stay intact).
  *
- *   theme-config.json   settings
- *   wallpaper.jpg       background image
- *   wallpaper.<ext>     background video, named by MIME (mp4/webm/ogv/mov/mkv);
- *                       played over HTTP route /dsh-background-by-model/video and
- *                       uploaded to /dsh-background-by-model/video/upload as raw
- *                       bytes — never base64 through the RPC channel.
+ *   theme-config.json   the ordered rule list + the global interface settings
+ *   modelbg-<slot>      one background image per rule (raw bytes, no extension;
+ *                       the MIME is sniffed from the magic bytes when served)
+ *
+ * Images travel as data URLs over the RPC channel — there is no separate HTTP
+ * image route. A legacy single-wallpaper / video-background store is migrated
+ * to rule 1 on first read.
  */
-import { access, mkdir, readFile, writeFile, rm, rename, stat } from 'node:fs/promises'
-import { createReadStream, createWriteStream } from 'node:fs'
+import { access, mkdir, readFile, writeFile, rm, rename, readdir } from 'node:fs/promises'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 
 export const name = 'dsh-background-by-model'
@@ -21,142 +21,112 @@ export const inject = ['connection', 'webServer']
 
 const DATA_DIR = '.dsh-background-by-model-data'
 const CONFIG_FILE = 'theme-config.json'
-const WALLPAPER_FILE = 'wallpaper.jpg'
-const VIDEO_ROUTE = '/dsh-background-by-model/video'
-const UPLOAD_ROUTE = '/dsh-background-by-model/video/upload'
-const UPLOAD_TMP = 'wallpaper.upload.tmp'
+const IMAGE_PREFIX = 'modelbg-'
+// Files owned by earlier versions (the single wallpaper slot, a background
+// video and its upload temp); removed by the one-shot legacy migration.
+const LEGACY_WALLPAPER = 'wallpaper.jpg'
+const LEGACY_FILES = [
+  'wallpaper.mp4', 'wallpaper.webm', 'wallpaper.ogv', 'wallpaper.mov',
+  'wallpaper.mkv', 'wallpaper.video', 'wallpaper.upload.tmp',
+]
+/** Slot names reach the filesystem, so they are strictly whitelisted. */
+const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
 // Network-URL wallpaper fetch: cap the download and time it out so a bad link
 // can't stall the UI or fill the drive.
 const WALLPAPER_FETCH_MAX = 25 * 1024 * 1024
 const WALLPAPER_FETCH_TIMEOUT = 20_000
 
-function videoFileName(mime: string | null): string {
-  switch (mime) {
-    case 'video/mp4': return 'wallpaper.mp4'
-    case 'video/webm': return 'wallpaper.webm'
-    case 'video/ogg': return 'wallpaper.ogv'
-    case 'video/quicktime': return 'wallpaper.mov'
-    case 'video/x-matroska': return 'wallpaper.mkv'
-    default: return 'wallpaper.video'
-  }
-}
-const VIDEO_CANDIDATES = ['wallpaper.mp4', 'wallpaper.webm', 'wallpaper.ogv', 'wallpaper.mov', 'wallpaper.mkv', 'wallpaper.video']
-
-interface BgState {
-  zoom: number; x: number; y: number; iw: number; ih: number
-}
-interface PartOpacities {
-  bg: number; sidebar: number; card: number; input: number
-}
+interface BgState { zoom: number; x: number; y: number; iw: number; ih: number }
+type BgMode = 'fit' | 'fill' | 'stretch' | 'tile' | 'center'
+interface PartOpacities { bg: number; sidebar: number; card: number; input: number }
 interface PartBlurs {
   bg: number; sidebar: number; card: number; settings: number; chat: number; trajectory: number; input: number
 }
-type BackgroundType = 'image' | 'video' | 'mesh' | 'shader' | 'pattern'
-type BgMode = 'fit' | 'fill' | 'stretch' | 'tile' | 'center'
-type GeneratedBgParams =
-  | { type: 'mesh'; seed: number; scale: number; intensity: number }
-  | { type: 'shader'; preset: 'aurora' | 'nebula' | 'noise'; speed: number; scale: number; seed: number }
-  | { type: 'pattern'; preset: 'dots' | 'waves' | 'poly'; density: number; scale: number; seed: number }
-
-interface ThemeConfig {
-  /** Saved HSL theme color; null means "use the system theme". */
+interface BgRule {
+  id: string
+  match: string
+  slot: string
+  enabled: boolean
   color: [number, number, number] | null
-  opacities: PartOpacities
-  blurs: PartBlurs
-  settingsOpacity: number
+  bgMode: BgMode
   wallpaperOpacity: number
   blur: number
   bgState: BgState
-  videoBgState: BgState
-  backgroundType: BackgroundType
-  bgMode: BgMode
-  videoMime: string | null
-  generatedBg: GeneratedBgParams | null
-  regenerateOnReload: boolean
+}
+interface ThemeConfig {
+  rules: BgRule[]
+  opacities: PartOpacities
+  blurs: PartBlurs
+  settingsOpacity: number
   chatTextOpacity: number
   trajectoryOpacity: number
 }
 
 const DEFAULT_CONFIG: ThemeConfig = {
-  color: null,
+  rules: [],
   opacities: { bg: 0.85, sidebar: 0.93, card: 1, input: 1 },
   blurs: { bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, input: 0 },
   settingsOpacity: 1,
-  wallpaperOpacity: 1,
-  blur: 0,
-  bgState: { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
-  videoBgState: { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
-  backgroundType: 'image',
-  bgMode: 'fit',
-  videoMime: null,
-  generatedBg: null,
-  regenerateOnReload: false,
   chatTextOpacity: 0,
   trajectoryOpacity: 1,
 }
 
 const dataDir = (): string => dshHomePath(DATA_DIR)
 const configPath = (): string => dshHomePath(DATA_DIR, CONFIG_FILE)
-const wallpaperPath = (): string => dshHomePath(DATA_DIR, WALLPAPER_FILE)
-const videoPathFor = (mime: string | null): string => dshHomePath(DATA_DIR, videoFileName(mime))
+const legacyWallpaperPath = (): string => dshHomePath(DATA_DIR, LEGACY_WALLPAPER)
+const imagePath = (slot: string): string => dshHomePath(DATA_DIR, `${IMAGE_PREFIX}${slot}`)
 
 const exists = async (p: string): Promise<boolean> => { try { await access(p); return true } catch { return false } }
-
-/** Locate the stored video: the recorded MIME decides the expected name; a
- *  legacy extensionless wallpaper.video is renamed on first access. */
-async function findVideoFile(): Promise<{ path: string; mime: string | null } | null> {
-  const cfg = await readConfig()
-  const expected = videoPathFor(cfg.videoMime)
-  if (await exists(expected)) return { path: expected, mime: cfg.videoMime }
-  for (const name of VIDEO_CANDIDATES) {
-    const p = dshHomePath(DATA_DIR, name)
-    if (!(await exists(p))) continue
-    if (cfg.videoMime !== null && name !== videoFileName(cfg.videoMime)) {
-      // Stray file from a lost config write: adopt it via rename.
-      try { await rename(p, expected); return { path: expected, mime: cfg.videoMime } } catch { return null }
-    }
-    return { path: p, mime: cfg.videoMime }
-  }
-  return null
-}
 
 function clamp(n: unknown, lo: number, hi: number, def: number): number {
   return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
 }
+const clamp01 = (n: unknown, def: number): number => clamp(n, 0, 1, def)
 
-function normalizeBgState(s: Partial<BgState>): BgState {
+function normalizeBgState(s: Partial<BgState> | undefined): BgState {
+  const v = s ?? {}
   return {
-    zoom: clamp(s.zoom, 0.1, 10, 1),
-    x: typeof s.x === 'number' && isFinite(s.x) ? s.x : 0,
-    y: typeof s.y === 'number' && isFinite(s.y) ? s.y : 0,
-    iw: typeof s.iw === 'number' && s.iw > 0 ? s.iw : 0,
-    ih: typeof s.ih === 'number' && s.ih > 0 ? s.ih : 0,
+    zoom: clamp(v.zoom, 0.1, 10, 1),
+    x: typeof v.x === 'number' && isFinite(v.x) ? v.x : 0,
+    y: typeof v.y === 'number' && isFinite(v.y) ? v.y : 0,
+    iw: typeof v.iw === 'number' && v.iw > 0 ? v.iw : 0,
+    ih: typeof v.ih === 'number' && v.ih > 0 ? v.ih : 0,
+  }
+}
+
+/** Coerce one persisted rule, or null when it lacks a usable id/slot. */
+function normalizeRule(raw: unknown): BgRule | null {
+  const r = (raw ?? {}) as Partial<BgRule>
+  const id = typeof r.id === 'string' && r.id !== '' ? r.id : null
+  const slot = typeof r.slot === 'string' && SLOT_RE.test(r.slot) ? r.slot : null
+  if (id === null || slot === null) return null
+  const c = r.color
+  const color: [number, number, number] | null =
+    Array.isArray(c) && c.length === 3 && c.every(n => typeof n === 'number' && isFinite(n))
+      ? [clamp(c[0], 0, 360, 220), clamp(c[1], 0, 1, 0.55), clamp(c[2], 0, 1, 0.25)]
+      : null
+  const mode: BgMode = (['fit', 'fill', 'stretch', 'tile', 'center'] as BgMode[]).includes(r.bgMode as BgMode)
+    ? (r.bgMode as BgMode)
+    : 'fit'
+  return {
+    id,
+    slot,
+    match: typeof r.match === 'string' ? r.match : '',
+    enabled: r.enabled !== false,
+    color,
+    bgMode: mode,
+    wallpaperOpacity: clamp01(r.wallpaperOpacity, 1),
+    blur: clamp(r.blur, 0, 60, 0),
+    bgState: normalizeBgState(r.bgState as Partial<BgState> | undefined),
   }
 }
 
 /** Coerce an unknown persisted value into a valid ThemeConfig, falling back per-field. */
 function normalizeConfig(raw: unknown): ThemeConfig {
-  const r = (raw ?? {}) as Partial<ThemeConfig> & { opacity?: unknown }
-  const c = r.color
-  const color: [number, number, number] | null =
-    Array.isArray(c) && c.length === 3 && c.every(x => typeof x === 'number' && isFinite(x))
-      ? [clamp(c[0], 0, 360, 220), clamp(c[1], 0, 1, 0.55), clamp(c[2], 0, 1, 0.25)]
-      : null
-  const bgType: BackgroundType = ['image', 'video', 'mesh', 'shader', 'pattern'].includes(r.backgroundType as string)
-    ? (r.backgroundType as BackgroundType)
-    : DEFAULT_CONFIG.backgroundType
-  const bgMode: BgMode = ['fit', 'fill', 'stretch', 'tile', 'center'].includes(r.bgMode as string)
-    ? (r.bgMode as BgMode)
-    : DEFAULT_CONFIG.bgMode
-  const gen = r.generatedBg && typeof r.generatedBg === 'object'
-    ? (r.generatedBg as { type?: string })
-    : null
-  const generatedBg: ThemeConfig['generatedBg'] = gen && gen.type === bgType
-    ? normalizeGeneratedBg(r.generatedBg as GeneratedBgParams)
-    : null
-  // Migration: the legacy single main-interface opacity becomes per-part,
-  // keeping the sidebar's former +0.08 offset.
-  const legacy = typeof r.opacity === 'number' ? r.opacity : null
+  const r = (raw ?? {}) as Partial<ThemeConfig>
+  const rules = Array.isArray(r.rules)
+    ? r.rules.map(normalizeRule).filter((x): x is BgRule => x !== null)
+    : []
   const ops = (r.opacities ?? {}) as Partial<PartOpacities>
   const bl = (r.blurs ?? {}) as Partial<PartBlurs>
   const blurs = {} as PartBlurs
@@ -164,57 +134,73 @@ function normalizeConfig(raw: unknown): ThemeConfig {
     blurs[k] = clamp(bl[k], 0, 60, DEFAULT_CONFIG.blurs[k])
   }
   return {
-    color,
+    rules,
     opacities: {
-      bg: clamp(ops.bg, 0, 1, legacy ?? DEFAULT_CONFIG.opacities.bg),
-      sidebar: clamp(ops.sidebar, 0, 1, legacy !== null ? Math.min(1, legacy + 0.08) : DEFAULT_CONFIG.opacities.sidebar),
-      card: clamp(ops.card, 0, 1, DEFAULT_CONFIG.opacities.card),
-      input: clamp(ops.input, 0, 1, DEFAULT_CONFIG.opacities.input),
+      bg: clamp01(ops.bg, DEFAULT_CONFIG.opacities.bg),
+      sidebar: clamp01(ops.sidebar, DEFAULT_CONFIG.opacities.sidebar),
+      card: clamp01(ops.card, DEFAULT_CONFIG.opacities.card),
+      input: clamp01(ops.input, DEFAULT_CONFIG.opacities.input),
     },
     blurs,
-    settingsOpacity: clamp(r.settingsOpacity, 0, 1, DEFAULT_CONFIG.settingsOpacity),
-    wallpaperOpacity: clamp(r.wallpaperOpacity, 0, 1, DEFAULT_CONFIG.wallpaperOpacity),
-    blur: clamp(r.blur, 0, 60, DEFAULT_CONFIG.blur),
-    bgState: normalizeBgState((r.bgState ?? {}) as Partial<BgState>),
-    videoBgState: normalizeBgState((r.videoBgState ?? {}) as Partial<BgState>),
-    backgroundType: bgType,
-    bgMode,
-    videoMime: typeof r.videoMime === 'string' ? r.videoMime : null,
-    generatedBg,
-    regenerateOnReload: typeof r.regenerateOnReload === 'boolean' ? r.regenerateOnReload : DEFAULT_CONFIG.regenerateOnReload,
-    chatTextOpacity: clamp(r.chatTextOpacity, 0, 1, DEFAULT_CONFIG.chatTextOpacity),
-    trajectoryOpacity: clamp(r.trajectoryOpacity, 0, 1, DEFAULT_CONFIG.trajectoryOpacity),
+    settingsOpacity: clamp01(r.settingsOpacity, DEFAULT_CONFIG.settingsOpacity),
+    chatTextOpacity: clamp01(r.chatTextOpacity, DEFAULT_CONFIG.chatTextOpacity),
+    trajectoryOpacity: clamp01(r.trajectoryOpacity, DEFAULT_CONFIG.trajectoryOpacity),
   }
 }
 
-function normalizeGeneratedBg(p: GeneratedBgParams): GeneratedBgParams | null {
-  if (p.type === 'mesh') {
-    return {
-      type: 'mesh',
-      seed: typeof p.seed === 'number' ? p.seed : 0,
-      scale: clamp(p.scale, 0.3, 3, 1),
-      intensity: clamp(p.intensity, 0, 1, 0.6),
+/**
+ * One-shot migration of the pre-0.3 store.
+ *
+ * Anything without a `rules` array is an old config: its single wallpaper
+ * becomes rule 1 (`m1`, empty match = pure fallback) carrying the old color,
+ * layout mode, opacity, blur and framing, and the remaining legacy files
+ * (background video, upload temp) are removed. Idempotent: the rewritten config
+ * carries `rules`, so the next read short-circuits.
+ */
+async function migrateLegacy(raw: unknown): Promise<unknown> {
+  const r = (raw ?? {}) as Record<string, unknown>
+  if (Array.isArray(r.rules)) return r
+  const hasWallpaper = await exists(legacyWallpaperPath())
+  if (Object.keys(r).length === 0 && !hasWallpaper) return { rules: [] }
+
+  if (hasWallpaper) {
+    const target = imagePath('m1')
+    try {
+      // Windows rename refuses to overwrite (EEXIST): drop the target first.
+      await rm(target, { force: true })
+      await rename(legacyWallpaperPath(), target)
+    } catch (e) {
+      console.warn('dsh-background-by-model: could not adopt the legacy wallpaper', e)
     }
   }
-  if (p.type === 'shader') {
-    return {
-      type: 'shader',
-      preset: ['aurora', 'nebula', 'noise'].includes(p.preset) ? p.preset : 'aurora',
-      speed: clamp(p.speed, 0, 2, 0.3),
-      scale: clamp(p.scale, 0.3, 3, 1),
-      seed: typeof p.seed === 'number' ? Math.floor(p.seed) : 0,
-    }
+  for (const f of LEGACY_FILES) {
+    try { await rm(dshHomePath(DATA_DIR, f), { force: true }) } catch { /* best effort */ }
   }
-  if (p.type === 'pattern') {
-    return {
-      type: 'pattern',
-      preset: ['dots', 'waves', 'poly'].includes(p.preset) ? p.preset : 'dots',
-      density: clamp(p.density, 0, 1, 0.5),
-      scale: clamp(p.scale, 0.3, 3, 1),
-      seed: typeof p.seed === 'number' ? Math.floor(p.seed) : 0,
-    }
+
+  const next = {
+    rules: [{
+      id: 'm1',
+      slot: 'm1',
+      match: '',
+      enabled: true,
+      color: Array.isArray(r.color) ? r.color : null,
+      bgMode: typeof r.bgMode === 'string' ? r.bgMode : 'fit',
+      wallpaperOpacity: typeof r.wallpaperOpacity === 'number' ? r.wallpaperOpacity : 1,
+      blur: typeof r.blur === 'number' ? r.blur : 0,
+      bgState: (r.bgState ?? {}) as Partial<BgState>,
+    }],
+    opacities: r.opacities,
+    blurs: r.blurs,
+    settingsOpacity: r.settingsOpacity,
+    chatTextOpacity: r.chatTextOpacity,
+    trajectoryOpacity: r.trajectoryOpacity,
   }
-  return null
+  try {
+    await writeFile(configPath(), JSON.stringify(next, null, 2), 'utf8')
+  } catch (e) {
+    console.warn('dsh-background-by-model: could not rewrite the migrated config', e)
+  }
+  return next
 }
 
 async function ensureDir(): Promise<void> {
@@ -227,16 +213,17 @@ async function ensureDir(): Promise<void> {
 
 async function readConfig(): Promise<ThemeConfig> {
   await ensureDir()
+  let raw: unknown = {}
   try {
-    const raw = await readFile(configPath(), 'utf8')
-    return normalizeConfig(JSON.parse(raw))
+    raw = JSON.parse(await readFile(configPath(), 'utf8'))
   } catch {
     // First run (no file yet) or unreadable config — fall back to defaults.
-    return { ...DEFAULT_CONFIG }
+    raw = {}
   }
+  return normalizeConfig(await migrateLegacy(raw))
 }
 
-async function writeConfig(config: ThemeConfig): Promise<boolean> {
+async function writeConfig(config: unknown): Promise<boolean> {
   await ensureDir()
   try {
     await writeFile(configPath(), JSON.stringify(normalizeConfig(config), null, 2), 'utf8')
@@ -247,54 +234,69 @@ async function writeConfig(config: ThemeConfig): Promise<boolean> {
   }
 }
 
-async function readWallpaper(): Promise<string | null> {
-  try {
-    const buf = await readFile(wallpaperPath())
-    return `data:image/jpeg;base64,${buf.toString('base64')}`
-  } catch {
-    return null
-  }
-}
-
-/** Persist a wallpaper (null removes it); false keeps the previous file. */
-async function writeWallpaper(dataUrl: string | null): Promise<boolean> {
-  await ensureDir()
-  try {
-    if (dataUrl === null) {
-      await rm(wallpaperPath(), { force: true })
-      return true
-    }
-    const m = /^data:image\/[a-zA-Z0-9.+-]+;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl)
-    if (!m) return false
-    await writeFile(wallpaperPath(), Buffer.from(m[1]!, 'base64'))
-    return true
-  } catch (e) {
-    console.error(`dsh-background-by-model: failed to write "${WALLPAPER_FILE}"`, e)
-    return false
-  }
-}
-
 /** Sniff an image's MIME from its leading magic bytes (defaults to JPEG). */
 function sniffImageMime(buf: Buffer): string {
   if (buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png'
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg'
   if (buf.length >= 6 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif'
   if (buf.length >= 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp'
+  if (buf.length >= 2 && buf[0] === 0x42 && buf[1] === 0x4d) return 'image/bmp'
   return 'image/jpeg'
 }
 
-/** Download a wallpaper from a network URL and persist it into the local
- *  wallpaper.jpg slot (replacing whatever was stored), so type switches,
- *  export and import keep working through the existing data-URL path.
- *  null removes the wallpaper. Returns { ok, dataUrl?, error? }. */
-async function writeWallpaperFromUrl(url: string | null): Promise<{ ok: boolean; dataUrl?: string | null; error?: string }> {
+/** Read one rule image as a data URL, or null when the slot is empty. */
+async function readImage(slot: string): Promise<string | null> {
+  try {
+    const buf = await readFile(imagePath(slot))
+    return `data:${sniffImageMime(buf)};base64,${buf.toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
+/** Persist one rule image (null removes it); false keeps the previous file. */
+async function writeImage(slot: string, dataUrl: string | null): Promise<boolean> {
+  await ensureDir()
+  try {
+    if (dataUrl === null) {
+      await rm(imagePath(slot), { force: true })
+      return true
+    }
+    const m = /^data:image\/[a-zA-Z0-9.+-]+;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl)
+    if (!m) return false
+    await writeFile(imagePath(slot), Buffer.from(m[1]!, 'base64'))
+    return true
+  } catch (e) {
+    console.error(`dsh-background-by-model: failed to write the image for slot "${slot}"`, e)
+    return false
+  }
+}
+
+/** Every image slot currently stored on disk. */
+async function listSlots(): Promise<string[]> {
+  try {
+    const entries = await readdir(dataDir())
+    return entries
+      .filter(name => name.startsWith(IMAGE_PREFIX))
+      .map(name => name.slice(IMAGE_PREFIX.length))
+      .filter(slot => SLOT_RE.test(slot))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Download an image from a network URL into one slot (replacing its bytes).
+ * Returns { ok, dataUrl?, error? }; never throws.
+ */
+async function fetchImageUrl(slot: string, url: string | null): Promise<{ ok: boolean; dataUrl?: string | null; error?: string }> {
   if (url === null) {
-    const ok = await writeWallpaper(null)
+    const ok = await writeImage(slot, null)
     return { ok, dataUrl: null, error: ok ? undefined : 'remove failed' }
   }
-  let u: URL
-  try { u = new URL(url) } catch { return { ok: false, error: 'invalid url' } }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, error: 'unsupported scheme' }
+  let parsed: URL
+  try { parsed = new URL(url) } catch { return { ok: false, error: 'invalid url' } }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return { ok: false, error: 'unsupported scheme' }
   let res: Response
   try {
     const ctl = new AbortController()
@@ -317,148 +319,23 @@ async function writeWallpaperFromUrl(url: string | null): Promise<{ ok: boolean;
     return { ok: false, error: 'read failed' }
   }
   const dataUrl = `data:${sniffImageMime(buf)};base64,${buf.toString('base64')}`
-  const ok = await writeWallpaper(dataUrl)
+  const ok = await writeImage(slot, dataUrl)
   return ok ? { ok: true, dataUrl } : { ok: false, error: 'write failed' }
 }
 
-async function videoUrl(): Promise<string | null> {
-  return (await findVideoFile()) ? VIDEO_ROUTE : null
-}
-
-/** Persist a video from a data URL (null removes every variant); only used
- *  for removal and small legacy/import payloads. */
-async function writeVideo(dataUrl: string | null): Promise<boolean> {
-  await ensureDir()
+/** The host's default model selection — the client's fallback when the
+ *  per-session model services are unavailable. */
+function defaultModel(ctx: any): { provider: string; model: string } | null {
   try {
-    if (dataUrl === null) {
-      for (const name of VIDEO_CANDIDATES) await rm(dshHomePath(DATA_DIR, name), { force: true })
-      return true
+    const service = typeof ctx.get === 'function' ? ctx.get('agentDefaultModel') : undefined
+    const selection = service?.currentSelection?.()
+    if (selection && typeof selection.provider === 'string' && typeof selection.model === 'string') {
+      return { provider: selection.provider, model: selection.model }
     }
-    const m = /^data:(video\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl)
-    if (!m) return false
-    const target = videoPathFor(m[1]!)
-    for (const name of VIDEO_CANDIDATES) {
-      const p = dshHomePath(DATA_DIR, name)
-      if (p !== target) await rm(p, { force: true })
-    }
-    await writeFile(target, Buffer.from(m[2]!, 'base64'))
-    return true
-  } catch (e) {
-    console.error('dsh-background-by-model: failed to write the background video', e)
-    return false
+  } catch {
+    // Service absent on this host — the client degrades to rule 1.
   }
-}
-
-/** Stream the stored video: correct MIME, no caching, Range answers so the
- *  browser can seek (snapshot capture does). */
-async function serveVideo(req: any, res: any): Promise<void> {
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    // A POST here means the exact-matched upload route is missing from this
-    // process (old build): tell the user to restart instead of a bare 405.
-    res.writeHead(405, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: false, error: 'video route only serves GET/HEAD; uploads need the plugin upload route — restart the web server to load it' }))
-    return
-  }
-  try {
-    const found = await findVideoFile()
-    if (found === null) {
-      res.writeHead(404)
-      res.end('no background video stored')
-      return
-    }
-    const st = await stat(found.path)
-    const mime = found.mime ?? 'application/octet-stream'
-    const baseHeaders = { 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' }
-    const range = typeof req.headers.range === 'string' ? req.headers.range.trim() : ''
-    const m = /^bytes=(\d*)-(\d*)$/.exec(range)
-    if (m !== null && (m[1] !== '' || m[2] !== '')) {
-      let start: number
-      let end: number
-      if (m[1] === '') {
-        const suffix = parseInt(m[2]!, 10)
-        start = Math.max(0, st.size - suffix)
-        end = st.size - 1
-      } else {
-        start = parseInt(m[1]!, 10)
-        end = m[2] !== '' ? Math.min(parseInt(m[2]!, 10), st.size - 1) : st.size - 1
-      }
-      if (start >= st.size || start > end) {
-        res.writeHead(416, { 'Content-Range': `bytes */${st.size}` })
-        res.end()
-        return
-      }
-      res.writeHead(206, { ...baseHeaders, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1 })
-      if (req.method === 'HEAD') { res.end(); return }
-      createReadStream(found.path, { start, end }).pipe(res)
-      return
-    }
-    res.writeHead(200, { ...baseHeaders, 'Content-Length': st.size })
-    if (req.method === 'HEAD') { res.end(); return }
-    createReadStream(found.path).pipe(res)
-  } catch (e) {
-    console.error('dsh-background-by-model: failed to serve the background video', e)
-    try { res.writeHead(500); res.end() } catch { /* response already sent */ }
-  }
-}
-
-/** Accept a raw video upload (POST): pipe the body into a temp file, then
- *  rename it into the MIME-derived slot. Aborted transfers clean up. */
-async function handleVideoUpload(req: any, res: any): Promise<void> {
-  if (req.method !== 'POST') {
-    res.writeHead(405)
-    res.end()
-    return
-  }
-  const contentType = typeof req.headers['content-type'] === 'string' ? req.headers['content-type'] : ''
-  const mime = contentType.split(';')[0]!.trim()
-  if (!mime.startsWith('video/')) {
-    req.resume()
-    res.writeHead(415, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: false, error: 'unsupported media type, expected video/*' }))
-    return
-  }
-  try {
-    await ensureDir()
-    const tmp = dshHomePath(DATA_DIR, UPLOAD_TMP)
-    const target = videoPathFor(mime)
-    const out = createWriteStream(tmp)
-    let failed = false
-    const fail = () => {
-      if (failed) return
-      failed = true
-      out.destroy()
-      void rm(tmp, { force: true })
-    }
-    req.on('aborted', fail)
-    req.on('error', fail)
-    out.on('error', () => {
-      fail()
-      try { res.writeHead(500); res.end() } catch { /* response already sent */ }
-    })
-    req.pipe(out)
-    out.on('finish', async () => {
-      if (failed) return
-      try {
-        // One video owns the slot: clear every other variant, then promote.
-        for (const name of VIDEO_CANDIDATES) {
-          const p = dshHomePath(DATA_DIR, name)
-          if (p !== target) await rm(p, { force: true })
-        }
-        // Windows rename refuses to overwrite (EEXIST): drop the old one first.
-        await rm(target, { force: true })
-        await rename(tmp, target)
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ ok: true }))
-      } catch (e) {
-        console.error('dsh-background-by-model: failed to finalize the uploaded video', e)
-        void rm(tmp, { force: true })
-        try { res.writeHead(500); res.end() } catch { /* response already sent */ }
-      }
-    })
-  } catch (e) {
-    console.error('dsh-background-by-model: failed to accept the video upload', e)
-    try { res.writeHead(500); res.end() } catch { /* response already sent */ }
-  }
+  return null
 }
 
 const NS = 'dshBackgroundByModel'
@@ -468,23 +345,33 @@ const RPC_BODY_MAX = 300 * 1024 * 1024
 /** Dispatch one decoded RPC method to the matching persistence routine and
  *  return the wire `result` half of the server-response envelope. */
 async function handleRpcMethod(
+  ctx: any,
   endpoint: string,
   payload: unknown,
 ): Promise<{ ok: boolean; value?: unknown; error?: { code: string; message: string; details: object } }> {
   const method = endpoint.slice(`${NS}/`.length)
+  const rawSlot = (payload as { slot?: unknown } | null)?.slot
+  const slot = typeof rawSlot === 'string' && SLOT_RE.test(rawSlot) ? rawSlot : null
   try {
     switch (method) {
       case 'read':
-        // The video travels as a URL, never as bytes.
-        return { ok: true, value: { config: await readConfig(), wallpaper: await readWallpaper(), videoUrl: await videoUrl() } }
+        return { ok: true, value: { config: await readConfig(), slots: await listSlots() } }
       case 'writeConfig':
-        return { ok: true, value: await writeConfig((payload as { config?: unknown } | null)?.config as ThemeConfig ?? {}) }
-      case 'setWallpaper':
-        return { ok: true, value: await writeWallpaper(((payload as { dataUrl?: unknown } | null)?.dataUrl ?? null) as string | null) }
-      case 'setVideo':
-        return { ok: true, value: await writeVideo(((payload as { dataUrl?: unknown } | null)?.dataUrl ?? null) as string | null) }
-      case 'setWallpaperUrl':
-        return { ok: true, value: await writeWallpaperFromUrl(((payload as { url?: unknown } | null)?.url ?? null) as string | null) }
+        return { ok: true, value: await writeConfig((payload as { config?: unknown } | null)?.config ?? {}) }
+      case 'readImage':
+        if (slot === null) return { ok: true, value: { dataUrl: null } }
+        return { ok: true, value: { dataUrl: await readImage(slot) } }
+      case 'writeImage':
+        if (slot === null) return { ok: true, value: false }
+        return { ok: true, value: await writeImage(slot, ((payload as { dataUrl?: unknown } | null)?.dataUrl ?? null) as string | null) }
+      case 'deleteImage':
+        if (slot === null) return { ok: true, value: false }
+        return { ok: true, value: await writeImage(slot, null) }
+      case 'fetchImageUrl':
+        if (slot === null) return { ok: true, value: { ok: false, error: 'bad slot' } }
+        return { ok: true, value: await fetchImageUrl(slot, ((payload as { url?: unknown } | null)?.url ?? null) as string | null) }
+      case 'defaultModel':
+        return { ok: true, value: defaultModel(ctx) }
       default:
         return { ok: false, error: { code: 'dsh-background-by-model/bad-request', message: `unknown endpoint ${endpoint}`, details: { issues: [] } } }
     }
@@ -494,15 +381,10 @@ async function handleRpcMethod(
 }
 
 export function apply(ctx: any): void {
-  // Register every route inside a connection+webServer-injected scope, exactly
-  // as the connection plugin mounts its own `/api` transport. Doing this
+  // Register the RPC channel inside a connection+webServer-injected scope,
+  // exactly as the connection plugin mounts its own `/api` transport. Doing this
   // synchronously in `apply` fails with "cannot get property webServer without
   // inject" on hosts where webServer is not yet resolvable at apply time.
-  // The RPC channel is mounted here directly through `webServer.register`
-  // (rather than `connection.rpc.handle`, whose effect binds to the connection
-  // service's own context and never mounts on some 0.1.5 hosts), mirroring the
-  // working `/api` route: keep the Host/Origin fence + browser auth via
-  // `requestRejection`, then bridge the JSON envelope inline.
   ctx.inject(['connection', 'webServer'], (webCtx: any) => {
     webCtx.effect(
       () => webCtx.webServer.register({
@@ -558,23 +440,12 @@ export function apply(ctx: any): void {
             res.end(JSON.stringify({ type: 'server-response', rpcId: env.rpcId, result: { ok: false, error: { code: 'dsh-background-by-model/bad-request', message: `method ${env.method} does not match endpoint ${endpoint}`, details: { issues: [] } } } }))
             return
           }
-          const result = await handleRpcMethod(endpoint, env.payload)
+          const result = await handleRpcMethod(ctx, endpoint, env.payload)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ type: 'server-response', rpcId: env.rpcId, result }))
         },
       }),
       'dsh-background-by-model: rpc channel',
-    )
-    // Longest prefix wins over the RPC channel's shorter one; exact beats
-    // prefix, so uploads land in the upload handler even though UPLOAD_ROUTE
-    // sits inside VIDEO_ROUTE. Effects auto-dispose with the injected scope.
-    webCtx.effect(
-      () => webCtx.webServer.register({ kind: 'prefix', path: VIDEO_ROUTE, handler: serveVideo }),
-      'dsh-background-by-model: video route',
-    )
-    webCtx.effect(
-      () => webCtx.webServer.register({ kind: 'exact', path: UPLOAD_ROUTE, handler: handleVideoUpload }),
-      'dsh-background-by-model: upload route',
     )
   })
 }

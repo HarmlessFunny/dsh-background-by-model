@@ -1,7 +1,7 @@
 {
   "name": "dsh-background-by-model",
-  "version": "0.2.4",
-  "description": "Appearance plugin for DeepSeek Harness: custom theme color (PS-style color wheel), background wallpaper with opacity/blur controls, and separate main/settings interface opacity.",
+  "version": "0.3.0",
+  "description": "Appearance plugin for DeepSeek Harness: an ordered list of model rules, each carrying its own wallpaper, theme color, layout mode, opacity and blur — the background follows the model you switch to.",
   "keywords": [
     "deepseek-harness",
     "dsh",
