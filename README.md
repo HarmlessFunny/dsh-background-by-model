@@ -40,6 +40,9 @@ Notes:
 - **Order matters.** The first match wins, not the best match — drag rules to reorder them.
 - **An empty match string** makes a rule skip matching entirely and act purely as a fallback. A single rule with an empty match string is therefore "one wallpaper everywhere".
 - The match string is compared against the concatenation of **provider, model id and model display name**, so any of the three can be used to select a rule.
+- The current model is read from **this session's durable model selection** (the `modelSelection` projection — the same value the composer's model picker renders), so switching the model inside a session takes effect immediately. The Model Background page shows which model was read, and labels it **host default** when only the host-wide default was available instead of this session's own selection.
+
+> Note: the example table above has **no `kimi`** entry, so switching to Kimi falls back to rule 1 = Image A, which looks like "nothing happened". Add a rule with the match string `kimi` to give Kimi its own wallpaper.
 
 ## Screenshots
 
@@ -228,6 +231,7 @@ No. Both were removed in 0.3.0; each rule uses a static image.
 - **Breaking removals** — Video wallpapers, generated dynamic backgrounds (mesh gradient / Shader / geometric patterns) and the global theme color are gone.
 - **Automatic legacy migration** — A pre-0.3.0 config becomes rule 1 with an empty match string, inheriting the old appearance, and stale video files are cleaned up.
 - **Smoother switching, with a cross-fade** — Wallpapers are painted from an object URL, so one image is decoded once instead of being re-decoded on every switch, and a rule change now cross-fades (320 ms: the new image fades in over the old one, which stays fully opaque so the backdrop never brightens mid-transition). The drag-time low-resolution wallpaper swap was removed: it re-decoded and re-scaled the whole photo on every change, and its low-res frame was overwritten by the next repaint anyway.
+- **Fixed: switching the model did nothing** — The old code read `ctx.modelDirectories`, which is not visible from a plugin context, so it silently fell back to the host-wide default model and the readout never moved off one name. It now reads **this session's own durable model selection** (`ctx.sessions.binding(id).session.projections.faceOf('modelSelection')` — the same value the model picker renders), with a 1.5 s safety poll and rebinding on session switches; the readout labels the value **host default** when only the host-wide default was available.
 
 ### v0.2.4
 

@@ -177,6 +177,7 @@ export const UI_CSS = `
 .dab-status-arrow{color:var(--dsw-alias-brand-primary);font-weight:700}
 .dab-status-hit{color:var(--dsw-alias-brand-primary);font-weight:600}
 .dab-status-none{color:var(--dsw-alias-state-error-primary)}
+.dab-status-src{font-size:11px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--dsw-alias-state-warning-primary,var(--dsw-alias-label-tertiary));background:var(--dsw-alias-interactive-bg-hover);border-radius:6px;padding:2px 7px}
 .dab-rules{display:flex;flex-direction:column;gap:12px}
 .dab-rule{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:16px;padding:14px;transition:border-color .25s,box-shadow .25s,opacity .25s}
 .dab-rule.is-active{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent)}

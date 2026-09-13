@@ -90,20 +90,26 @@ export function apply(ctx: Ctx): void {
   let rev = 0
   let rulesRev = 0
   let modelText = ''
+  let modelSource: 'session' | 'default' = 'default'
+  // Text + source last acted on, so the watch's forced re-emits (and the 1.5 s
+  // safety poll) cannot re-run the whole apply while nothing changed.
+  let modelKey = '\u0000'
   const store = defineStore({
     init: () => ({
       url: null as string | null,
       rev: -1,
       rulesRev: -1,
       model: '',
+      modelSource: 'session' as 'session' | 'default',
       activeRuleId: null as string | null,
       matched: false,
     }),
     actions: {
-      sync: (d: any, url: string | null, r: number, rr: number, model: string, id: string | null, matched: boolean) => {
+      sync: (d: any, url: string | null, r: number, rr: number, model: string, source: 'session' | 'default', id: string | null, matched: boolean) => {
         if (r > d.rev) { d.url = url; d.rev = r }
         if (rr > d.rulesRev) d.rulesRev = rr
         d.model = model
+        d.modelSource = source
         d.activeRuleId = id
         d.matched = matched
       },
@@ -112,7 +118,7 @@ export function apply(ctx: Ctx): void {
   let bound: { sync: (...a: any[]) => void } | null = null
   const sync = (): void => {
     rev++
-    bound?.sync(rWp(), rev, rulesRev, modelLabel !== '' ? modelLabel : modelText, activeRuleId, activeMatched)
+    bound?.sync(rWp(), rev, rulesRev, modelLabel !== '' ? modelLabel : modelText, modelSource, activeRuleId, activeMatched)
   }
 
   /** Resolve the active rule for the current model and repaint everything. */
@@ -138,19 +144,28 @@ export function apply(ctx: Ctx): void {
   watchParts()
 
   // ── 5. Model watch ────────────────────────────────────────────────────────
-  const offModel = watchModel(ctx, (text, label) => {
+  // The session's own durable model selection is the authority; the host default
+  // is only a last resort, and the settings page labels it as such.
+  const offModel = watchModel(ctx, (text, label, source) => {
+    const key = `${text}\u0001${source}`
+    if (key === modelKey) return
+    modelKey = key
     modelText = text
+    modelSource = source
     setModelLabel(label !== '' ? label : text)
     applyActive()
   })
   ctx.effect(() => () => offModel(), 'dsh-background-by-model: model watch')
-  // The per-session services may be absent on a trimmed client; the host's
-  // default model is a coarse but honest fallback.
+  // A trimmed client (or one whose session is not materialized yet) leaves the
+  // per-session sources empty; the host's default model is a coarse but honest
+  // stand-in, tagged so the UI never claims it is this session's selection.
   void (async () => {
     if (modelText !== '') return
     const fallback = await readDefaultModel()
     if (fallback !== null && modelText === '') {
+      modelKey = `${fallback}\u0001default`
       modelText = fallback
+      modelSource = 'default'
       setModelLabel(fallback)
       applyActive()
     }
