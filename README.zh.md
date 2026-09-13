@@ -46,46 +46,24 @@
 
 ## 截图
 
+同一套界面、同一份配置，只因为当前模型不同：
+
 <p align="center">
-  <img src="example_img/image.png" alt="自定义主页" width="720">
+  <img src="example_img/wallpaper-deepseek.webp" alt="DeepSeek 下的外观" width="880">
   <br/>
-  <em>自定义主页 · 命中规则的主题色与壁纸同时生效</em>
+  <em>DeepSeek V4.1 Flash · 命中匹配串含 <code>deepseek</code> 的规则：浅色壁纸 + 与图相配的主题色</em>
 </p>
 
 <p align="center">
-  <img src="example_img/image-2.png" alt="单条规则的主题色选择器" width="720">
+  <img src="example_img/wallpaper-kimi.webp" alt="Kimi 下的外观" width="880">
   <br/>
-  <em>单条规则的主题色 · HSL 色轮 + 数值输入 + 灵感色板</em>
+  <em>Kimi K2.7 Code · 命中匹配串含 <code>kimi</code> 的规则：深色壁纸 + 深色主题，整个界面跟着换肤</em>
 </p>
 
 <p align="center">
-  <img src="example_img/image-4.png" alt="单条规则的背景编辑器" width="720">
+  <img src="example_img/rule-editor.webp" alt="单条规则的编辑器" width="660">
   <br/>
-  <em>单条规则的背景编辑器 · 拖动平移与滚轮缩放（仅「适应」模式下可编辑）</em>
-</p>
-
-<p align="center">
-  <img src="example_img/image-6.png" alt="模型背景规则列表" width="720">
-  <br/>
-  <em>「模型背景」页 · 有序规则列表与顶部实时状态</em>
-</p>
-
-<p align="center">
-  <img src="example_img/image-3.png" alt="全局透明度与模糊度" width="720">
-  <br/>
-  <em>「界面」页 · 各界面部位共用的全局透明度与模糊度</em>
-</p>
-
-<p align="center">
-  <img src="example_img/image-9.png" alt="布局模式" width="720">
-  <br/>
-  <em>布局模式 · 适应 / 填充 / 拉伸 / 平铺 / 居中，每条规则各自选择</em>
-</p>
-
-<p align="center">
-  <img src="example_img/image-10.png" alt="配置导出导入" width="720">
-  <br/>
-  <em>配置的导出和导入进行分享</em>
+  <em>「模型背景」页的单条规则 · 图片、布局模式、主题色（色轮 / HSL / RGB / 从本图提取 / 从图片取色）、背景透明度与背景模糊度，都是这一条规则自己的属性</em>
 </p>
 
 ## 功能特性
