@@ -110,6 +110,8 @@ export interface PartBlurs {
   chat: number
   /** Trajectory view surface. */
   trajectory: number
+  /** File-preview panel — the right sidebar a file click opens. */
+  rightbar: number
   /** Input/control surfaces ([data-composer-card], [data-cordis-panel]). */
   input: number
 }
@@ -175,6 +177,13 @@ export interface ThemeConfig {
   chatTextOpacity: number
   /** Translucent tint over the trajectory view surface (0 = none, 1 = solid). */
   trajectoryOpacity: number
+  /**
+   * Surface opacity of the file-preview panel (0..1). `null` = never touched, so
+   * the panel keeps following `opacities.bg`: the panel's only surface IS
+   * `--dsw-alias-bg-base`, which the main-background slider already re-emits, so
+   * an untouched card must stay indistinguishable from the interface behind it.
+   */
+  rightbarOpacity: number | null
 }
 
 /**
@@ -233,6 +242,8 @@ export interface ThemeSectionProps {
   setOps: (ops: PartOpacities) => void
   setBlurs: (blurs: PartBlurs) => void
   setSop: (v: number) => void
+  /** Own the file-preview panel's opacity; null restores "follow the main background". */
+  setRightbarOpacity: (v: number | null) => void
   /** Download every rule + its image as one JSON file. */
   exportTheme: () => void
   /** Import such a JSON file: replaces the whole rule set and its images. */

@@ -40,7 +40,7 @@ interface BgState { zoom: number; x: number; y: number; iw: number; ih: number }
 type BgMode = 'fit' | 'fill' | 'stretch' | 'tile' | 'center'
 interface PartOpacities { bg: number; sidebar: number; card: number; input: number }
 interface PartBlurs {
-  bg: number; sidebar: number; card: number; settings: number; chat: number; trajectory: number; input: number
+  bg: number; sidebar: number; card: number; settings: number; chat: number; trajectory: number; rightbar: number; input: number
 }
 interface BgRule {
   id: string
@@ -60,15 +60,18 @@ interface ThemeConfig {
   settingsOpacity: number
   chatTextOpacity: number
   trajectoryOpacity: number
+  /** File-preview panel opacity; null = keep following `opacities.bg`. */
+  rightbarOpacity: number | null
 }
 
 const DEFAULT_CONFIG: ThemeConfig = {
   rules: [],
   opacities: { bg: 0.85, sidebar: 0.93, card: 1, input: 1 },
-  blurs: { bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, input: 0 },
+  blurs: { bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, rightbar: 0, input: 0 },
   settingsOpacity: 1,
   chatTextOpacity: 0,
   trajectoryOpacity: 1,
+  rightbarOpacity: null,
 }
 
 const dataDir = (): string => dshHomePath(DATA_DIR)
@@ -130,7 +133,7 @@ function normalizeConfig(raw: unknown): ThemeConfig {
   const ops = (r.opacities ?? {}) as Partial<PartOpacities>
   const bl = (r.blurs ?? {}) as Partial<PartBlurs>
   const blurs = {} as PartBlurs
-  for (const k of ['bg', 'sidebar', 'card', 'settings', 'chat', 'trajectory', 'input'] as const) {
+  for (const k of ['bg', 'sidebar', 'card', 'settings', 'chat', 'trajectory', 'rightbar', 'input'] as const) {
     blurs[k] = clamp(bl[k], 0, 60, DEFAULT_CONFIG.blurs[k])
   }
   return {
@@ -145,6 +148,11 @@ function normalizeConfig(raw: unknown): ThemeConfig {
     settingsOpacity: clamp01(r.settingsOpacity, DEFAULT_CONFIG.settingsOpacity),
     chatTextOpacity: clamp01(r.chatTextOpacity, DEFAULT_CONFIG.chatTextOpacity),
     trajectoryOpacity: clamp01(r.trajectoryOpacity, DEFAULT_CONFIG.trajectoryOpacity),
+    // Anything but a real number means "not owned yet" — including the absent
+    // field of a config written before this option existed.
+    rightbarOpacity: typeof r.rightbarOpacity === 'number' && isFinite(r.rightbarOpacity)
+      ? clamp01(r.rightbarOpacity, 1)
+      : null,
   }
 }
 
@@ -194,6 +202,7 @@ async function migrateLegacy(raw: unknown): Promise<unknown> {
     settingsOpacity: r.settingsOpacity,
     chatTextOpacity: r.chatTextOpacity,
     trajectoryOpacity: r.trajectoryOpacity,
+    rightbarOpacity: r.rightbarOpacity,
   }
   try {
     await writeFile(configPath(), JSON.stringify(next, null, 2), 'utf8')

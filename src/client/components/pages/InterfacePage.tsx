@@ -1,10 +1,10 @@
 import type { CSSProperties, ComponentType } from 'react'
 import type { ThemeSectionProps, PartOpacities, PartBlurs } from '../../types'
-import { cfg, rOps, rSop, rBlurs, rChatTextOpacity, rTrajectoryOpacity } from '../../state'
+import { cfg, rOps, rSop, rBlurs, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity } from '../../state'
 import { saveConfig } from '../../rpc'
-import { applyCustomTokens, applySettingsOverrides, setPartBlur, applyViewCards, applyTrajectoryOverrides } from '../../wallpaper'
+import { applyCustomTokens, applySettingsOverrides, setPartBlur, applyViewCards, applyTrajectoryOverrides, applyRightbarOverrides } from '../../wallpaper'
 import { LiveSlider } from '../LiveSlider'
-import { CanvasIcon, SidebarIcon, ChatIcon, GearIcon, TextIcon, TrajectoryIcon, InputIcon } from '../icons'
+import { CanvasIcon, SidebarIcon, ChatIcon, GearIcon, TextIcon, TrajectoryIcon, PreviewIcon, InputIcon } from '../icons'
 
 interface PartDef {
   labelKey: string
@@ -16,11 +16,14 @@ interface PartDef {
   isChat?: boolean
   /** Trajectory view: tint opacity + blur over the whole view surface. */
   isTrajectory?: boolean
+  /** File-preview panel: the right sidebar a file click opens. */
+  isRightbar?: boolean
 }
 
 const PARTS: PartDef[] = [
   { opKey: 'bg', labelKey: 'uiOpacityBg', Icon: CanvasIcon },
   { opKey: 'sidebar', labelKey: 'uiOpacitySide', Icon: SidebarIcon },
+  { isRightbar: true, labelKey: 'uiPreview', Icon: PreviewIcon },
   { opKey: 'card', labelKey: 'uiOpacityCard', Icon: ChatIcon },
   { opKey: 'input', labelKey: 'uiOpacityInput', Icon: InputIcon },
   { isSettings: true, labelKey: 'uiSop', Icon: GearIcon },
@@ -29,7 +32,7 @@ const PARTS: PartDef[] = [
 ]
 
 export function InterfacePage({ p }: { p: ThemeSectionProps }) {
-  const { t, setOps, setBlurs, setSop } = p
+  const { t, setOps, setBlurs, setSop, setRightbarOpacity } = p
 
   return (
     <>
@@ -42,7 +45,7 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
 
       <div className="dab-grid-parts">
         {PARTS.map((part, i) => {
-          const { labelKey, Icon, isSettings, isChat, isTrajectory } = part
+          const { labelKey, Icon, isSettings, isChat, isTrajectory, isRightbar } = part
           const opKey = part.opKey
           // Homepage parts (bg/sidebar/card/input) bind to their own part only;
           // the settings panel (isSettings) binds exclusively to the 'settings'
@@ -51,10 +54,22 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
           // panel would track the homepage center/card blur and the home-page
           // opacities. The chat region (isChat) and the trajectory view
           // (isTrajectory) own their own blur keys plus their own tint
-          // opacities. Every homepage opKey is also a PartBlurs key (input
-          // included), so the shared blur slider dereferences it directly.
-          const blurKey: keyof PartBlurs = isChat ? 'chat' : isTrajectory ? 'trajectory' : isSettings ? 'settings' : opKey!
-          const opacity = isChat ? rChatTextOpacity() : isTrajectory ? rTrajectoryOpacity() : isSettings ? rSop() : rOps()[opKey!]
+          // opacities, and the file-preview panel (isRightbar) owns the right
+          // column's backdrop through the same deal. Every homepage opKey is
+          // also a PartBlurs key (input included), so the shared blur slider
+          // dereferences it directly.
+          const blurKey: keyof PartBlurs = isChat
+            ? 'chat'
+            : isTrajectory
+              ? 'trajectory'
+              : isRightbar
+                ? 'rightbar'
+                : isSettings ? 'settings' : opKey!
+          const opacity = isChat
+            ? rChatTextOpacity()
+            : isTrajectory
+              ? rTrajectoryOpacity()
+              : isRightbar ? rRightbarOpacity() : isSettings ? rSop() : rOps()[opKey!]
           return (
             <section key={blurKey} className="dab-card dab-card-hover dab-rise" style={{ '--d': i + 1 } as CSSProperties}>
               <div className="dab-part-head">
@@ -73,6 +88,11 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
                   } else if (isTrajectory) {
                     cfg.trajectoryOpacity = op
                     applyTrajectoryOverrides(op)
+                  } else if (isRightbar) {
+                    // First drag is what detaches the panel from the main
+                    // background; from then on the card owns it.
+                    cfg.rightbarOpacity = op
+                    applyRightbarOverrides(op)
                   } else if (isSettings) {
                     cfg.settingsOpacity = op
                     applySettingsOverrides(op)
@@ -94,6 +114,8 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
                     cfg.trajectoryOpacity = op
                     applyTrajectoryOverrides(op)
                     saveConfig()
+                  } else if (isRightbar) {
+                    setRightbarOpacity(op)
                   } else if (isSettings) {
                     setSop(op)
                   } else {
@@ -117,6 +139,8 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
                   blurs[blurKey] = v
                   setBlurs(blurs)
                 }} />
+
+              {isRightbar ? <p className="dab-hint" style={{ marginTop: 9 }}>{t('uiPreviewHint')}</p> : null}
             </section>
           )
         })}

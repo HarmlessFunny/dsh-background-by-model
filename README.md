@@ -94,9 +94,10 @@ One interface, one config — only the current model differs:
 
 ### Global settings (Interface tab)
 
-- **Per-part Interface Opacity** — Independent sliders for the main background, sidebar, cards & panels (including the dropdowns and menus around the dialog), the input & controls (composer box, Cordis panel), plus the settings panel and the conversation text box.
+- **Per-part Interface Opacity** — Independent sliders for the main background, sidebar, file preview panel, cards & panels (including the dropdowns and menus around the dialog), the input & controls (composer box, Cordis panel), plus the settings panel and the conversation text box.
 - **Per-part Interface Blur** — Frosted-glass `backdrop-filter` blur (`0–60 px`) for each interface part, including a real backdrop on the composer and Cordis panel via stable host selectors.
 - **Conversation & Trajectory** — The message list is wrapped in a translucent card automatically, and the trajectory page gets whole-page opacity & blur controls, letting the wallpaper shine through the content.
+- **File Preview Panel** — The column that slides in from the right when you open a file now has a card of its own: its opacity follows **Main background** until you drag it (then this card owns it), and its blur stacks on top of the main-background blur. While closed it takes no space and costs nothing.
 
 ## Settings
 
@@ -104,7 +105,7 @@ Settings → **Theme** now has three tabs:
 
 | Tab | Scope | Contents |
 | --- | --- | --- |
-| **Interface** | Global, shared by every model | Opacity & blur for the main background, sidebar, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
+| **Interface** | Global, shared by every model | Opacity & blur for the main background, sidebar, file preview panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
 | **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's wallpaper, theme color, layout mode, framing, opacity and blur |
 | **Config** | — | Import / export the whole rule set (`dsh-background-by-model-theme.json`) |
 
@@ -202,6 +203,11 @@ Yes — export it from the **Config** tab; the JSON inlines every rule's image.
 No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
+
+### v0.3.2
+
+- **New "File preview panel" card** — The column that slides in from the right when you open a file now has opacity and blur sliders of its own. Its only surface was `--dsw-alias-bg-base` — the very token the Main background slider rewrites — so it used to be an unnamed second copy of the main background with no control of its own. The new card's opacity **follows Main background by default** and only takes over on the first drag, so nothing changes on upgrade; its blur stacks on top of the main-background blur. While the panel is closed it is merely slid off-screen, so the card costs nothing.
+- **Host-side config keeps the new fields** — `theme-config.json` gained `rightbarOpacity` and `blurs.rightbar`. A missing field (any config written before this version, including an imported one) means "follow the main background".
 
 ### v0.3.1
 
