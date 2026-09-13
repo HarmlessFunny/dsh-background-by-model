@@ -66,6 +66,10 @@
   <em>「模型背景」页的单条规则 · 图片、布局模式、主题色（色轮 / HSL / RGB / 从本图提取 / 从图片取色）、背景透明度与背景模糊度，都是这一条规则自己的属性</em>
 </p>
 
+<p align="center">
+  <sub>示例壁纸素材来源于 bilibili <a href="https://space.bilibili.com/4168597">ZipZipPipe</a></sub>
+</p>
+
 ## 功能特性
 
 ### 模型规则

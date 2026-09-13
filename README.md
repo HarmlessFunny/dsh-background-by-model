@@ -66,6 +66,10 @@ One interface, one config — only the current model differs:
   <em>One rule on the Model Background tab · image, layout mode, theme color (wheel / HSL / RGB / extract from this image / pick from image), background opacity and background blur are all properties of that rule alone</em>
 </p>
 
+<p align="center">
+  <sub>Example wallpaper art from <a href="https://space.bilibili.com/4168597">ZipZipPipe</a> on bilibili</sub>
+</p>
+
 ## Features
 
 ### Model rules
