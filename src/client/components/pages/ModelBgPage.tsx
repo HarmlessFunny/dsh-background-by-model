@@ -48,6 +48,9 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
           {store.model !== ''
             ? <span className="dab-status-model">{store.model}</span>
             : <span className="dab-status-none">{t('statusUnknown')}</span>}
+          {store.model !== '' && store.modelSource === 'default'
+            ? <span className="dab-status-src">{t('statusSourceDefault')}</span>
+            : null}
           {store.model !== '' ? <span className="dab-status-arrow">→</span> : null}
           {activeIndex >= 0
             ? (
@@ -58,6 +61,9 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
             : <span className="dab-status-none">{t('statusNone')}</span>}
         </div>
         {store.model === '' ? <p className="dab-hint" style={{ marginTop: 9 }}>{t('statusUnknownHint')}</p> : null}
+        {store.model !== '' && store.modelSource === 'default'
+          ? <p className="dab-hint" style={{ marginTop: 9 }}>{t('statusSourceDefaultHint')}</p>
+          : null}
       </section>
 
       <section className="dab-rise" style={{ '--d': 2 } as CSSProperties}>

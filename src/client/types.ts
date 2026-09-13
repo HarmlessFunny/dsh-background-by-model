@@ -20,9 +20,44 @@ export interface SlotsService {
 export interface ConnectionService {
   rpc: { call(channel: string, endpoint: string, payload: unknown): Promise<unknown> }
 }
+/** Bare observable face — snapshot read plus change subscription. */
+export interface ObservableFaceLike<T = unknown> {
+  getSnapshot(): T | undefined
+  subscribe(fn: () => void): () => void
+}
 /** Session list face: only `list` is read here (the current Session id). */
 export interface SessionsServiceLike {
-  list: { getSnapshot(): { current?: string } | undefined; subscribe(fn: () => void): () => void }
+  readonly list: ObservableFaceLike<{ current?: string }>
+  /** Stable session binding (pure resolution; undefined until materialized). */
+  binding?(id: string): SessionBindingLike | undefined
+  /** Materialize a session's scope so `binding` can resolve. */
+  scope?(id: string): unknown
+}
+/** The session's projection seat (`session.projections`). */
+export interface ProjectionsFaceLike {
+  /** Identity-stable face for one projection key (absence = undefined snapshot). */
+  faceOf?(key: string): ObservableFaceLike<ModelSelectionProjectionLike> | undefined
+}
+export interface SessionFaceLike {
+  readonly projections?: ProjectionsFaceLike
+}
+export interface SessionBindingLike {
+  readonly session?: SessionFaceLike
+}
+/** One provider/model selection. */
+export interface ModelSelectionLike {
+  provider?: string
+  model?: string
+  reasoningEffort?: string
+}
+/**
+ * Client view of the durable model-selection projection: `next` is what the
+ * coming request will use, `lastUsed` what the last one did. This is the value
+ * the composer model seat renders, and it is per session.
+ */
+export interface ModelSelectionProjectionLike {
+  lastUsed?: ModelSelectionLike | null
+  next?: ModelSelectionLike | null
 }
 /** Per-session model directory face (see @deepseek-ai/dsh-client-ui-model-selection). */
 export interface ModelDirectoryLike {
@@ -155,6 +190,12 @@ export interface ThemeStoreState {
   rulesRev: number
   /** Model label the current match ran against ('' = nothing detected). */
   model: string
+  /**
+   * Where that model came from: `session` is this session's own durable
+   * selection (the composer's model), `default` is only the host-wide default
+   * model — which is NOT necessarily what this session is using.
+   */
+  modelSource: 'session' | 'default'
   /** Id of the rule the current model resolved to. */
   activeRuleId: string | null
   /** Whether the active rule was picked by a match (false = fallback). */
