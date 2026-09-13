@@ -1,92 +1,114 @@
-import type { BgState, ThemeConfig, PartOpacities, PartBlurs, BgMode } from './types'
+import type { BgRule, BgState, BgMode, ThemeConfig, PartOpacities, PartBlurs } from './types'
+
+export const DEFAULT_BG_STATE: BgState = { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 }
+
+const BG_MODES: BgMode[] = ['fit', 'fill', 'stretch', 'tile', 'center']
+const PALETTE: Array<[number, number, number]> = [
+  [356, 0.72, 0.55], [24, 0.78, 0.55], [44, 0.8, 0.55], [152, 0.62, 0.5],
+  [174, 0.68, 0.48], [208, 0.72, 0.55], [252, 0.68, 0.6], [300, 0.64, 0.58],
+]
+export { PALETTE }
 
 export const DEFAULT_CONFIG: ThemeConfig = {
-  color: null,
+  rules: [],
   opacities: { bg: 0.85, sidebar: 0.93, card: 1, input: 1 },
   blurs: { bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, input: 0 },
   settingsOpacity: 1,
-  wallpaperOpacity: 1,
-  blur: 0,
-  bgState: { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
-  videoBgState: { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 },
-  backgroundType: 'image',
-  bgMode: 'fit',
-  videoMime: null,
-  generatedBg: null,
-  regenerateOnReload: false,
   chatTextOpacity: 0,
   // 100% = untouched host surface; zero would blank the page by default.
   trajectoryOpacity: 1,
 }
 
+function freshConfig(): ThemeConfig {
+  return {
+    rules: [],
+    opacities: { ...DEFAULT_CONFIG.opacities },
+    blurs: { ...DEFAULT_CONFIG.blurs },
+    settingsOpacity: DEFAULT_CONFIG.settingsOpacity,
+    chatTextOpacity: DEFAULT_CONFIG.chatTextOpacity,
+    trajectoryOpacity: DEFAULT_CONFIG.trajectoryOpacity,
+  }
+}
+
+// In-memory mirror of the file-backed store; the UI reads and mutates this and
+// it is synced to disk via the RPC layer.
+export let cfg: ThemeConfig = freshConfig()
+
+// ── Image cache (slot → data URL) ──────────────────────────────────────────
+// Rule images are fetched lazily per slot; only the active rule's bytes are
+// needed to paint, the rest are loaded when their card is expanded.
+const images = new Map<string, string>()
+
+export function setImage(slot: string, url: string | null): void {
+  if (url === null) images.delete(slot)
+  else images.set(slot, url)
+}
+export function imageOf(slot: string): string | null { return images.get(slot) ?? null }
+export function clearImages(): void { images.clear() }
+
+// ── Active rule (what the render layer follows) ────────────────────────────
+export let activeRuleId: string | null = null
+export let activeMatched = false
+export let modelLabel = ''
+
+export function setActive(ruleId: string | null, matched: boolean): void {
+  activeRuleId = ruleId
+  activeMatched = matched
+}
+export function setModelLabel(label: string): void { modelLabel = label }
+
+export function ruleById(id: string): BgRule | null {
+  return cfg.rules.find(r => r.id === id) ?? null
+}
+export function activeRule(): BgRule | null {
+  return activeRuleId === null ? null : ruleById(activeRuleId)
+}
+
+// ── Rule factories / allocation ────────────────────────────────────────────
+export function newRule(id: string, slot: string): BgRule {
+  return {
+    id, slot, match: '', enabled: true, color: null,
+    bgMode: 'fit', wallpaperOpacity: 1, blur: 0,
+    bgState: { ...DEFAULT_BG_STATE },
+  }
+}
+
+/** First free image slot (`m1`, `m2`, …). */
+export function nextSlot(): string {
+  const taken = new Set(cfg.rules.map(r => r.slot))
+  for (let i = 1; i < 1000; i++) {
+    const slot = `m${i}`
+    if (!taken.has(slot)) return slot
+  }
+  return `m${Date.now()}`
+}
+
+/** Unique rule id (independent from the slot so removals never renumber). */
+export function nextRuleId(): string {
+  const taken = new Set(cfg.rules.map(r => r.id))
+  for (let i = 1; i < 10000; i++) {
+    const id = `r${i}`
+    if (!taken.has(id)) return id
+  }
+  return `r${Date.now()}`
+}
+
+// ── Accessors used by the render layer (they follow the ACTIVE rule) ───────
 const clamp01 = (n: unknown, def: number): number =>
-  typeof n === 'number' ? Math.min(1, Math.max(0, n)) : def
+  typeof n === 'number' && isFinite(n) ? Math.min(1, Math.max(0, n)) : def
+const clamp = (n: unknown, lo: number, hi: number, def: number): number =>
+  typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
 
-// In-memory mirror of the file-backed store; the UI reads and mutates this,
-// and it is synced to disk via the RPC layer.
-export let cfg: ThemeConfig = { ...DEFAULT_CONFIG, opacities: { ...DEFAULT_CONFIG.opacities }, blurs: { ...DEFAULT_CONFIG.blurs }, bgState: { ...DEFAULT_CONFIG.bgState }, videoBgState: { ...DEFAULT_CONFIG.videoBgState } }
-export let wpImageUrl: string | null = null
-// Retained across background-type switches so coming back to image/video
-// restores the original upload.
-export let wpUrl: string | null = null
-export let wpVideoUrl: string | null = null
-/** Captured video frame standing in for previews/color extraction (still-image APIs). */
-export let wpVideoSnapshot: string | null = null
-/** Local blob URL backing an in-session video; revoked when replaced or cleared. */
-let wpVideoObjectUrl: string | null = null
-
-export function setWpImageUrl(url: string | null): void { wpImageUrl = url }
-export function setWpUrl(url: string | null): void { wpUrl = url }
-// The serve URL is stable, so replacing the stored video needs a query-string
-// cache-buster or the player keeps the cached copy.
-let videoRev = 0
-export function setWpVideoUrl(url: string | null, mime: string | null): void {
-  if (url === null) {
-    wpVideoUrl = null
-    wpVideoSnapshot = null
-  } else {
-    videoRev++
-    // Blob URLs are unique per object; a query string can break their
-    // resolution in some engines, so they skip the cache-buster.
-    wpVideoUrl = url.startsWith('blob:') ? url : `${url}${url.includes('?') ? '&' : '?'}r=${videoRev}`
-  }
-  // Release the previous in-session object URL when replaced or cleared.
-  if (wpVideoObjectUrl !== null && wpVideoObjectUrl !== url) {
-    URL.revokeObjectURL(wpVideoObjectUrl)
-    wpVideoObjectUrl = null
-  }
-  if (url !== null && url.startsWith('blob:')) wpVideoObjectUrl = url
-  cfg.videoMime = url ? mime : null
-}
-export function setWpVideoSnapshot(url: string | null): void { wpVideoSnapshot = url }
-
-/** Release the in-session video object URL (plugin teardown). */
-export function disposeVideoObjectUrl(): void {
-  if (wpVideoObjectUrl !== null) {
-    URL.revokeObjectURL(wpVideoObjectUrl)
-    wpVideoObjectUrl = null
-  }
-}
-export function setBgState(s: BgState): void { cfg.bgState = s }
-
-// Brightness verdict of the active generated background, analyzed once per
-// switch from a captured frame. null = fall back to the picked color's lightness.
-export let bgDark: boolean | null = null
-export function setBgDark(v: boolean | null): void { bgDark = v }
-export function rBgDark(): boolean | null { return bgDark }
-
-export function rHasColor(): boolean { return cfg.color !== null }
-export function rColor(): [number, number, number] { return cfg.color ?? [220, 0.55, 0.25] }
-export function rWpImage(): string | null { return wpImageUrl }
-export function rWpVideo(): string | null { return wpVideoUrl }
-export function rBgMode(): BgMode { return cfg.bgMode ?? DEFAULT_CONFIG.bgMode }
-export function rChatTextOpacity(): number { return clamp01(cfg.chatTextOpacity, DEFAULT_CONFIG.chatTextOpacity) }
-export function rTrajectoryOpacity(): number { return clamp01(cfg.trajectoryOpacity, DEFAULT_CONFIG.trajectoryOpacity) }
-/** Display URL: the uploaded image/video snapshot per active type, else the generated snapshot. */
+export function rHasColor(): boolean { return activeRule()?.color !== null && activeRule() !== null }
+export function rColor(): [number, number, number] { return activeRule()?.color ?? [220, 0.55, 0.25] }
+export function rBgMode(): BgMode { return activeRule()?.bgMode ?? 'fit' }
+export function rWop(): number { return clamp01(activeRule()?.wallpaperOpacity, 1) }
+export function rBl(): number { return clamp(activeRule()?.blur, 0, 60, 0) }
+export function rBgState(): BgState { return activeRule()?.bgState ?? DEFAULT_BG_STATE }
+/** Display URL: the active rule's image, or null when it has none. */
 export function rWp(): string | null {
-  if (cfg.backgroundType === 'image') return wpImageUrl
-  if (cfg.backgroundType === 'video') return wpVideoSnapshot
-  return wpUrl
+  const rule = activeRule()
+  return rule === null ? null : imageOf(rule.slot)
 }
 export function rOps(): PartOpacities {
   const o = cfg.opacities ?? {}
@@ -100,105 +122,85 @@ export function rBlurs(): PartBlurs {
   const b = cfg.blurs ?? {}
   const out = {} as PartBlurs
   for (const k of ['bg', 'sidebar', 'card', 'settings', 'chat', 'trajectory', 'input'] as const) {
-    const v = b[k]
-    out[k] = typeof v === 'number' ? Math.min(60, Math.max(0, v)) : DEFAULT_CONFIG.blurs[k]
+    out[k] = clamp(b[k], 0, 60, DEFAULT_CONFIG.blurs[k])
   }
   return out
 }
-export function rWop(): number { return clamp01(cfg.wallpaperOpacity, DEFAULT_CONFIG.wallpaperOpacity) }
-export function rBl(): number {
-  return typeof cfg.blur === 'number' ? Math.min(60, Math.max(0, cfg.blur)) : DEFAULT_CONFIG.blur
-}
 export function rSop(): number { return clamp01(cfg.settingsOpacity, DEFAULT_CONFIG.settingsOpacity) }
-export function rBgState(): BgState { return cfg.bgState }
-export function rVideoBgState(): BgState { return cfg.videoBgState }
+export function rChatTextOpacity(): number { return clamp01(cfg.chatTextOpacity, DEFAULT_CONFIG.chatTextOpacity) }
+export function rTrajectoryOpacity(): number { return clamp01(cfg.trajectoryOpacity, DEFAULT_CONFIG.trajectoryOpacity) }
 
-const num = (n: unknown, def: number): number => typeof n === 'number' ? n : def
-const cl = (n: unknown, lo: number, hi: number, def: number): number =>
-  typeof n === 'number' ? Math.min(hi, Math.max(lo, n)) : def
-
+// ── Normalization ──────────────────────────────────────────────────────────
 function adoptBgState(s: Partial<BgState>): BgState {
   return {
-    zoom: num(s.zoom, 1),
-    x: num(s.x, 0),
-    y: num(s.y, 0),
+    zoom: clamp(s.zoom, 0.1, 10, 1),
+    x: typeof s.x === 'number' && isFinite(s.x) ? s.x : 0,
+    y: typeof s.y === 'number' && isFinite(s.y) ? s.y : 0,
     iw: typeof s.iw === 'number' && s.iw > 0 ? s.iw : 0,
     ih: typeof s.ih === 'number' && s.ih > 0 ? s.ih : 0,
   }
 }
 
+/** Coerce one persisted rule, or null when it lacks a usable id/slot. */
+export function normalizeRule(raw: unknown): BgRule | null {
+  const r = (raw ?? {}) as Partial<BgRule>
+  const id = typeof r.id === 'string' && r.id !== '' ? r.id : null
+  const slot = typeof r.slot === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(r.slot) ? r.slot : null
+  if (id === null || slot === null) return null
+  const c = r.color
+  const color: [number, number, number] | null =
+    Array.isArray(c) && c.length === 3 && c.every(n => typeof n === 'number' && isFinite(n))
+      ? [clamp(c[0], 0, 360, 220), clamp(c[1], 0, 1, 0.55), clamp(c[2], 0, 1, 0.25)]
+      : null
+  return {
+    id,
+    slot,
+    match: typeof r.match === 'string' ? r.match : '',
+    enabled: r.enabled !== false,
+    color,
+    bgMode: BG_MODES.includes(r.bgMode as BgMode) ? (r.bgMode as BgMode) : 'fit',
+    wallpaperOpacity: clamp01(r.wallpaperOpacity, 1),
+    blur: clamp(r.blur, 0, 60, 0),
+    bgState: adoptBgState((r.bgState ?? {}) as Partial<BgState>),
+  }
+}
+
 /** Move a possibly-absent partial config into the shape the UI reads. */
 export function adoptConfig(raw: unknown): void {
-  const c = (raw ?? {}) as Partial<ThemeConfig> & { opacity?: unknown }
-  const color = Array.isArray(c.color) && c.color.length === 3
-    ? [c.color[0], c.color[1], c.color[2]] as [number, number, number]
-    : null
-  // Migration: the old single main-interface opacity becomes per-part, keeping
-  // the sidebar's former +0.08 offset.
-  const legacy = typeof c.opacity === 'number' ? c.opacity : null
+  const c = (raw ?? {}) as Partial<ThemeConfig>
+  const rules = Array.isArray(c.rules)
+    ? c.rules.map(normalizeRule).filter((r): r is BgRule => r !== null)
+    : []
   const ops = (c.opacities ?? {}) as Partial<PartOpacities>
   const bl = (c.blurs ?? {}) as Partial<PartBlurs>
   const blurs = {} as PartBlurs
   for (const k of ['bg', 'sidebar', 'card', 'settings', 'chat', 'trajectory', 'input'] as const) {
-    blurs[k] = num(bl[k], DEFAULT_CONFIG.blurs[k])
+    blurs[k] = clamp(bl[k], 0, 60, DEFAULT_CONFIG.blurs[k])
   }
-  const bgType = ['video', 'mesh', 'shader', 'pattern'].includes(c.backgroundType as string)
-    ? (c.backgroundType as ThemeConfig['backgroundType'])
-    : DEFAULT_CONFIG.backgroundType
-  const bgMode = (['fit', 'fill', 'stretch', 'tile', 'center'] as BgMode[]).includes(c.bgMode as BgMode) ? (c.bgMode as BgMode) : DEFAULT_CONFIG.bgMode
-  const gen = c.generatedBg && typeof c.generatedBg === 'object'
-    ? (c.generatedBg as { type?: string })
-    : null
-  const generatedBg = gen && gen.type === bgType ? (c.generatedBg as ThemeConfig['generatedBg']) : null
-
   cfg = {
-    color,
+    rules,
     opacities: {
-      bg: num(ops.bg, legacy ?? DEFAULT_CONFIG.opacities.bg),
-      sidebar: num(ops.sidebar, legacy !== null ? Math.min(1, legacy + 0.08) : DEFAULT_CONFIG.opacities.sidebar),
-      card: num(ops.card, DEFAULT_CONFIG.opacities.card),
-      input: num(ops.input, DEFAULT_CONFIG.opacities.input),
+      bg: clamp01(ops.bg, DEFAULT_CONFIG.opacities.bg),
+      sidebar: clamp01(ops.sidebar, DEFAULT_CONFIG.opacities.sidebar),
+      card: clamp01(ops.card, DEFAULT_CONFIG.opacities.card),
+      input: clamp01(ops.input, DEFAULT_CONFIG.opacities.input),
     },
     blurs,
-    settingsOpacity: num(c.settingsOpacity, DEFAULT_CONFIG.settingsOpacity),
-    wallpaperOpacity: num(c.wallpaperOpacity, DEFAULT_CONFIG.wallpaperOpacity),
-    blur: num(c.blur, DEFAULT_CONFIG.blur),
-    bgState: adoptBgState((c.bgState ?? {}) as Partial<BgState>),
-    videoBgState: adoptBgState((c.videoBgState ?? {}) as Partial<BgState>),
-    backgroundType: bgType,
-    bgMode,
-    videoMime: typeof c.videoMime === 'string' ? c.videoMime : null,
-    generatedBg: generatedBg ? normalizeGeneratedBg(generatedBg) : null,
-    regenerateOnReload: typeof c.regenerateOnReload === 'boolean' ? c.regenerateOnReload : DEFAULT_CONFIG.regenerateOnReload,
+    settingsOpacity: clamp01(c.settingsOpacity, DEFAULT_CONFIG.settingsOpacity),
     chatTextOpacity: clamp01(c.chatTextOpacity, DEFAULT_CONFIG.chatTextOpacity),
     trajectoryOpacity: clamp01(c.trajectoryOpacity, DEFAULT_CONFIG.trajectoryOpacity),
   }
+  // A rule that vanished (import/removal) must not stay active.
+  if (activeRuleId !== null && !rules.some(r => r.id === activeRuleId)) {
+    activeRuleId = null
+    activeMatched = false
+  }
 }
 
-function normalizeGeneratedBg(p: ThemeConfig['generatedBg']): ThemeConfig['generatedBg'] {
-  if (!p) return null
-  if (p.type === 'mesh') {
-    return {
-      type: 'mesh',
-      seed: num(p.seed, 0),
-      scale: cl(p.scale, 0.3, 3, 1),
-      intensity: cl(p.intensity, 0, 1, 0.6),
-    }
-  }
-  if (p.type === 'shader') {
-    return {
-      type: 'shader',
-      preset: ['aurora', 'nebula', 'noise'].includes(p.preset) ? p.preset : 'aurora',
-      speed: cl(p.speed, 0, 2, 0.3),
-      scale: cl(p.scale, 0.3, 3, 1),
-      seed: typeof p.seed === 'number' ? Math.floor(p.seed) : 0,
-    }
-  }
-  return {
-    type: 'pattern',
-    preset: ['dots', 'waves', 'poly'].includes(p.preset) ? p.preset : 'dots',
-    density: cl(p.density, 0, 1, 0.5),
-    scale: cl(p.scale, 0.3, 3, 1),
-    seed: typeof p.seed === 'number' ? Math.floor(p.seed) : 0,
-  }
+export function resetConfig(): void {
+  cfg = freshConfig()
+  images.clear()
+  activeRuleId = null
+  activeMatched = false
+  modelLabel = ''
 }

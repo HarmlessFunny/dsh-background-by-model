@@ -1,26 +1,10 @@
-import { rWp, rWpImage, rWpVideo, rBgState, rVideoBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, cfg, setWpUrl, rBgDark, setBgDark, disposeVideoObjectUrl } from './state'
-import type { BackgroundType, GeneratedBgParams, PartOpacities, PartBlurs } from './types'
-import { genTokens, toRgba, extractWallpaperColor, analyzeFrameDark } from './utils/color'
-import { createDynamicBackground, defaultParamsFor } from './utils/bg-generators'
+import { rWp, rBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity } from './state'
+import type { PartOpacities, PartBlurs } from './types'
+import { genTokens, toRgba } from './utils/color'
 
 let wpEl: HTMLDivElement | null = null
-let videoEl: HTMLVideoElement | null = null
 let appliedTokenNames: string[] = []
-let wpController: { canvas: HTMLCanvasElement; stop: () => void; snapshot: () => string } | null = null
-let snapshotListener: (() => void) | null = null
 let tokenStyleEl: HTMLStyleElement | null = null
-
-function clearDynamicBg(): void {
-  wpController?.stop()
-  wpController?.canvas.remove()
-  wpController = null
-}
-
-/** Register a callback fired once a generated snapshot is ready (so the caller
- *  can re-sync the settings preview / store). */
-export function onGeneratedSnapshot(cb: () => void): void {
-  snapshotListener = cb
-}
 
 function ensureTokenStyle(): HTMLStyleElement {
   if (tokenStyleEl?.isConnected) return tokenStyleEl
@@ -35,16 +19,6 @@ function clearCustomTokens(): void {
   for (const name of appliedTokenNames) document.body.style.removeProperty(name)
   appliedTokenNames = []
 }
-
-/** Label tokens flipped by the generated-background brightness verdict. The
- *  faint tiers (caption/dimmed) are deliberately NOT flipped: they back
- *  placeholder/hint text, which must stay visibly weaker than real input even
- *  when the wallpaper brightness flips the main label direction. */
-const LABEL_TOKENS = [
-  '--dsw-alias-label-primary',
-  '--dsw-alias-label-secondary',
-  '--dsw-alias-label-tertiary',
-]
 
 // Solid surface tokens grouped by which interface-opacity slider owns them.
 // Every member is re-emitted with per-part alpha so surfaces over the wallpaper
@@ -74,15 +48,13 @@ const OPACITY_VARS: Record<string, string> = {
   '--dsw-specific-menu': '--dsh-any-op-menu',
 }
 
-// Fingerprint of the non-alpha token base (color pick + brightness verdict).
+// Fingerprint of the non-alpha token base (color pick + scheme verdict).
 // The static body rule is only rebuilt when it changes; a drag never touches it.
 let baseTokenKey = ''
 
 // Coalesce slider-driven token updates to one rAF: a single drag fires several
 // input events per frame, and every full re-apply repaints expensive regions
-// over a large wallpaper. Batching keeps at most one update per frame. The
-// base-fingerprint gate above already makes a muted drag cheap; this prevents
-// repeated identical reapplies from stacking within the same frame.
+// over a large wallpaper. Batching keeps at most one update per frame.
 let pendingOps: PartOpacities | null = null
 let tokensRaf: number | null = null
 
@@ -104,20 +76,11 @@ let lastBgKey = ''
 
 function applyCustomTokensNow(ops: PartOpacities): void {
   const [h, s, l] = rColor()
-  let { tokens } = genTokens(h, s, l)
+  const { tokens } = genTokens(h, s, l)
   try {
-    // The generated background's brightness verdict overrides only the font
-    // direction; genTokens' result is cached and shared, so clone before
-    // overriding.
-    const dark = rBgDark()
-    if (dark !== null) {
-      tokens = { ...tokens }
-      const font = dark ? '#fff' : '#000'
-      for (const name of LABEL_TOKENS) tokens[name] = font
-    }
-    const forceDark = dark ?? l < 0.55
-    if (`${h}|${s}|${l}|${dark}` !== baseTokenKey) {
-      baseTokenKey = `${h}|${s}|${l}|${dark}`
+    const forceDark = l < 0.55
+    if (`${h}|${s}|${l}` !== baseTokenKey) {
+      baseTokenKey = `${h}|${s}|${l}`
       // Drive the base-palette switch with a plugin-specific value so the
       // gradient rule never matches a host dark-mode flag; color-scheme makes
       // native controls (select popups) follow the forced palette. Both ride the
@@ -194,8 +157,7 @@ function applyInputBlur(px: number): void {
 
 // Placeholder/hint text inside the composer and the plugin's own input
 // surfaces: rendered with the weak caption token (distinct from real input)
-// plus italic, so an empty box is never mistaken for typed content. Written
-// as a rule so it also covers placeholder text colored by the host's text tier.
+// plus italic, so an empty box is never mistaken for typed content.
 export const PLACEHOLDER_RULE =
   '[data-composer-card] textarea::placeholder,' +
   '[data-composer-card] input::placeholder,' +
@@ -259,104 +221,6 @@ export function applyTrajectoryOverrides(op: number): void {
   if (layer3 !== undefined) {
     document.documentElement.style.setProperty('--dsh-any-traj-layer-3', toRgba(layer3, op))
   }
-}
-
-/** Apply the theme color: use the saved pick directly, or fall back to
- *  extracting a dominant color from the current wallpaper. */
-export function applyThemeColor(): void {
-  if (rHasColor()) {
-    applyWp()
-    return
-  }
-  const url = rWp()
-  if (url) {
-    // Video mode samples the frame snapshot through the video's own placement
-    // state; the image slot's framing does not apply to the snapshot.
-    const st = cfg.backgroundType === 'video' ? rVideoBgState() : rBgState()
-    void extractWallpaperColor(url, st).then(hsl => {
-      if (hsl) cfg.color = hsl
-      applyWp()
-    })
-  } else {
-    applyWp()
-  }
-}
-
-/** Switch the background source type. For generated types a new live canvas is
- *  attached to the wallpaper layer and a snapshot is kept for the store/preview. */
-export function setBackgroundType(type: BackgroundType): void {
-  cfg.backgroundType = type
-  if (type === 'image') {
-    // Restore the retained image upload and drop the generated brightness verdict.
-    clearDynamicBg()
-    setBgDark(null)
-    setWpUrl(rWpImage())
-    applyThemeColor()
-    return
-  }
-  if (type === 'video') {
-    // Restore the retained video upload; the frame snapshot stays the preview URL.
-    clearDynamicBg()
-    setBgDark(null)
-    setWpUrl(null)
-    applyThemeColor()
-    return
-  }
-  // Keep existing params for this generated type so sub-type switches preserve adjustments.
-  if (!cfg.generatedBg || cfg.generatedBg.type !== type) {
-    cfg.generatedBg = defaultParamsFor(type)
-  }
-  applyGeneratedBg(cfg.generatedBg)
-}
-
-function randomSeed(): number {
-  return Math.floor(Math.random() * 0x7fffffff)
-}
-
-/** Regenerate the current generated background with a new visual seed while
- *  preserving the user's scale/intensity/speed/density/preset choices. */
-export function regenerateGeneratedBg(): void {
-  const params = cfg.generatedBg
-  if (!params || cfg.backgroundType === 'image') return
-  cfg.generatedBg = { ...params, seed: randomSeed() }
-  applyGeneratedBg(cfg.generatedBg)
-}
-
-/** Update a generated background's parameters and re-render. */
-export function updateGeneratedBg(params: GeneratedBgParams): void {
-  cfg.backgroundType = params.type
-  cfg.generatedBg = params
-  applyGeneratedBg(params)
-}
-
-function applyGeneratedBg(params: GeneratedBgParams): void {
-  clearDynamicBg()
-  clearVideoEl()
-  ensureWpContainer()
-  wpController = createDynamicBackground(params)
-  if (wpEl) {
-    wpEl.style.backgroundImage = 'none'
-    wpEl.appendChild(wpController.canvas)
-  }
-  // The canvas paints its first frame on the next animation tick; only then is
-  // the snapshot meaningful. Do NOT refresh the palette here — generated
-  // backgrounds must not overwrite the user's picked theme color.
-  requestAnimationFrame(() => {
-    if (!wpController) return
-    const controller = wpController
-    const frame = controller.snapshot()
-    setWpUrl(frame)
-    applyWp()
-    snapshotListener?.()
-    // One-shot brightness verdict from the captured frame to flip font
-    // direction; never runs in the animation loop.
-    setBgDark(null)
-    void analyzeFrameDark(frame).then(dark => {
-      if (dark === null || wpController !== controller) return
-      setBgDark(dark)
-      applyCustomTokens(rOps())
-    })
-  })
 }
 
 // ── Per-part interface blur ───────────────────────────────────────────────────
@@ -442,7 +306,7 @@ function applySettingsBlur(px: number): void {
  *  reducing the main-bg opacity stacked a second alpha onto the sidebar; moving
  *  the alpha onto the columns keeps the sidebar owned by its own slider. */
 function applyPartOpacities(ops: PartOpacities): void {
-  if (!(rHasColor() || rBgDark() !== null)) return
+  if (!rHasColor()) return
   discoverParts()
   if (frameEl === null) return
   const [h, s, l] = rColor()
@@ -502,9 +366,6 @@ export function setPartBlur(part: keyof PartBlurs, v: number): void {
 //       [data-chat-flow]         ← chat column (flow content, NOT scrollable)
 //       [data-conversation-composer-overlay] ← trajectory view root
 //       [data-composer-seat]     — sticky composer, a sibling
-// The input is sticky inside the same scrollport, so the stable host markers
-// are used; generic heuristics remain as a chat fallback for marker-less hosts.
-//
 // Cards are ALWAYS styled once their host exists — sliders at zero only turn
 // surface/border transparent, so the layout never reflows and the view cannot
 // jump when a slider leaves zero. Removal happens only at plugin teardown.
@@ -541,12 +402,7 @@ function containsChatEditor(el: HTMLElement): boolean {
   return el.querySelector('textarea,[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],[role="textbox"]') !== null
 }
 
-/** Walk down from a coarse candidate toward the actual message column: stop
- *  at a scroll container (the card surface must stay pinned to the scroll
- *  port); while the chat input lives inside, descend into the tallest child that
- *  does NOT contain it (the header row is short, the input row holds the
- *  editor); otherwise peel wrappers dominated (>= 85%) by a single child so
- *  tab bars / titles stay outside the card. */
+/** Walk down from a coarse candidate toward the actual message column. */
 function refineMessageColumn(start: HTMLElement): HTMLElement {
   let cur = start
   for (let depth = 0; depth < 10; depth++) {
@@ -586,8 +442,6 @@ function discoverViewTarget(idx: number, spec: ViewCardSpec): HTMLElement | null
   if (centerEl.querySelector('[data-conversation-scroll]') !== null) return null
   // Marker-less hosts keep their layout until a slider moves.
   if (spec.opacity() <= 0 && spec.blur() <= 0) return null
-  // Generic fallbacks: the largest vertically scrollable element inside the
-  // column, or the tallest direct child when the host virtualises scrolling.
   let best: HTMLElement | null = null
   let bestArea = 0
   for (const el of Array.from(centerEl.querySelectorAll<HTMLElement>('*'))) {
@@ -603,14 +457,12 @@ function discoverViewTarget(idx: number, spec: ViewCardSpec): HTMLElement | null
       if (el.clientHeight > (best?.clientHeight ?? 0)) best = el
     }
   }
-  // Coarse candidates are narrowed to the message column itself.
   const refined = best !== null ? refineMessageColumn(best) : null
   viewTargets[idx] = refined
   return refined
 }
 
-/** Stash the host's own inline values so teardown restores them exactly.
- *  Plain views only get a background override, so only that is stashed. */
+/** Stash the host's own inline values so teardown restores them exactly. */
 function stashCardPrev(el: HTMLElement, prev: string, plain: boolean): void {
   const ds = el.dataset as Record<string, string | undefined>
   ds[prev + 'Bg'] = el.style.getPropertyValue('background')
@@ -649,15 +501,10 @@ function removeViewCards(): void {
 }
 
 // ── Wide markdown tables ──────────────────────────────────────────────────────
-// DSH intentionally lets `.md-table-wide` bleed outside the text column (a
-// negative --dsh-table-lead margin + max-width:none, set by a host rule like
-// `.Sxvs8a_body .md-table-wide`; the prefix is a build-time hash class). That
+// DSH intentionally lets `.md-table-wide` bleed outside the text column. That
 // bleed only becomes visible once the chat surface gains a visible border, i.e.
-// when the chat region opacity or blur is non-zero (see borderAlpha in
-// applyViewCards). Under that same condition, pull the table back inside the
-// column and let it scroll horizontally. The stable `.md-table-wide` class is
-// targeted with !important so the fix survives DSH's changing hash prefixes.
-
+// when the chat region opacity or blur is non-zero. Under that same condition,
+// pull the table back inside the column and let it scroll horizontally.
 const TABLE_FIX_RULE = [
   '.md-table-wide {',
   '  --dsh-table-spare: 0px !important;',
@@ -688,9 +535,7 @@ function syncTableFix(): void {
   if (!tableFixStyleEl.isConnected) document.head.appendChild(tableFixStyleEl)
 }
 
-/** Re-derive the conversation view cards from the current config. Cheap
- *  enough for live slider drags; the card structure is applied unconditionally
- *  once the host exists so the layout never reflows when a slider leaves zero. */
+/** Re-derive the conversation view cards from the current config. */
 export function applyViewCards(): void {
   discoverParts()
   if (centerEl === null) return
@@ -723,8 +568,7 @@ export function applyViewCards(): void {
 let partsObserver: MutationObserver | null = null
 
 /** Watch for the AppFrame mounting so persisted blurs land even when the shell
- *  renders after this plugin's apply. Cheap: once all parts are found, the
- *  callback returns. */
+ *  renders after this plugin's apply. */
 export function watchParts(): void {
   if (partsObserver !== null || typeof MutationObserver === 'undefined') return
   partsObserver = new MutationObserver(() => {
@@ -748,27 +592,24 @@ export function stopWatchingParts(): void {
 // `data-ds-dark-theme` attribute off / to a host value — which would paint a
 // frame of light surfaces. Watch that flag and, whenever the plugin's own
 // value disappears, re-set it and re-emit the token stylesheet within the same
-// frame. The guard stops feedback: once our mark is present the handler
-// returns, so our own re-assertion cannot re-trigger.
+// frame.
 let themeObserver: MutationObserver | null = null
 let themeRaf = 0
 
 function reassertScheme(): void {
   const [, , l] = rColor()
-  const dark = rBgDark() ?? l < 0.55
-  if (dark) document.body.setAttribute('data-ds-dark-theme', 'dsh-background-by-model')
+  if (l < 0.55) document.body.setAttribute('data-ds-dark-theme', 'dsh-background-by-model')
   else document.body.removeAttribute('data-ds-dark-theme')
   applyCustomTokens(rOps())
 }
 
 /** Re-assert the plugin's forced scheme whenever the host strips it, so a
- *  refresh / cold-load / set-change never flashes a light frame. Returns a
- *  disposer for teardown. */
+ *  refresh / cold-load / set-change never flashes a light frame. */
 export function watchThemeResets(): () => void {
   if (themeObserver !== null || typeof MutationObserver === 'undefined') return () => undefined
   themeObserver = new MutationObserver(() => {
     if (document.body.getAttribute('data-ds-dark-theme') === 'dsh-background-by-model') return
-    if (!(rHasColor() || rBgDark() !== null)) return
+    if (!rHasColor()) return
     if (themeRaf !== 0) return
     themeRaf = requestAnimationFrame(() => {
       themeRaf = 0
@@ -784,21 +625,13 @@ export function watchThemeResets(): () => void {
   }
 }
 
+// ── Wallpaper layer ─────────────────────────────────────────────────────────
 function ensureWpContainer(): void {
   if (!wpEl || !document.body.contains(wpEl)) {
     wpEl = document.createElement('div')
     wpEl.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;'
     document.body.prepend(wpEl)
   }
-}
-
-function clearVideoEl(): void {
-  if (videoEl === null) return
-  videoEl.pause()
-  videoEl.removeAttribute('src')
-  videoEl.load()
-  videoEl.remove()
-  videoEl = null
 }
 
 /** Intrinsic-size cache for the center mode (native pixels of the current image). */
@@ -819,8 +652,7 @@ function imageNatSize(url: string, cb: (w: number, h: number) => void): void {
 // (proportional to the image's pixel area, worse under backdrop blur). During a
 // slider drag we swap the layer's background-image to a bounded-size JPEG copy,
 // slashing that per-frame raster cost; the full-res image is restored on release
-// and stays browser-cached, so the swap is cheap. Precomputed after each image
-// apply so the first drag needs no decode hitch.
+// and stays browser-cached, so the swap is cheap.
 const DRAG_MAX_SIDE = 720
 
 let lowResUrl: string | null = null
@@ -848,8 +680,8 @@ function captureLowRes(url: string, cb: (low: string | null) => void): void {
 }
 
 function setDragLow(on: boolean): void {
-  if (cfg.backgroundType !== 'image' || on === dragLow || !wpEl) return
-  const full = rWpImage()
+  if (on === dragLow || !wpEl) return
+  const full = rWp()
   if (!full) return
   if (on) {
     dragLow = true
@@ -882,8 +714,6 @@ export function watchWallpaperDragQuality(): () => void {
 }
 
 function applyImageWp(url: string): void {
-  clearDynamicBg()
-  clearVideoEl()
   ensureWpContainer()
   const bg = rBgState()
   const mode = rBgMode()
@@ -941,51 +771,6 @@ function applyImageWp(url: string): void {
   applyWpEffects()
 }
 
-/** Video wallpaper: a muted looping <video> inside the wallpaper layer.
- *  Placement modes map onto object-fit (tile has no video equivalent and
- *  falls back to cover). */
-function applyVideoWp(url: string): void {
-  clearDynamicBg()
-  ensureWpContainer()
-  if (wpEl!.style.backgroundImage !== 'none') wpEl!.style.backgroundImage = 'none'
-  if (videoEl === null || !videoEl.isConnected) {
-    videoEl = document.createElement('video')
-    videoEl.muted = true
-    videoEl.loop = true
-    videoEl.autoplay = true
-    videoEl.playsInline = true
-    videoEl.preload = 'auto'
-    videoEl.setAttribute('playsinline', '')
-    videoEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-position:center;'
-    // Attach before loading so the element is in the document when play()
-    // resolves; a detached video can defer its first rendered frame.
-    wpEl!.appendChild(videoEl)
-    videoEl.setAttribute('src', url)
-    void videoEl.play().catch(() => undefined)
-  } else if (videoEl.getAttribute('src') !== url) {
-    // Compare the attribute, not videoEl.src: the property getter resolves to
-    // an absolute URL that would never match the relative serve URL and would
-    // restart playback on every re-apply.
-    videoEl.setAttribute('src', url)
-    void videoEl.play().catch(() => undefined)
-  }
-  const mode = rBgMode()
-  const bg = rVideoBgState()
-  if (mode === 'fit' && bg.iw > 0) {
-    // Editor-committed box at contain-fit scale × zoom, centered on the
-    // fractional point; object-fit:fill stretches the frame into the box
-    // (same aspect ratio, so nothing distorts).
-    const fit = Math.min(window.innerWidth / bg.iw, window.innerHeight / bg.ih)
-    const w = bg.iw * fit * bg.zoom
-    const h = bg.ih * fit * bg.zoom
-    videoEl.style.cssText = `position:absolute;left:${bg.x * window.innerWidth - w / 2}px;top:${bg.y * window.innerHeight - h / 2}px;width:${w}px;height:${h}px;object-fit:fill;`
-  } else {
-    videoEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-position:center;'
-    videoEl.style.objectFit = mode === 'stretch' ? 'fill' : (mode === 'fill' || mode === 'tile') ? 'cover' : 'contain'
-  }
-  applyWpEffects()
-}
-
 function applyWpEffects(): void {
   if (!wpEl) return
   const blur = rBl()
@@ -993,56 +778,32 @@ function applyWpEffects(): void {
   wpEl.style.opacity = String(rWop())
 }
 
+/** Repaint the wallpaper layer, the token palette and every interface part from
+ *  the ACTIVE rule. This is the single entry point a rule switch goes through. */
 export function applyWp(): void {
   const url = rWp()
-  if (cfg.backgroundType === 'video') {
-    // The frame snapshot (rWp's video branch) is preview-only; the layer plays
-    // the video from its own slot.
-    const vurl = rWpVideo()
-    if (vurl) {
-      applyVideoWp(vurl)
-    } else {
-      clearDynamicBg()
-      clearVideoEl()
-      wpEl?.remove(); wpEl = null
-    }
-  } else if (cfg.backgroundType !== 'image' && cfg.generatedBg) {
-    // Recreate the live canvas from saved params if one is not active yet
-    // (boot or after import).
-    clearVideoEl()
-    if (!wpController) {
-      applyGeneratedBg(cfg.generatedBg)
-      return
-    }
-    ensureWpContainer()
-    if (wpController.canvas.parentElement !== wpEl) wpEl!.appendChild(wpController.canvas)
-    applyWpEffects()
-  } else if (url) {
+  if (url) {
     applyImageWp(url)
   } else {
     // No background: tear down the layer but keep tokens/blur intact.
-    clearDynamicBg()
-    clearVideoEl()
     wpEl?.remove(); wpEl = null
   }
-  // Write tokens only when there is a color to derive them from (a saved pick,
-  // or a generated background whose brightness verdict is known) — on boot the
-  // persisted state has not loaded yet, and rColor() would flash the default.
-  if (rHasColor() || rBgDark() !== null) {
-    applyCustomTokens(rOps())
-  }
   if (rHasColor()) {
+    applyCustomTokens(rOps())
     applySettingsOverrides(rSop())
     applyTrajectoryOverrides(rTrajectoryOpacity())
+  } else {
+    // A rule without a saved color means "use the system theme" — drop the
+    // plugin's overrides so the host palette shows through.
+    clearCustomTokens()
+    document.body.removeAttribute('data-ds-dark-theme')
+    baseTokenKey = ''
+    lastBgKey = ''
   }
   applyPartBlurs(rBlurs())
 }
 
 export function teardownWp(): void {
-  clearDynamicBg()
-  clearVideoEl()
-  disposeVideoObjectUrl()
-  setBgDark(null)
   wpEl?.remove(); wpEl = null
   clearCustomTokens()
   tokenStyleEl?.remove(); tokenStyleEl = null
@@ -1056,7 +817,6 @@ export function teardownWp(): void {
   document.documentElement.style.removeProperty('--dsh-any-traj-layer-1')
   document.documentElement.style.removeProperty('--dsh-any-traj-layer-2')
   document.documentElement.style.removeProperty('--dsh-any-traj-layer-3')
-  document.documentElement.style.removeProperty('--dsh-any-bg-settings-card-surface')
   document.documentElement.style.removeProperty('--dsh-any-blur-settings')
   document.documentElement.style.removeProperty('--dsh-any-blur-card-panels')
   document.documentElement.style.removeProperty('--dsh-any-input-blur')

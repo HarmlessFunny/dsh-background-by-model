@@ -11,12 +11,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ThemeSectionProps } from '../types'
 import { ensureUiCss, NAV_ITEM_H, NAV_GAP } from './ui.css'
-import { SunIcon, DropletIcon, LayersIcon, PhotoIcon, SlidersIcon, CheckIcon, AlertIcon } from './icons'
+import { SunIcon, LayersIcon, PhotoIcon, SlidersIcon, CheckIcon, AlertIcon } from './icons'
 import { ErrorBoundary } from './ErrorBoundary'
 import { Portal } from './Portal'
-import { ColorPage } from './pages/ColorPage'
 import { InterfacePage } from './pages/InterfacePage'
-import { BackgroundPage } from './pages/BackgroundPage'
+import { ModelBgPage } from './pages/ModelBgPage'
 import { ProfilePage } from './pages/ProfilePage'
 
 export function ThemeSection(props: ThemeSectionProps) {
@@ -35,9 +34,8 @@ export function ThemeSection(props: ThemeSectionProps) {
   }
 
   const pages = [
-    { label: t('pageColor'), Icon: DropletIcon, node: <ColorPage p={props} notify={notify} /> },
     { label: t('pageInterface'), Icon: LayersIcon, node: <InterfacePage p={props} /> },
-    { label: t('pageBackground'), Icon: PhotoIcon, node: <BackgroundPage p={props} /> },
+    { label: t('pageModelBg'), Icon: PhotoIcon, node: <ModelBgPage p={props} notify={notify} /> },
     { label: t('pageProfile'), Icon: SlidersIcon, node: <ProfilePage p={props} notify={notify} /> },
   ]
 

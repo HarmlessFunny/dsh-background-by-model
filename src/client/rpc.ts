@@ -1,11 +1,7 @@
-import type { RpcResultLike } from './types'
-import { cfg, adoptConfig, setWpUrl, setWpImageUrl, setWpVideoUrl } from './state'
+import type { FetchResult, RpcResultLike } from './types'
+import { cfg } from './state'
 
 export const RPC_CHANNEL = '/dsh-background-by-model'
-/** Same-origin serve URL of the persisted video (enough for <video src>/fetch). */
-export const VIDEO_SERVE_URL = '/dsh-background-by-model/video'
-/** HTTP route new videos are POSTed to as raw bytes (see uploadVideo). */
-export const VIDEO_UPLOAD_URL = '/dsh-background-by-model/video/upload'
 const RPC_NS = 'dshBackgroundByModel'
 const rpcEndpoint = (method: string): string => `${RPC_NS}/${method}`
 
@@ -24,6 +20,16 @@ async function rpcCall(method: string, payload: unknown): Promise<unknown> {
     return undefined
   } catch (e) {
     console.warn(`dsh-background-by-model: rpc "${method}" threw`, e)
+    return undefined
+  }
+}
+
+/** Raw call for the few places that need the host's error message. */
+async function rpcRaw(method: string, payload: unknown): Promise<RpcResultLike | undefined> {
+  if (!rpcCallFn) return undefined
+  try {
+    return await rpcCallFn(rpcEndpoint(method), payload)
+  } catch {
     return undefined
   }
 }
@@ -49,75 +55,61 @@ export function flushSave(): void {
   void rpcCall('writeConfig', { config: cfg })
 }
 
-/** Persist the current config immediately (import path — no debounce). */
+/** Persist the current config immediately (no debounce). */
 export function persistConfig(): void {
   void rpcCall('writeConfig', { config: cfg })
 }
 
-/** Load the persisted theme (config + wallpaper + video URL) from the node half. */
-export async function loadPersisted(): Promise<void> {
+export interface Persisted { config: unknown; slots: string[] }
+
+/** Load the persisted config plus the list of stored image slots. */
+export async function loadPersisted(): Promise<Persisted | null> {
   const data = await rpcCall('read', {})
-  if (data && typeof data === 'object') {
-    const d = data as { config?: unknown; wallpaper?: unknown; videoUrl?: unknown }
-    if (d.config) adoptConfig(d.config)
-    // Uploaded image and video keep their own slots so type switches never
-    // discard them; in image mode the caller points wpUrl at it.
-    if (typeof d.wallpaper === 'string') setWpImageUrl(d.wallpaper)
-    else if (d.wallpaper === null) setWpImageUrl(null)
-    // The video travels as a serve URL; the frame snapshot is re-captured by
-    // the boot restore in index.tsx when needed.
-    if (typeof d.videoUrl === 'string') setWpVideoUrl(d.videoUrl, cfg.videoMime)
-    else if (d.videoUrl === null) setWpVideoUrl(null, null)
-    if (cfg.backgroundType === 'image') setWpUrl(d.wallpaper === null ? null : d.wallpaper as string | null)
-  }
+  if (data === null || typeof data !== 'object') return null
+  const d = data as { config?: unknown; slots?: unknown }
+  const slots = Array.isArray(d.slots) ? d.slots.filter((s): s is string => typeof s === 'string') : []
+  return { config: d.config, slots }
 }
 
-/** Persist a wallpaper (null removes it); one-shot, no debounce. */
-export function persistWallpaper(dataUrl: string | null): void {
-  void rpcCall('setWallpaper', { dataUrl })
+/** Read one rule image as a data URL (null when the slot is empty). */
+export async function readImage(slot: string): Promise<string | null> {
+  const data = await rpcCall('readImage', { slot })
+  if (data === null || typeof data !== 'object') return null
+  const url = (data as { dataUrl?: unknown }).dataUrl
+  return typeof url === 'string' ? url : null
 }
 
-/** Persist a background video (null removes it); resolves true once on disk,
- *  so callers only switch playback to the serve URL after acceptance. */
-export async function persistVideo(dataUrl: string | null): Promise<boolean> {
-  const res = await rpcCall('setVideo', { dataUrl })
+/** Persist (or clear) one rule image; one-shot, no debounce. */
+export async function writeImage(slot: string, dataUrl: string | null): Promise<boolean> {
+  const res = await rpcCall('writeImage', { slot, dataUrl })
   return res === true
 }
 
-/** Download a wallpaper from a network URL and persist it into the local slot
- *  (the host replaces wallpaper.jpg). Returns the freshly stored data-URL on
- *  success, or the host's failure message. */
-export async function setWallpaperFromUrl(url: string): Promise<{ ok: boolean; dataUrl?: string | null; error?: string }> {
-  if (!rpcCallFn) return { ok: false, error: 'rpc not ready' }
-  let res: RpcResultLike | undefined
-  try {
-    res = await rpcCallFn(rpcEndpoint('setWallpaperUrl'), { url })
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) }
-  }
+/** Remove one rule image from disk. */
+export async function deleteImage(slot: string): Promise<boolean> {
+  const res = await rpcCall('deleteImage', { slot })
+  return res === true
+}
+
+/** Download an image from a network URL into one slot, replacing its bytes. */
+export async function fetchImageUrl(slot: string, url: string): Promise<FetchResult> {
+  const res = await rpcRaw('fetchImageUrl', { slot, url })
   if (!res) return { ok: false, error: 'no response' }
   if (res.ok !== true) {
     const err = (res as { error?: { message?: string } }).error
     return { ok: false, error: err?.message ?? 'request failed' }
   }
-  const v = res.value as { ok?: boolean; dataUrl?: string | null; error?: string }
+  const v = res.value as FetchResult | undefined
   return v?.ok === true
     ? { ok: true, dataUrl: v.dataUrl ?? null }
     : { ok: false, error: v?.error ?? 'failed' }
 }
 
-/** Upload a video's raw bytes over HTTP (MIME in Content-Type, body untouched
- *  — no base64 inflation that would blow the RPC body limit on large clips). */
-export async function uploadVideo(blob: Blob, mime: string): Promise<boolean> {
-  try {
-    const res = await fetch(VIDEO_UPLOAD_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': mime || 'application/octet-stream' },
-      body: blob,
-    })
-    return res.ok
-  } catch (e) {
-    console.warn('dsh-background-by-model: video upload failed', e)
-    return false
-  }
+/** Host default model — used only when the per-session services are absent. */
+export async function readDefaultModel(): Promise<string | null> {
+  const data = await rpcCall('defaultModel', {})
+  if (data === null || typeof data !== 'object') return null
+  const d = data as { provider?: unknown; model?: unknown }
+  const parts = [d.provider, d.model].filter((s): s is string => typeof s === 'string' && s !== '')
+  return parts.length > 0 ? parts.join(' ') : null
 }
