@@ -196,6 +196,12 @@ export interface ThemeStoreState {
    * model — which is NOT necessarily what this session is using.
    */
   modelSource: 'session' | 'default'
+  /**
+   * Why no per-session model could be read, when none could: '' while the
+   * watcher is still waiting for the sessions service, otherwise the failing hop
+   * or `fallback` once only the host default answered.
+   */
+  modelNote: string
   /** Id of the rule the current model resolved to. */
   activeRuleId: string | null
   /** Whether the active rule was picked by a match (false = fallback). */

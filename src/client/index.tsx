@@ -91,6 +91,10 @@ export function apply(ctx: Ctx): void {
   let rulesRev = 0
   let modelText = ''
   let modelSource: 'session' | 'default' = 'default'
+  // Why no per-session model is available yet ('waiting' until the sessions
+  // service mounts, then the failing hop, then 'fallback'). Shown by the status
+  // readout so a dead hop is never mistaken for a real model.
+  let modelNote = 'waiting'
   // Text + source last acted on, so the watch's forced re-emits (and the 1.5 s
   // safety poll) cannot re-run the whole apply while nothing changed.
   let modelKey = '\u0000'
@@ -101,15 +105,17 @@ export function apply(ctx: Ctx): void {
       rulesRev: -1,
       model: '',
       modelSource: 'session' as 'session' | 'default',
+      modelNote: 'waiting',
       activeRuleId: null as string | null,
       matched: false,
     }),
     actions: {
-      sync: (d: any, url: string | null, r: number, rr: number, model: string, source: 'session' | 'default', id: string | null, matched: boolean) => {
+      sync: (d: any, url: string | null, r: number, rr: number, model: string, source: 'session' | 'default', note: string, id: string | null, matched: boolean) => {
         if (r > d.rev) { d.url = url; d.rev = r }
         if (rr > d.rulesRev) d.rulesRev = rr
         d.model = model
         d.modelSource = source
+        d.modelNote = note
         d.activeRuleId = id
         d.matched = matched
       },
@@ -118,7 +124,7 @@ export function apply(ctx: Ctx): void {
   let bound: { sync: (...a: any[]) => void } | null = null
   const sync = (): void => {
     rev++
-    bound?.sync(rWp(), rev, rulesRev, modelLabel !== '' ? modelLabel : modelText, modelSource, activeRuleId, activeMatched)
+    bound?.sync(rWp(), rev, rulesRev, modelLabel !== '' ? modelLabel : modelText, modelSource, modelNote, activeRuleId, activeMatched)
   }
 
   /** Resolve the active rule for the current model and repaint everything. */
@@ -146,14 +152,19 @@ export function apply(ctx: Ctx): void {
   // ── 5. Model watch ────────────────────────────────────────────────────────
   // The session's own durable model selection is the authority; the host default
   // is only a last resort, and the settings page labels it as such.
-  const offModel = watchModel(ctx, (text, label, source) => {
-    const key = `${text}\u0001${source}`
+  const offModel = watchModel(ctx, (text, label, source, note) => {
+    const key = `${text}\u0001${source}\u0001${note}`
     if (key === modelKey) return
+    const textChanged = text !== modelText
     modelKey = key
     modelText = text
     modelSource = source
+    modelNote = note
     setModelLabel(label !== '' ? label : text)
-    applyActive()
+    // A note-only change (e.g. still waiting for the sessions service) must
+    // refresh the readout without repainting the whole interface.
+    if (textChanged) applyActive()
+    else sync()
   })
   ctx.effect(() => () => offModel(), 'dsh-background-by-model: model watch')
   // A trimmed client (or one whose session is not materialized yet) leaves the
@@ -163,9 +174,10 @@ export function apply(ctx: Ctx): void {
     if (modelText !== '') return
     const fallback = await readDefaultModel()
     if (fallback !== null && modelText === '') {
-      modelKey = `${fallback}\u0001default`
+      modelKey = `${fallback}\u0001default\u0001fallback`
       modelText = fallback
       modelSource = 'default'
+      modelNote = 'fallback'
       setModelLabel(fallback)
       applyActive()
     }

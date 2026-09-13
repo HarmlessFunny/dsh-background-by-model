@@ -22,6 +22,17 @@ const BG_MODES: Array<{ mode: BgMode; key: string }> = [
 /** Seed color a rule starts from when the user picks one for the first time. */
 const SEED_COLOR: [number, number, number] = [220, 0.55, 0.25]
 
+/**
+ * Failing-hop codes the model watcher can report, mapped to their copy. Only
+ * these are rendered: `waiting` and `fallback` already have their own hints.
+ */
+const MODEL_NOTE_KEYS: Record<string, string | undefined> = {
+  'no-service': 'statusNoteNoService',
+  'no-session': 'statusNoteNoSession',
+  'no-projection': 'statusNoteNoProjection',
+  'empty-selection': 'statusNoteEmptySelection',
+}
+
 function toHex(rgb: [number, number, number]): string {
   return '#' + rgb.map(v => Math.round(v).toString(16).padStart(2, '0')).join('')
 }
@@ -63,6 +74,11 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
         {store.model === '' ? <p className="dab-hint" style={{ marginTop: 9 }}>{t('statusUnknownHint')}</p> : null}
         {store.model !== '' && store.modelSource === 'default'
           ? <p className="dab-hint" style={{ marginTop: 9 }}>{t('statusSourceDefaultHint')}</p>
+          : null}
+        {/* The failing hop, so a broken service lookup is never mistaken for a
+            session that really is on some other model. */}
+        {MODEL_NOTE_KEYS[store.modelNote] !== undefined
+          ? <p className="dab-hint" style={{ marginTop: 6 }}>{t(MODEL_NOTE_KEYS[store.modelNote]!)}</p>
           : null}
       </section>
 
