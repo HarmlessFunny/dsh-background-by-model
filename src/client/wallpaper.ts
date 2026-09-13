@@ -625,13 +625,70 @@ export function watchThemeResets(): () => void {
   }
 }
 
-// ── Wallpaper layer ─────────────────────────────────────────────────────────
+// ── Wallpaper layer: two stacked layers, cross-faded on a rule switch ───────
+// The incoming image fades in ON TOP of the outgoing one at full opacity.
+// Fading the old one out at the same time would drop the composite below full
+// alpha at the midpoint — both images half transparent — and the interface
+// behind would flash through.
+//
+// A layer addresses its image by OBJECT URL (see displayImageOf in state):
+// assigning a `url(data:…)` background re-decodes the photo on every switch,
+// which is where a large wallpaper's stall comes from, while a blob URL is
+// served from the browser's memory cache after the first load.
+const FADE_MS = 320
+
+interface WpLayer {
+  el: HTMLDivElement
+  /** Display URL of the image painted on this layer; null when empty. */
+  url: string | null
+}
+
+let layers: [WpLayer, WpLayer] | null = null
+/** Index of the layer the user is looking at. */
+let front = 0
+/** Index of the layer fading in right now, if any. */
+let pending: 0 | 1 | null = null
+let fadeTimer: number | null = null
+
+function createLayer(): WpLayer {
+  const el = document.createElement('div')
+  el.dataset.dabWpLayer = ''
+  el.style.cssText = 'position:absolute;inset:0;opacity:0;background-repeat:no-repeat;background-position:center;'
+  return { el, url: null }
+}
+
 function ensureWpContainer(): void {
-  if (!wpEl || !document.body.contains(wpEl)) {
-    wpEl = document.createElement('div')
-    wpEl.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;'
-    document.body.prepend(wpEl)
-  }
+  if (wpEl !== null && layers !== null && document.body.contains(wpEl)) return
+  if (fadeTimer !== null) { window.clearTimeout(fadeTimer); fadeTimer = null }
+  const a = createLayer()
+  const b = createLayer()
+  wpEl = document.createElement('div')
+  wpEl.dataset.dabWp = ''
+  wpEl.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;'
+  wpEl.append(a.el, b.el)
+  layers = [a, b]
+  front = 0
+  pending = null
+  document.body.prepend(wpEl)
+}
+
+/** Drop the whole wallpaper layer (no rule carries an image). */
+function dropWpContainer(): void {
+  if (fadeTimer !== null) { window.clearTimeout(fadeTimer); fadeTimer = null }
+  pending = null
+  front = 0
+  layers = null
+  wpEl?.remove()
+  wpEl = null
+}
+
+/** Release one layer's image — the layer is fully covered when this is called. */
+function clearLayer(l: WpLayer): void {
+  if (l.url === null) return
+  l.url = null
+  l.el.style.backgroundImage = ''
+  l.el.style.backgroundSize = ''
+  l.el.style.backgroundPosition = ''
 }
 
 /** Intrinsic-size cache for the center mode (native pixels of the current image). */
@@ -647,135 +704,170 @@ function imageNatSize(url: string, cb: (w: number, h: number) => void): void {
   img.src = url
 }
 
-// ── Drag-time wallpaper downscaling ──────────────────────────────────────────
-// Repainting translucent surfaces over a full-resolution wallpaper is expensive
-// (proportional to the image's pixel area, worse under backdrop blur). During a
-// slider drag we swap the layer's background-image to a bounded-size JPEG copy,
-// slashing that per-frame raster cost; the full-res image is restored on release
-// and stays browser-cached, so the swap is cheap.
-const DRAG_MAX_SIDE = 720
-
-let lowResUrl: string | null = null
-let lowResFor = ''
-let dragLow = false
-
-function captureLowRes(url: string, cb: (low: string | null) => void): void {
-  if (lowResFor === url) { cb(lowResUrl); return }
-  const img = new Image()
-  img.onload = () => {
-    const k = Math.min(1, DRAG_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight))
-    if (k >= 1) { lowResFor = url; lowResUrl = null; cb(null); return }
-    const c = document.createElement('canvas')
-    c.width = Math.max(1, Math.round(img.naturalWidth * k))
-    c.height = Math.max(1, Math.round(img.naturalHeight * k))
-    const g = c.getContext('2d')
-    if (!g) { lowResFor = url; lowResUrl = null; cb(null); return }
-    g.drawImage(img, 0, 0, c.width, c.height)
-    const low = c.toDataURL('image/jpeg', 0.85)
-    lowResFor = url; lowResUrl = low
-    cb(low)
-  }
-  img.onerror = () => cb(null)
-  img.src = url
-}
-
-function setDragLow(on: boolean): void {
-  if (on === dragLow || !wpEl) return
-  const full = rWp()
-  if (!full) return
-  if (on) {
-    dragLow = true
-    captureLowRes(full, low => {
-      if (!dragLow || !wpEl || low === null) return
-      if (wpEl.style.backgroundImage !== `url("${low}")`) wpEl.style.backgroundImage = `url("${low}")`
-    })
-  } else {
-    dragLow = false
-    if (wpEl.style.backgroundImage !== `url("${full}")`) wpEl.style.backgroundImage = `url("${full}")`
-  }
-}
-
-/** While any range slider in the app is being dragged, run the wallpaper at
- *  reduced resolution; restore on release. Returns a disposer for teardown. */
-export function watchWallpaperDragQuality(): () => void {
-  const isRange = (t: EventTarget | null): boolean =>
-    t instanceof HTMLInputElement && t.type === 'range'
-  const down = (e: PointerEvent): void => { if (isRange(e.target)) setDragLow(true) }
-  const up = (): void => { if (dragLow) setDragLow(false) }
-  window.addEventListener('pointerdown', down, true)
-  window.addEventListener('pointerup', up, true)
-  window.addEventListener('pointercancel', up, true)
-  return () => {
-    window.removeEventListener('pointerdown', down, true)
-    window.removeEventListener('pointerup', up, true)
-    window.removeEventListener('pointercancel', up, true)
-    if (dragLow) setDragLow(false)
-  }
-}
-
-function applyImageWp(url: string): void {
-  ensureWpContainer()
+/** Paint one layer's image and its placement. The placement always follows the
+ *  ACTIVE rule: the incoming layer is painted right after a switch, and a
+ *  repaint of the same URL (framing edit, viewport resize) must use the rule's
+ *  current framing. */
+function paintLayer(l: WpLayer, url: string): void {
+  const el = l.el
+  l.url = url
   const bg = rBgState()
   const mode = rBgMode()
   const next = `url("${url}")`
-  // Skip re-setting the same data URL — re-decoding it flashes the wallpaper
-  // blank for a frame on boot re-applies.
-  if (wpEl!.style.backgroundImage !== next) {
-    wpEl!.style.backgroundImage = next
+  // Skip re-setting the same URL — a redundant assignment can flash the layer
+  // blank for a frame while it is re-resolved.
+  if (el.style.backgroundImage !== next) {
+    el.style.backgroundImage = next
   }
   if (mode === 'fit') {
-    wpEl!.style.backgroundRepeat = 'no-repeat'
+    el.style.backgroundRepeat = 'no-repeat'
     if (bg.iw > 0) {
       // Contain-fit at zoom with the image center pinned to the committed
       // fractional viewport point, so the framed region survives viewport changes.
       const fit = Math.min(window.innerWidth / bg.iw, window.innerHeight / bg.ih)
       const w = bg.iw * fit * bg.zoom
       const h = bg.ih * fit * bg.zoom
-      wpEl!.style.backgroundSize = `${w}px ${h}px`
-      wpEl!.style.backgroundPosition = `${bg.x * window.innerWidth - w / 2}px ${bg.y * window.innerHeight - h / 2}px`
+      el.style.backgroundSize = `${w}px ${h}px`
+      el.style.backgroundPosition = `${bg.x * window.innerWidth - w / 2}px ${bg.y * window.innerHeight - h / 2}px`
     } else {
       // Fresh image: match the editor's initial centered contain view.
-      wpEl!.style.backgroundSize = 'contain'
-      wpEl!.style.backgroundPosition = 'center'
+      el.style.backgroundSize = 'contain'
+      el.style.backgroundPosition = 'center'
     }
   } else if (mode === 'fill') {
-    wpEl!.style.backgroundRepeat = 'no-repeat'
-    wpEl!.style.backgroundSize = 'cover'
-    wpEl!.style.backgroundPosition = 'center'
+    el.style.backgroundRepeat = 'no-repeat'
+    el.style.backgroundSize = 'cover'
+    el.style.backgroundPosition = 'center'
   } else if (mode === 'stretch') {
-    wpEl!.style.backgroundRepeat = 'no-repeat'
-    wpEl!.style.backgroundSize = '100% 100%'
-    wpEl!.style.backgroundPosition = 'center'
+    el.style.backgroundRepeat = 'no-repeat'
+    el.style.backgroundSize = '100% 100%'
+    el.style.backgroundPosition = 'center'
   } else if (mode === 'tile') {
-    wpEl!.style.backgroundRepeat = 'repeat'
+    el.style.backgroundRepeat = 'repeat'
     // background-size:auto resolves the intrinsic size per tile.
-    wpEl!.style.backgroundSize = 'auto'
-    wpEl!.style.backgroundPosition = '0px 0px'
+    el.style.backgroundSize = 'auto'
+    el.style.backgroundPosition = '0px 0px'
   } else {
     // Center: native size, centered. The intrinsic size needs an async decode;
     // 'contain' keeps a sensible frame until it lands.
-    wpEl!.style.backgroundRepeat = 'no-repeat'
-    wpEl!.style.backgroundSize = 'contain'
-    wpEl!.style.backgroundPosition = 'center'
+    el.style.backgroundRepeat = 'no-repeat'
+    el.style.backgroundSize = 'contain'
+    el.style.backgroundPosition = 'center'
     imageNatSize(url, (w, h) => {
-      if (!wpEl || wpEl.style.backgroundImage !== next || rBgMode() !== 'center') return
+      if (l.url !== url || el.style.backgroundImage !== next || rBgMode() !== 'center') return
       if (w > 0 && h > 0) {
-        wpEl.style.backgroundSize = `${w}px ${h}px`
-        wpEl.style.backgroundPosition = 'center'
+        el.style.backgroundSize = `${w}px ${h}px`
+        el.style.backgroundPosition = 'center'
       }
     })
   }
-  // Precompute the drag-time downscaled copy now so the first drag swaps without
-  // a decode hitch (the original is already loaded, so this hits the cache).
-  captureLowRes(url, () => undefined)
+}
+
+/** Whether a switch should animate: nothing to fade from, an invisible
+ *  wallpaper and a reduced-motion preference all switch instantly. */
+function canFade(from: WpLayer): boolean {
+  if (from.url === null) return false
+  if (rWop() <= 0.01) return false
+  const mm = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+  return mm === null || !mm.matches
+}
+
+/** End an in-flight fade: promote the incoming layer, free the one under it. */
+function finishFade(idx: 0 | 1): void {
+  if (layers === null || pending !== idx) return
+  if (fadeTimer !== null) { window.clearTimeout(fadeTimer); fadeTimer = null }
+  pending = null
+  front = idx
+  const el = layers[idx].el
+  // Re-asserted so a fade whose frames never ran (background tab) still ends on
+  // the visible image.
+  el.style.opacity = '1'
+  el.style.willChange = ''
+  // Covered from here on: drop its bytes so a second full-resolution image is
+  // never left decoded behind the visible one.
+  clearLayer(layers[idx === 0 ? 1 : 0])
+}
+
+/** Land an in-flight fade on its end state at once (another switch arrived). */
+function settleFade(): void {
+  if (layers === null || pending === null) return
+  const idx = pending
+  if (fadeTimer !== null) { window.clearTimeout(fadeTimer); fadeTimer = null }
+  pending = null
+  front = idx
+  const el = layers[idx].el
+  el.style.transition = 'none'
+  el.style.opacity = '1'
+  el.style.willChange = ''
+  clearLayer(layers[idx === 0 ? 1 : 0])
+}
+
+/** Abandon an in-flight fade: the layer it was leaving holds the wanted image. */
+function cancelFade(): void {
+  if (layers === null || pending === null) return
+  const idx = pending
+  if (fadeTimer !== null) { window.clearTimeout(fadeTimer); fadeTimer = null }
+  pending = null
+  const el = layers[idx].el
+  el.style.transition = 'none'
+  el.style.opacity = '0'
+  el.style.willChange = ''
+  clearLayer(layers[idx])
+}
+
+/** Show `url` on the wallpaper layer, cross-fading from what it paints now. */
+function applyImageWp(url: string): void {
+  ensureWpContainer()
+  const ls = layers!
+  if (pending !== null) {
+    // A → B → A inside one fade: keep whichever layer already paints the wanted
+    // image instead of queueing a third one.
+    if (ls[pending].url === url) { paintLayer(ls[pending], url); applyWpEffects(); return }
+    if (ls[front].url === url) { cancelFade(); paintLayer(ls[front], url); applyWpEffects(); return }
+    settleFade()
+  }
+  if (ls[front].url === url) { paintLayer(ls[front], url); applyWpEffects(); return }
+  const from = ls[front]
+  const idx: 0 | 1 = front === 0 ? 1 : 0
+  const target = ls[idx]
+  const el = target.el
+  // Rewind the incoming layer before its bytes land, so a stale image from an
+  // earlier switch can never flash through while the new one rasterizes.
+  el.style.transition = 'none'
+  el.style.opacity = '0'
+  el.style.zIndex = '1'
+  from.el.style.zIndex = '0'
+  paintLayer(target, url)
   applyWpEffects()
+  if (!canFade(from)) {
+    el.style.opacity = '1'
+    front = idx
+    clearLayer(from)
+    return
+  }
+  // will-change promotes the layer in this frame, so the fade itself is a pure
+  // compositor animation that survives the main-thread work a switch triggers
+  // (theme re-registration, token rewrite, settings-panel re-render).
+  el.style.willChange = 'opacity'
+  pending = idx
+  requestAnimationFrame(() => {
+    if (pending !== idx || layers === null) return
+    el.style.transition = `opacity ${FADE_MS}ms ease`
+    el.style.opacity = '1'
+  })
+  fadeTimer = window.setTimeout(() => finishFade(idx), FADE_MS + 160)
 }
 
 function applyWpEffects(): void {
-  if (!wpEl) return
-  const blur = rBl()
-  wpEl.style.filter = blur > 0 ? `blur(${blur}px)` : 'none'
+  if (wpEl === null || layers === null) return
   wpEl.style.opacity = String(rWop())
+  // The blur sits on each LAYER rather than on the container: with the filter on
+  // the parent, every frame of an opacity fade would re-run a full-screen blur
+  // instead of just re-compositing the blurred surface.
+  const blur = rBl()
+  const filter = blur > 0 ? `blur(${blur}px)` : ''
+  layers[0].el.style.filter = filter
+  layers[1].el.style.filter = filter
 }
 
 /** Repaint the wallpaper layer, the token palette and every interface part from
@@ -784,9 +876,9 @@ export function applyWp(): void {
   const url = rWp()
   if (url) {
     applyImageWp(url)
-  } else {
+  } else if (wpEl !== null) {
     // No background: tear down the layer but keep tokens/blur intact.
-    wpEl?.remove(); wpEl = null
+    dropWpContainer()
   }
   if (rHasColor()) {
     applyCustomTokens(rOps())
@@ -804,7 +896,7 @@ export function applyWp(): void {
 }
 
 export function teardownWp(): void {
-  wpEl?.remove(); wpEl = null
+  dropWpContainer()
   clearCustomTokens()
   tokenStyleEl?.remove(); tokenStyleEl = null
   removeViewCards()
@@ -840,5 +932,8 @@ export function setWpOpacity(v: number): void {
 
 /** Live wallpaper-blur updates during slider drag (no full re-apply). */
 export function setWpBlur(v: number): void {
-  if (wpEl) wpEl.style.filter = v > 0 ? `blur(${v}px)` : 'none'
+  if (layers === null) return
+  const filter = v > 0 ? `blur(${v}px)` : ''
+  layers[0].el.style.filter = filter
+  layers[1].el.style.filter = filter
 }

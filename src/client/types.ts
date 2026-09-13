@@ -148,7 +148,7 @@ export interface ThemeConfig {
  * pushed through this store instead of riding the props.
  */
 export interface ThemeStoreState {
-  /** Data URL of the active rule's image (preview source). */
+  /** Paintable URL (object URL) of the active rule's image. */
   url: string | null
   rev: number
   /** Bumped whenever the rule list itself changed (add/remove/reorder/edit). */
@@ -168,7 +168,7 @@ export interface FetchResult { ok: boolean; dataUrl?: string | null; error?: str
 export interface ThemeSectionProps {
   t: (key: string) => string
   useStore: <T>(selector: (s: ThemeStoreState) => T) => T
-  /** Live image data URL of a slot, or null when none is stored yet. */
+  /** Live paintable URL (object URL) of a slot, or null when none is stored. */
   imageOf: (slot: string) => string | null
   /** Create a rule at the END of the list; returns its id. */
   addRule: () => string
