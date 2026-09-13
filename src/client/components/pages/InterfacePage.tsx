@@ -40,7 +40,6 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
         <div className="dab-overline">Surfaces</div>
         <h2 className="dab-h1">{t('uiTitle')}</h2>
         <p className="dab-desc">{t('descInterface')}</p>
-        <p className="dab-hint" style={{ marginTop: 7 }}>{t('uiScopeHint')}</p>
       </header>
 
       <div className="dab-grid-parts">
@@ -139,8 +138,6 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
                   blurs[blurKey] = v
                   setBlurs(blurs)
                 }} />
-
-              {isRightbar ? <p className="dab-hint" style={{ marginTop: 9 }}>{t('uiPreviewHint')}</p> : null}
             </section>
           )
         })}

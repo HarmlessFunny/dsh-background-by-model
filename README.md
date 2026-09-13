@@ -94,10 +94,10 @@ One interface, one config — only the current model differs:
 
 ### Global settings (Interface tab)
 
-- **Per-part Interface Opacity** — Independent sliders for the main background, sidebar, file preview panel, cards & panels (including the dropdowns and menus around the dialog), the input & controls (composer box, Cordis panel), plus the settings panel and the conversation text box.
+- **Per-part Interface Opacity** — Independent sliders for the main background, left panel, right panel, cards & panels (including the dropdowns and menus around the dialog), the input & controls (composer box, Cordis panel), plus the settings panel and the conversation text box.
 - **Per-part Interface Blur** — Frosted-glass `backdrop-filter` blur (`0–60 px`) for each interface part, including a real backdrop on the composer and Cordis panel via stable host selectors.
 - **Conversation & Trajectory** — The message list is wrapped in a translucent card automatically, and the trajectory page gets whole-page opacity & blur controls, letting the wallpaper shine through the content.
-- **File Preview Panel** — The column that slides in from the right when you open a file now has a card of its own: its opacity follows **Main background** until you drag it (then this card owns it), and its blur stacks on top of the main-background blur. While closed it takes no space and costs nothing.
+- **Right Panel** — The column that slides in from the right when you open a file now has a card of its own: its opacity follows **Main background** until you drag it (then this card owns it), and its blur stacks on top of the main-background blur. While closed it takes no space and costs nothing.
 
 ## Settings
 
@@ -105,7 +105,7 @@ Settings → **Theme** now has three tabs:
 
 | Tab | Scope | Contents |
 | --- | --- | --- |
-| **Interface** | Global, shared by every model | Opacity & blur for the main background, sidebar, file preview panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
+| **Interface** | Global, shared by every model | Opacity & blur for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
 | **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's wallpaper, theme color, layout mode, framing, opacity and blur |
 | **Config** | — | Import / export the whole rule set (`dsh-background-by-model-theme.json`) |
 
