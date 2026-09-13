@@ -13,15 +13,15 @@ import type {
 import { NS, zh, en } from './i18n'
 import {
   cfg, adoptConfig, imageOf, displayImageOf, setImage, newRule, nextSlot, nextRuleId, ruleById,
-  normalizeRule, setActive, setModelLabel, activeRuleId, activeMatched, modelLabel, rWp,
+  normalizeRule, setActive, setModelLabel, activeRuleId, activeMatched, modelLabel, rWp, rRightbarOpacity,
 } from './state'
 import {
   RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
   readImage, writeImage, deleteImage, fetchImageUrl, readDefaultModel,
 } from './rpc'
 import {
-  applyWp, teardownWp, applySettingsOverrides, SETTINGS_STYLE_RULE, TRAJECTORY_STYLE_RULE,
-  INPUT_BLUR_RULE, PLACEHOLDER_RULE, watchParts, watchThemeResets,
+  applyWp, teardownWp, applySettingsOverrides, applyRightbarOverrides, SETTINGS_STYLE_RULE, TRAJECTORY_STYLE_RULE,
+  RIGHTBAR_STYLE_RULE, INPUT_BLUR_RULE, PLACEHOLDER_RULE, watchParts, watchThemeResets,
 } from './wallpaper'
 import { genTokens, extractWallpaperColor } from './utils/color'
 import { matchRule, watchModel } from './modelbg'
@@ -82,7 +82,7 @@ export function apply(ctx: Ctx): void {
   styleEl.dataset.plugin = 'dsh-background-by-model'
   // The gradient only applies while applyCustomTokens marks the body with the
   // plugin's own dark-mode value, avoiding matches against the host's attribute.
-  styleEl.textContent = `body[data-ds-dark-theme="dsh-background-by-model"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${INPUT_BLUR_RULE}` + PLACEHOLDER_RULE
+  styleEl.textContent = `body[data-ds-dark-theme="dsh-background-by-model"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${RIGHTBAR_STYLE_RULE}${INPUT_BLUR_RULE}` + PLACEHOLDER_RULE
   document.head.appendChild(styleEl)
   ctx.effect(() => () => { styleEl?.parentNode?.removeChild(styleEl) }, 'dsh-background-by-model: gradient')
 
@@ -332,6 +332,13 @@ export function apply(ctx: Ctx): void {
       setOps: (ops: PartOpacities): void => { cfg.opacities = ops; applyWp(); sync(); saveConfig() },
       setBlurs: (blurs: PartBlurs): void => { cfg.blurs = blurs; applyWp(); sync(); saveConfig() },
       setSop: (v: number): void => { cfg.settingsOpacity = v; applySettingsOverrides(v); saveConfig() },
+      // The file-preview panel owns its surface from the first drag on; a null
+      // hands it back to the main-background slider.
+      setRightbarOpacity: (v: number | null): void => {
+        cfg.rightbarOpacity = v
+        applyRightbarOverrides(rRightbarOpacity())
+        saveConfig()
+      },
       // Download every rule plus its image as one JSON file.
       exportTheme: (): void => {
         const images: Record<string, string> = {}

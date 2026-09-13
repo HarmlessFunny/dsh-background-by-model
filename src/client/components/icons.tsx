@@ -97,6 +97,11 @@ export const SidebarIcon = ({ size, className }: { size?: number; className?: st
   <Glyph size={size} className={className}><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2" /><path d="M6.6 2.2v11.6" /></Glyph>
 )
 
+/** Mirror of SidebarIcon: the file-preview panel docked to the right edge. */
+export const PreviewIcon = ({ size, className }: { size?: number; className?: string }) => (
+  <Glyph size={size} className={className}><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2" /><path d="M9.4 2.2v11.6" /><path d="M11 5.6h1.2M11 8h1.2" /></Glyph>
+)
+
 export const ChatIcon = ({ size, className }: { size?: number; className?: string }) => (
   <Glyph size={size} className={className}><path d="M13.4 4.4v4.4a2 2 0 0 1-2 2H6.2l-3.6 3V4.4a2 2 0 0 1 2-2h6.8a2 2 0 0 1 2 2z" /></Glyph>
 )

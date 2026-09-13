@@ -1,4 +1,4 @@
-import { rWp, rBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity } from './state'
+import { rWp, rBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity } from './state'
 import type { PartOpacities, PartBlurs } from './types'
 import { genTokens, toRgba } from './utils/color'
 
@@ -223,6 +223,46 @@ export function applyTrajectoryOverrides(op: number): void {
   }
 }
 
+// ── File-preview panel (right sidebar) ────────────────────────────────────
+// Clicking a file opens the host's right panel, whose whole visible surface is
+// `background: var(--dsw-alias-bg-base)` — the exact token the main-background
+// slider re-emits with its own alpha. The panel was therefore a second, unnamed
+// copy of the main background with no control of its own; this card takes it
+// over. The declaration is written from a stylesheet (not element discovery)
+// because the panel stays mounted across open/close, and the selector carries a
+// `div` prefix so it outranks the host's hashed class rule. `!important` covers
+// a later host rule that is at least as specific (such as an
+// `[data-sidebar-right-open]` variant). The `var()` fallback keeps the host's own
+// value until a rule with a color supplies one, so a color-less rule changes
+// nothing here.
+//
+// backdrop-filter goes directly on the panel: the settings dialog and the
+// composer already take theirs that way, and the panel holds no fixed-position
+// descendant whose containing block could be trapped (the float layer is
+// portaled out to <body>).
+export const RIGHTBAR_STYLE_RULE =
+  'div[data-sidebar-right-panel]{' +
+  'background:var(--dsh-any-bg-rightbar,var(--dsw-alias-bg-base))!important;' +
+  '-webkit-backdrop-filter:var(--dsh-any-blur-rightbar,none);' +
+  'backdrop-filter:var(--dsh-any-blur-rightbar,none)}'
+
+/** Paint the file-preview panel's surface from its own slider. */
+export function applyRightbarOverrides(op: number): void {
+  const root = document.documentElement
+  // With no rule color the plugin owns no palette at all, so the panel must fall
+  // back to the host's own --dsw-alias-bg-base rather than to ours.
+  if (!rHasColor()) { root.style.removeProperty('--dsh-any-bg-rightbar'); return }
+  const [h, s, l] = rColor()
+  const base = genTokens(h, s, l).tokens['--dsw-alias-bg-base']
+  if (base !== undefined) root.style.setProperty('--dsh-any-bg-rightbar', toRgba(base, op))
+}
+
+/** Extra backdrop frost for the file-preview panel (0 = no frost of its own). */
+function applyRightbarBlur(px: number): void {
+  if (px > 0) document.documentElement.style.setProperty('--dsh-any-blur-rightbar', `blur(${px}px)`)
+  else document.documentElement.style.removeProperty('--dsh-any-blur-rightbar')
+}
+
 // ── Per-part interface blur ───────────────────────────────────────────────────
 // The AppFrame columns use hashed CSS-module classes, so parts are located
 // structurally: the shell overlay carries a stable data attribute and the
@@ -338,6 +378,7 @@ export function applyPartBlurs(blurs: PartBlurs): void {
   applyCardPanelsBlur(blurs.card)
   applySettingsBlur(blurs.settings)
   applyInputBlur(blurs.input)
+  applyRightbarBlur(blurs.rightbar)
   applyViewCards()
 }
 
@@ -346,6 +387,7 @@ export function setPartBlur(part: keyof PartBlurs, v: number): void {
   if (part === 'settings') { applySettingsBlur(v); return }
   if (part === 'card') { applyCardPanelsBlur(v); return }
   if (part === 'input') { applyInputBlur(v); return }
+  if (part === 'rightbar') { applyRightbarBlur(v); return }
   if (part === 'chat' || part === 'trajectory') { applyViewCards(); return }
   discoverParts()
   if (part === 'bg') { setBlur(centerEl, v); setBlur(detailsEl, v) }
@@ -892,6 +934,9 @@ export function applyWp(): void {
     baseTokenKey = ''
     lastBgKey = ''
   }
+  // Self-guarding: writes the panel's own surface only while a color rule is
+  // active, and hands the panel back to the host token otherwise.
+  applyRightbarOverrides(rRightbarOpacity())
   applyPartBlurs(rBlurs())
 }
 
@@ -912,6 +957,8 @@ export function teardownWp(): void {
   document.documentElement.style.removeProperty('--dsh-any-blur-settings')
   document.documentElement.style.removeProperty('--dsh-any-blur-card-panels')
   document.documentElement.style.removeProperty('--dsh-any-input-blur')
+  document.documentElement.style.removeProperty('--dsh-any-bg-rightbar')
+  document.documentElement.style.removeProperty('--dsh-any-blur-rightbar')
   for (const v of Object.values(OPACITY_VARS)) document.documentElement.style.removeProperty(v)
   baseTokenKey = ''
   lastBgKey = ''

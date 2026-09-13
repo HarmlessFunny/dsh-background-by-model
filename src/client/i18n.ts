@@ -11,6 +11,8 @@ export const zh: Record<string, string> = {
   uiOpacity: '透明度', uiBlur: '模糊度',
   uiOpacityBg: '主背景', uiOpacitySide: '侧边栏', uiOpacityCard: '对话框中选项面板', uiOpacityInput: '输入框与控件',
   uiSop: '设置界面透明度', uiChatRegion: '对话文本框', uiTrajectory: '轨迹页',
+  uiPreview: '文件预览侧栏',
+  uiPreviewHint: '点开文件后出现在右侧的那一栏。透明度默认跟随「主背景」，拖动本卡片后单独生效；模糊会在主背景模糊之上再叠加一层',
   uiScopeHint: '界面页的设置是全局的，所有模型共用',
 
   statusTitle: '当前生效',
@@ -98,6 +100,8 @@ export const en: Record<string, string> = {
   uiOpacity: 'Opacity', uiBlur: 'Blur',
   uiOpacityBg: 'Main background', uiOpacitySide: 'Sidebar', uiOpacityCard: 'Cards & panels', uiOpacityInput: 'Input & controls',
   uiSop: 'Settings interface opacity', uiChatRegion: 'Conversation text frame', uiTrajectory: 'Trajectory view',
+  uiPreview: 'File preview panel',
+  uiPreviewHint: 'The column that slides in on the right when you open a file. Its opacity follows the Main background until you drag this card; its blur stacks on top of the Main background blur',
   uiScopeHint: 'Interface settings are global — every model shares them',
 
   statusTitle: 'Active now',
