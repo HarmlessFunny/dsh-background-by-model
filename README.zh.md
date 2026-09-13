@@ -2,6 +2,7 @@
 
 <p align="center">
   <a href="https://github.com/HarmlessFunny/dsh-background-by-model"><img src="https://img.shields.io/github/stars/HarmlessFunny/dsh-background-by-model?style=social" alt="GitHub stars"></a>
+  <a href="https://www.npmjs.com/package/dsh-background-by-model"><img src="https://img.shields.io/npm/v/dsh-background-by-model" alt="npm version"></a>
 </p>
 
 [English](README.md) | 中文
@@ -95,9 +96,9 @@
 ### 方式一：npm 安装（推荐）
 
 ```sh
-dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model
-# 若已发布到 registry：
 dsh plugin --profile web add dsh-background-by-model
+# 或者直接从仓库安装：
+dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model
 ```
 
 然后启动：

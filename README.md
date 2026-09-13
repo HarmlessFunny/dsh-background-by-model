@@ -2,6 +2,7 @@
 
 <p align="center">
   <a href="https://github.com/HarmlessFunny/dsh-background-by-model"><img src="https://img.shields.io/github/stars/HarmlessFunny/dsh-background-by-model?style=social" alt="GitHub stars"></a>
+  <a href="https://www.npmjs.com/package/dsh-background-by-model"><img src="https://img.shields.io/npm/v/dsh-background-by-model" alt="npm version"></a>
 </p>
 
 English | [中文](README.zh.md)
@@ -95,9 +96,9 @@ A **DeepSeek Harness** appearance plugin that lets you fully customize the Web U
 ### Method 1: npm install (Recommended)
 
 ```sh
-dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model
-# or, if published to the registry:
 dsh plugin --profile web add dsh-background-by-model
+# or install straight from the repository:
+dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model
 ```
 
 Then launch:
