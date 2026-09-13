@@ -46,46 +46,24 @@ Notes:
 
 ## Screenshots
 
+One interface, one config — only the current model differs:
+
 <p align="center">
-  <img src="example_img/image.png" alt="Custom homepage" width="720">
+  <img src="example_img/wallpaper-deepseek.webp" alt="Appearance under DeepSeek" width="880">
   <br/>
-  <em>Custom homepage · wallpaper + theme color of the matched rule applied</em>
+  <em>DeepSeek V4.1 Flash · matched the rule whose match string contains <code>deepseek</code>: a light wallpaper with a matching theme color</em>
 </p>
 
 <p align="center">
-  <img src="example_img/image-2.png" alt="Per-rule theme color picker" width="720">
+  <img src="example_img/wallpaper-kimi.webp" alt="Appearance under Kimi" width="880">
   <br/>
-  <em>Per-rule theme color · HSL wheel + numeric input + inspiration palette</em>
+  <em>Kimi K2.7 Code · matched the rule containing <code>kimi</code>: a dark wallpaper, a dark theme, and the whole interface reskinned with it</em>
 </p>
 
 <p align="center">
-  <img src="example_img/image-4.png" alt="Per-rule background editor" width="720">
+  <img src="example_img/rule-editor.webp" alt="One rule's editor" width="660">
   <br/>
-  <em>Per-rule background editor · drag to pan and scroll to zoom (available in Fit mode)</em>
-</p>
-
-<p align="center">
-  <img src="example_img/image-6.png" alt="Model background rules list" width="720">
-  <br/>
-  <em>Model Background tab · ordered rule list with a live match readout</em>
-</p>
-
-<p align="center">
-  <img src="example_img/image-3.png" alt="Global opacity and blur" width="720">
-  <br/>
-  <em>Interface tab · global opacity and blur for each interface part</em>
-</p>
-
-<p align="center">
-  <img src="example_img/image-9.png" alt="Layout modes" width="720">
-  <br/>
-  <em>Layout modes · Fit / Fill / Stretch / Tile / Center, per rule</em>
-</p>
-
-<p align="center">
-  <img src="example_img/image-10.png" alt="Config export and import" width="720">
-  <br/>
-  <em>Export and import configs to share</em>
+  <em>One rule on the Model Background tab · image, layout mode, theme color (wheel / HSL / RGB / extract from this image / pick from image), background opacity and background blur are all properties of that rule alone</em>
 </p>
 
 ## Features
