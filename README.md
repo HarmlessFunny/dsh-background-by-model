@@ -203,6 +203,12 @@ No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
 
+### v0.3.1
+
+- **Docs and screenshots refreshed** — The screenshots now show the current three-tab UI: one config under DeepSeek and under Kimi, plus a single rule's editor. The seven old captures (still showing the removed Color tab and the old Background page) are gone, and the image folder dropped from 3.6 MB to 220 kB.
+- **Screenshots ship inside the npm package** — `example_img/` is part of the published tarball now, so the README rendered on npm has no broken images.
+- **Art credit** — The example wallpaper art comes from [ZipZipPipe](https://space.bilibili.com/4168597) on bilibili.
+
 ### v0.3.0
 
 - **Model rules replaced the single global wallpaper** — The background is now driven by an ordered list of rules, each selected by a match string against the current session's model name (first match wins, rule 1 falls back). The match string is compared against the provider, model id and display name together.
