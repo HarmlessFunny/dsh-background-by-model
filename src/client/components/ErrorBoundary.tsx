@@ -25,7 +25,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   override componentDidCatch(error: Error, info: { componentStack?: string | null }): void {
-    console.error('dsh-any-background: section render crashed', error, info.componentStack)
+    console.error('dsh-background-by-model: section render crashed', error, info.componentStack)
   }
 
   private reset = (): void => {

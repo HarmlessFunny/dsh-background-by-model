@@ -1,5 +1,5 @@
 {
-  "name": "dsh-any-background",
+  "name": "dsh-background-by-model",
   "version": "0.2.4",
   "description": "Appearance plugin for DeepSeek Harness: custom theme color (PS-style color wheel), background wallpaper with opacity/blur controls, and separate main/settings interface opacity.",
   "keywords": [
@@ -11,13 +11,13 @@
     "wallpaper",
     "web-ui"
   ],
-  "homepage": "https://github.com/Tkingxiao/dsh-any-background#readme",
+  "homepage": "https://github.com/HarmlessFunny/dsh-background-by-model#readme",
   "bugs": {
-    "url": "https://github.com/Tkingxiao/dsh-any-background/issues"
+    "url": "https://github.com/HarmlessFunny/dsh-background-by-model/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Tkingxiao/dsh-any-background.git"
+    "url": "git+https://github.com/HarmlessFunny/dsh-background-by-model.git"
   },
   "license": "MIT",
   "author": "Tkingxiao",

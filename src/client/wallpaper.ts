@@ -25,7 +25,7 @@ export function onGeneratedSnapshot(cb: () => void): void {
 function ensureTokenStyle(): HTMLStyleElement {
   if (tokenStyleEl?.isConnected) return tokenStyleEl
   tokenStyleEl = document.createElement('style')
-  tokenStyleEl.dataset.plugin = 'dsh-any-background-tokens'
+  tokenStyleEl.dataset.plugin = 'dsh-background-by-model-tokens'
   document.head.appendChild(tokenStyleEl)
   return tokenStyleEl
 }
@@ -124,7 +124,7 @@ function applyCustomTokensNow(ops: PartOpacities): void {
       // stylesheet (not inline styles) so the host presenter clearing body
       // inline styles on boot can't drop them, and the !important rule survives
       // that clearing too.
-      if (forceDark) document.body.setAttribute('data-ds-dark-theme', 'dsh-any-background')
+      if (forceDark) document.body.setAttribute('data-ds-dark-theme', 'dsh-background-by-model')
       else document.body.removeAttribute('data-ds-dark-theme')
       const decls: string[] = [`color-scheme:${forceDark ? 'dark' : 'light'}`]
       for (const [name, value] of Object.entries(tokens)) {
@@ -385,7 +385,7 @@ let partBlurStyleEl: HTMLStyleElement | null = null
 function ensurePartBlurStyle(): void {
   if (partBlurStyleEl?.isConnected) return
   partBlurStyleEl = document.createElement('style')
-  partBlurStyleEl.dataset.plugin = 'dsh-any-background-parts'
+  partBlurStyleEl.dataset.plugin = 'dsh-background-by-model-parts'
   partBlurStyleEl.textContent = PART_BLUR_RULE
   document.head.appendChild(partBlurStyleEl)
 }
@@ -682,7 +682,7 @@ function syncTableFix(): void {
   }
   if (tableFixStyleEl === null) {
     tableFixStyleEl = document.createElement('style')
-    tableFixStyleEl.dataset.plugin = 'dsh-any-background-table-fix'
+    tableFixStyleEl.dataset.plugin = 'dsh-background-by-model-table-fix'
     tableFixStyleEl.textContent = TABLE_FIX_RULE
   }
   if (!tableFixStyleEl.isConnected) document.head.appendChild(tableFixStyleEl)
@@ -756,7 +756,7 @@ let themeRaf = 0
 function reassertScheme(): void {
   const [, , l] = rColor()
   const dark = rBgDark() ?? l < 0.55
-  if (dark) document.body.setAttribute('data-ds-dark-theme', 'dsh-any-background')
+  if (dark) document.body.setAttribute('data-ds-dark-theme', 'dsh-background-by-model')
   else document.body.removeAttribute('data-ds-dark-theme')
   applyCustomTokens(rOps())
 }
@@ -767,12 +767,12 @@ function reassertScheme(): void {
 export function watchThemeResets(): () => void {
   if (themeObserver !== null || typeof MutationObserver === 'undefined') return () => undefined
   themeObserver = new MutationObserver(() => {
-    if (document.body.getAttribute('data-ds-dark-theme') === 'dsh-any-background') return
+    if (document.body.getAttribute('data-ds-dark-theme') === 'dsh-background-by-model') return
     if (!(rHasColor() || rBgDark() !== null)) return
     if (themeRaf !== 0) return
     themeRaf = requestAnimationFrame(() => {
       themeRaf = 0
-      if (document.body.getAttribute('data-ds-dark-theme') === 'dsh-any-background') return
+      if (document.body.getAttribute('data-ds-dark-theme') === 'dsh-background-by-model') return
       reassertScheme()
     })
   })

@@ -1,4 +1,4 @@
-# dsh-any-background: dev patch overlay for the web profile.
+# dsh-background-by-model: dev patch overlay for the web profile.
 #
 # Usage:
 #   pnpm dsh web --patch ./cordis.yml
@@ -8,5 +8,5 @@
 # and opacity/blur controls.
 
 - insert:
-    - id: dsh-any-background
-      name: 'dsh-any-background'
+    - id: dsh-background-by-model
+      name: 'dsh-background-by-model'

@@ -1,5 +1,5 @@
 /**
- * dsh-any-background — settings UI design system.
+ * dsh-background-by-model — settings UI design system.
  *
  * The section is styled entirely through these scoped classes instead of the
  * host's inline-style approach: animations (page transitions, staggered

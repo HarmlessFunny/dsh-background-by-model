@@ -1,9 +1,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = 'dsh-any-background'
+const PACKAGE_NAME = 'dsh-background-by-model'
 
-export const name = 'dsh-any-background-invariant'
+export const name = 'dsh-background-by-model-invariant'
 export const inject = ['invariants']
 
 // No runtime invariant: the plugin registers a theme definition through the

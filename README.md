@@ -1,11 +1,12 @@
-# dsh-any-background
+# dsh-background-by-model
 
 <p align="center">
-  <a href="https://github.com/Tkingxiao/dsh-any-background"><img src="https://img.shields.io/github/stars/Tkingxiao/dsh-any-background?style=social" alt="GitHub stars"></a>
-  <a href="https://dsh.directory/plugins/tkingxiao/dsh-any-background"><img src="https://dsh.directory/badges/listed.svg" alt="dsh.directory listed"></a>
+  <a href="https://github.com/HarmlessFunny/dsh-background-by-model"><img src="https://img.shields.io/github/stars/HarmlessFunny/dsh-background-by-model?style=social" alt="GitHub stars"></a>
 </p>
 
 English | [中文](README.zh.md)
+
+> Forked from [`Tkingxiao/dsh-any-background`](https://github.com/Tkingxiao/dsh-any-background) and renamed to `dsh-background-by-model`.
 
 A **DeepSeek Harness** appearance plugin that lets you fully customize the Web UI — custom theme color, background wallpaper, and fine-grained per-part opacity & blur controls.
 
@@ -69,8 +70,8 @@ A **DeepSeek Harness** appearance plugin that lets you fully customize the Web U
 - **Per-part Interface Opacity** — Independent sliders for the main background, sidebar, cards & panels (including the dropdowns and menus around the dialog), the input & controls (composer box, Cordis panel), plus the settings panel and wallpaper.
 - **Per-part Interface Blur** — Frosted-glass `backdrop-filter` blur (0–60 px) for each interface part, including a real backdrop on the composer and Cordis panel via stable host selectors.
 - **Conversation View Cards** — The message list is wrapped in a translucent card automatically, and the trajectory page gets whole-page opacity & blur controls, letting the wallpaper shine through the content.
-- **Theme Export / Import** — One-click export to a self-contained `dsh-any-theme.json` (config + wallpaper, video embedded as a data URL) and import to restore it anywhere.
-- **File-based Persistence** — All settings are stored on the filesystem under `~/.dsh/.dsh-any-background-data/`, not `localStorage`.
+- **Theme Export / Import** — One-click export to a self-contained `dsh-background-by-model-theme.json` (config + wallpaper, video embedded as a data URL) and import to restore it anywhere.
+- **File-based Persistence** — All settings are stored on the filesystem under `~/.dsh/.dsh-background-by-model-data/`, not `localStorage`.
 - **Bilingual** — Full Chinese / English UI with automatic locale detection.
 - **Theme Watchdog** — Re-asserts the custom theme if the host resets it.
 
@@ -94,9 +95,9 @@ A **DeepSeek Harness** appearance plugin that lets you fully customize the Web U
 ### Method 1: npm install (Recommended)
 
 ```sh
-dsh plugin --profile web add github:Tkingxiao/dsh-any-background
+dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model
 # or, if published to the registry:
-dsh plugin --profile web add dsh-any-background
+dsh plugin --profile web add dsh-background-by-model
 ```
 
 Then launch:
@@ -110,7 +111,7 @@ The plugin appears as a **"Theme"** section in Settings.
 ### Method 2: npx (No Global Install)
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add github:Tkingxiao/dsh-any-background
+npx @deepseek-ai/dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model
 npx @deepseek-ai/dsh web
 ```
 
@@ -119,11 +120,11 @@ npx @deepseek-ai/dsh web
 The `lib/` directory is committed, so installs need no build step. To rebuild after editing `src/`:
 
 ```sh
-git clone https://github.com/Tkingxiao/dsh-any-background.git
-cd dsh-any-background
+git clone https://github.com/HarmlessFunny/dsh-background-by-model.git
+cd dsh-background-by-model
 pnpm install
 pnpm run bundle
-pnpm dsh plugin --profile web add "dsh-any-background"
+pnpm dsh plugin --profile web add "dsh-background-by-model"
 pnpm dsh web
 ```
 
@@ -134,7 +135,7 @@ pnpm dsh web
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=Tkingxiao/dsh-any-background&type=timeline&legend=bottom-right&sealed_token=f5MhnHibC049CC0Ed_nZX8rYpIq2wPTdTXUsPPafAiYxYKOeqyKyMFirxKppeLNJygxv1iw2BlsnCYOWgu9zN6ffr7kJlAG1SlRoQRmQivCIkPzZ2lhSBQ)](https://www.star-history.com/?repos=Tkingxiao%2Fdsh-any-background&type=timeline&legend=bottom-right)
+[![Star History Chart](https://api.star-history.com/chart?repos=HarmlessFunny/dsh-background-by-model&type=timeline&legend=bottom-right)](https://www.star-history.com/?repos=HarmlessFunny%2Fdsh-background-by-model&type=timeline&legend=bottom-right)
 
 ## License
 

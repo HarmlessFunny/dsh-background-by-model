@@ -1,5 +1,5 @@
 /**
- * dsh-any-background — browser half entry.
+ * dsh-background-by-model — browser half entry.
  *
  * Wires the plugin lifecycle: theme registration, wallpaper layer, viewport
  * watch, i18n, settings-section injection, boot restore, watchdog. The heavy
@@ -16,13 +16,13 @@ import { captureVideoSnapshot } from './utils/video'
 import { ThemeSection } from './components/ThemeSection'
 import { SUN_PATHS } from './components/icons'
 
-export const name = 'dsh-any-background'
+export const name = 'dsh-background-by-model'
 export const inject = ['slots', 'locale', 'theme', 'connection']
 
 const CUSTOM_ID = 'custom-color'
 
 export function apply(ctx: Ctx): void {
-  // Bind the dedicated `/dsh-any-background` RPC caller so the persistence
+  // Bind the dedicated `/dsh-background-by-model` RPC caller so the persistence
   // module can reach the node half's file-backed store.
   initRpc((endpoint, payload) =>
     ctx.connection.rpc.call(RPC_CHANNEL, endpoint, payload).then((res: any) => res as RpcResultLike | undefined)
@@ -54,20 +54,20 @@ export function apply(ctx: Ctx): void {
   ctx.effect(() => () => {
     customDispose?.()
     if (colorTimerRef.current !== null) window.clearTimeout(colorTimerRef.current)
-  }, 'dsh-any-background: skin dispose')
+  }, 'dsh-background-by-model: skin dispose')
 
   // 2. Gradient CSS (for custom dark themes).
   const styleEl = document.createElement('style')
-  styleEl.dataset.plugin = 'dsh-any-background'
+  styleEl.dataset.plugin = 'dsh-background-by-model'
   // Only applies while applyCustomTokens marks the body with the plugin's
   // own dark-mode value, avoiding matches against the host's theme attribute.
-  styleEl.textContent = `body[data-ds-dark-theme="dsh-any-background"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${INPUT_BLUR_RULE}` + PLACEHOLDER_RULE
+  styleEl.textContent = `body[data-ds-dark-theme="dsh-background-by-model"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${INPUT_BLUR_RULE}` + PLACEHOLDER_RULE
   document.head.appendChild(styleEl)
-  ctx.effect(() => () => { styleEl?.parentNode?.removeChild(styleEl) }, 'dsh-any-background: gradient')
+  ctx.effect(() => () => { styleEl?.parentNode?.removeChild(styleEl) }, 'dsh-background-by-model: gradient')
 
   // Wallpaper downscales to a low-res copy during slider drags, restored on release.
   const disposeDragQuality = watchWallpaperDragQuality()
-  ctx.effect(() => () => disposeDragQuality(), 'dsh-any-background: drag quality')
+  ctx.effect(() => () => disposeDragQuality(), 'dsh-background-by-model: drag quality')
 
   // 3. State store.
   let rev = 0
@@ -149,7 +149,7 @@ export function apply(ctx: Ctx): void {
     syncBg()
     if (rHasColor()) { colorRev++; bound?.syncColor(hslToHsv(...rColor()), colorRev) }
   })
-  ctx.effect(() => () => { teardownWp() }, 'dsh-any-background: wp cleanup')
+  ctx.effect(() => () => { teardownWp() }, 'dsh-background-by-model: wp cleanup')
   ctx.effect(() => ctx.on('theme/change', () => {
     // The custom theme's preference lives in memory, so a host adoption can
     // silently reset it; re-assert it while a color is saved. Guard on registry
@@ -162,7 +162,7 @@ export function apply(ctx: Ctx): void {
       }
     }
     applyWp()
-  }), 'dsh-any-background: theme change')
+  }), 'dsh-background-by-model: theme change')
   // Wallpaper placement is computed in absolute viewport pixels, so watch the
   // viewport itself: a fixed inset:0 sentinel's box always equals the viewport,
   // so a ResizeObserver on it catches any viewport change (window resize,
@@ -184,10 +184,10 @@ export function apply(ctx: Ctx): void {
     viewportObserver.disconnect()
     dprQuery.removeEventListener('change', applySoon)
     sentinel.remove()
-  }, 'dsh-any-background: viewport watch')
+  }, 'dsh-background-by-model: viewport watch')
 
   // 5. Locale.
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-any-background: i18n')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-background-by-model: i18n')
 
   // 6. Section injection.
   const sectionInject = (actions: BoundActions): Omit<ThemeSectionProps, 'useStore'> => {
@@ -340,7 +340,7 @@ export function apply(ctx: Ctx): void {
         bound?.syncColor(hsv, colorRev)
         return true
       },
-      // Download the whole theme as dsh-any-theme.json: the config plus the
+      // Download the whole theme as dsh-background-by-model-theme.json: the config plus the
       // wallpaper data URL only when it is an uploaded image, and the video
       // bytes copied in as a data URL when a video background is active.
       // Generated backgrounds are reconstructed from the saved params on
@@ -379,7 +379,7 @@ export function apply(ctx: Ctx): void {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = 'dsh-any-theme.json'
+        a.download = 'dsh-background-by-model-theme.json'
         a.click()
         URL.revokeObjectURL(url)
       },
@@ -462,7 +462,7 @@ export function apply(ctx: Ctx): void {
     }
   }
   ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section', id: 'dsh-any-background', order: 35,
+    name: 'settings.section', id: 'dsh-background-by-model', order: 35,
     label: () => ctx.locale.bind(NS)('nav'),
     locale: NS, store, inject: sectionInject,
   }, ThemeSection as any))
@@ -516,7 +516,7 @@ export function apply(ctx: Ctx): void {
     applyNavIcon()
   }
   watchNavIcon()
-  ctx.effect(() => () => { navIconObserver?.disconnect(); navIconObserver = null }, 'dsh-any-background: nav icon watch')
+  ctx.effect(() => () => { navIconObserver?.disconnect(); navIconObserver = null }, 'dsh-background-by-model: nav icon watch')
 
   // 7. Deferred boot restore: the theme service and the host settings scope
   // settle asynchronously after this apply, so the synchronous restore can be
@@ -540,7 +540,7 @@ export function apply(ctx: Ctx): void {
     applyWp()
   }
   const restoreTimers = [300, 1500].map(delay => window.setTimeout(restoreSaved, delay))
-  ctx.effect(() => () => { restoreTimers.forEach(id => window.clearTimeout(id)) }, 'dsh-any-background: boot restore')
+  ctx.effect(() => () => { restoreTimers.forEach(id => window.clearTimeout(id)) }, 'dsh-background-by-model: boot restore')
 
   // 8. Theme watchdog: the theme service keeps only built-in preferences in
   // memory, so ANY host-scope adoption can silently drop the custom theme —
@@ -562,17 +562,17 @@ export function apply(ctx: Ctx): void {
     }
     if (changed) applyWp()
   }, 1000)
-  ctx.effect(() => () => { window.clearInterval(watchdogId) }, 'dsh-any-background: theme watchdog')
+  ctx.effect(() => () => { window.clearInterval(watchdogId) }, 'dsh-background-by-model: theme watchdog')
 
   // 8.5. Theme-reset watchdog: counter the host re-asserting its own light
   // :root/body scheme after startup (refresh, cold load, settings adoption),
   // which would paint a frame of white surfaces.
   const disposeThemeResets = watchThemeResets()
-  ctx.effect(() => () => { disposeThemeResets() }, 'dsh-any-background: theme resets watch')
+  ctx.effect(() => () => { disposeThemeResets() }, 'dsh-background-by-model: theme resets watch')
 
   // 9. Flush any pending debounced config write when the page is hidden or
   // closed, so the last slider position is never lost to the debounce window.
   const onPageHide = (): void => flushSave()
   window.addEventListener('pagehide', onPageHide)
-  ctx.effect(() => () => window.removeEventListener('pagehide', onPageHide), 'dsh-any-background: pagehide flush')
+  ctx.effect(() => () => window.removeEventListener('pagehide', onPageHide), 'dsh-background-by-model: pagehide flush')
 }
