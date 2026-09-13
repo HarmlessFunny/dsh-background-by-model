@@ -49,7 +49,7 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
       </div>
 
       <footer className="dab-footer dab-rise" style={{ '--d': 3 } as CSSProperties}>
-        <span className="dab-footer-mono">dsh-any-background</span>
+        <span className="dab-footer-mono">dsh-background-by-model</span>
         <span>{t('footerTag')}</span>
       </footer>
     </>

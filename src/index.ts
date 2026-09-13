@@ -1,29 +1,29 @@
 /**
- * Node half of dsh-any-background: file-backed theme persistence.
+ * Node half of dsh-background-by-model: file-backed theme persistence.
  *
- * Owns the `~/.dsh/.dsh-any-background-data/` store and exposes a small RPC
- * surface on the dedicated `/dsh-any-background` channel (never the shared
+ * Owns the `~/.dsh/.dsh-background-by-model-data/` store and exposes a small RPC
+ * surface on the dedicated `/dsh-background-by-model` channel (never the shared
  * `/api`, so slash commands stay intact).
  *
  *   theme-config.json   settings
  *   wallpaper.jpg       background image
  *   wallpaper.<ext>     background video, named by MIME (mp4/webm/ogv/mov/mkv);
- *                       played over HTTP route /dsh-any-background/video and
- *                       uploaded to /dsh-any-background/video/upload as raw
+ *                       played over HTTP route /dsh-background-by-model/video and
+ *                       uploaded to /dsh-background-by-model/video/upload as raw
  *                       bytes — never base64 through the RPC channel.
  */
 import { access, mkdir, readFile, writeFile, rm, rename, stat } from 'node:fs/promises'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 
-export const name = 'dsh-any-background'
+export const name = 'dsh-background-by-model'
 export const inject = ['connection', 'webServer']
 
-const DATA_DIR = '.dsh-any-background-data'
+const DATA_DIR = '.dsh-background-by-model-data'
 const CONFIG_FILE = 'theme-config.json'
 const WALLPAPER_FILE = 'wallpaper.jpg'
-const VIDEO_ROUTE = '/dsh-any-background/video'
-const UPLOAD_ROUTE = '/dsh-any-background/video/upload'
+const VIDEO_ROUTE = '/dsh-background-by-model/video'
+const UPLOAD_ROUTE = '/dsh-background-by-model/video/upload'
 const UPLOAD_TMP = 'wallpaper.upload.tmp'
 // Network-URL wallpaper fetch: cap the download and time it out so a bad link
 // can't stall the UI or fill the drive.
@@ -221,7 +221,7 @@ async function ensureDir(): Promise<void> {
   try {
     await mkdir(dataDir(), { recursive: true })
   } catch (e) {
-    console.warn(`dsh-any-background: cannot create data dir "${dataDir()}"`, e)
+    console.warn(`dsh-background-by-model: cannot create data dir "${dataDir()}"`, e)
   }
 }
 
@@ -242,7 +242,7 @@ async function writeConfig(config: ThemeConfig): Promise<boolean> {
     await writeFile(configPath(), JSON.stringify(normalizeConfig(config), null, 2), 'utf8')
     return true
   } catch (e) {
-    console.error(`dsh-any-background: failed to write "${CONFIG_FILE}"`, e)
+    console.error(`dsh-background-by-model: failed to write "${CONFIG_FILE}"`, e)
     return false
   }
 }
@@ -269,7 +269,7 @@ async function writeWallpaper(dataUrl: string | null): Promise<boolean> {
     await writeFile(wallpaperPath(), Buffer.from(m[1]!, 'base64'))
     return true
   } catch (e) {
-    console.error(`dsh-any-background: failed to write "${WALLPAPER_FILE}"`, e)
+    console.error(`dsh-background-by-model: failed to write "${WALLPAPER_FILE}"`, e)
     return false
   }
 }
@@ -344,7 +344,7 @@ async function writeVideo(dataUrl: string | null): Promise<boolean> {
     await writeFile(target, Buffer.from(m[2]!, 'base64'))
     return true
   } catch (e) {
-    console.error('dsh-any-background: failed to write the background video', e)
+    console.error('dsh-background-by-model: failed to write the background video', e)
     return false
   }
 }
@@ -396,7 +396,7 @@ async function serveVideo(req: any, res: any): Promise<void> {
     if (req.method === 'HEAD') { res.end(); return }
     createReadStream(found.path).pipe(res)
   } catch (e) {
-    console.error('dsh-any-background: failed to serve the background video', e)
+    console.error('dsh-background-by-model: failed to serve the background video', e)
     try { res.writeHead(500); res.end() } catch { /* response already sent */ }
   }
 }
@@ -450,19 +450,19 @@ async function handleVideoUpload(req: any, res: any): Promise<void> {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ ok: true }))
       } catch (e) {
-        console.error('dsh-any-background: failed to finalize the uploaded video', e)
+        console.error('dsh-background-by-model: failed to finalize the uploaded video', e)
         void rm(tmp, { force: true })
         try { res.writeHead(500); res.end() } catch { /* response already sent */ }
       }
     })
   } catch (e) {
-    console.error('dsh-any-background: failed to accept the video upload', e)
+    console.error('dsh-background-by-model: failed to accept the video upload', e)
     try { res.writeHead(500); res.end() } catch { /* response already sent */ }
   }
 }
 
-const NS = 'dshAnyBackground'
-const RPC_CHANNEL = '/dsh-any-background'
+const NS = 'dshBackgroundByModel'
+const RPC_CHANNEL = '/dsh-background-by-model'
 const RPC_BODY_MAX = 300 * 1024 * 1024
 
 /** Dispatch one decoded RPC method to the matching persistence routine and
@@ -486,10 +486,10 @@ async function handleRpcMethod(
       case 'setWallpaperUrl':
         return { ok: true, value: await writeWallpaperFromUrl(((payload as { url?: unknown } | null)?.url ?? null) as string | null) }
       default:
-        return { ok: false, error: { code: 'dsh-any-background/bad-request', message: `unknown endpoint ${endpoint}`, details: { issues: [] } } }
+        return { ok: false, error: { code: 'dsh-background-by-model/bad-request', message: `unknown endpoint ${endpoint}`, details: { issues: [] } } }
     }
   } catch (e) {
-    return { ok: false, error: { code: 'dsh-any-background/internal', message: e instanceof Error ? e.message : String(e), details: {} } }
+    return { ok: false, error: { code: 'dsh-background-by-model/internal', message: e instanceof Error ? e.message : String(e), details: {} } }
   }
 }
 
@@ -517,7 +517,7 @@ export function apply(ctx: any): void {
           }
           if (req.method !== 'POST') {
             res.writeHead(405, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-any-background/bad-request', message: 'expected POST', details: {} } }))
+            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-background-by-model/bad-request', message: 'expected POST', details: {} } }))
             return
           }
           const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
@@ -545,17 +545,17 @@ export function apply(ctx: any): void {
             env = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
           } catch {
             res.writeHead(400, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-any-background/bad-request', message: 'body is not JSON', details: {} } }))
+            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-background-by-model/bad-request', message: 'body is not JSON', details: {} } }))
             return
           }
           if (env === null || typeof env !== 'object' || env.type !== 'client-request' || typeof env.rpcId !== 'string' || typeof env.method !== 'string') {
             res.writeHead(400, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-any-background/bad-request', message: 'invalid client-request envelope', details: {} } }))
+            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-background-by-model/bad-request', message: 'invalid client-request envelope', details: {} } }))
             return
           }
           if (env.method !== endpoint) {
             res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ type: 'server-response', rpcId: env.rpcId, result: { ok: false, error: { code: 'dsh-any-background/bad-request', message: `method ${env.method} does not match endpoint ${endpoint}`, details: { issues: [] } } } }))
+            res.end(JSON.stringify({ type: 'server-response', rpcId: env.rpcId, result: { ok: false, error: { code: 'dsh-background-by-model/bad-request', message: `method ${env.method} does not match endpoint ${endpoint}`, details: { issues: [] } } } }))
             return
           }
           const result = await handleRpcMethod(endpoint, env.payload)
@@ -563,18 +563,18 @@ export function apply(ctx: any): void {
           res.end(JSON.stringify({ type: 'server-response', rpcId: env.rpcId, result }))
         },
       }),
-      'dsh-any-background: rpc channel',
+      'dsh-background-by-model: rpc channel',
     )
     // Longest prefix wins over the RPC channel's shorter one; exact beats
     // prefix, so uploads land in the upload handler even though UPLOAD_ROUTE
     // sits inside VIDEO_ROUTE. Effects auto-dispose with the injected scope.
     webCtx.effect(
       () => webCtx.webServer.register({ kind: 'prefix', path: VIDEO_ROUTE, handler: serveVideo }),
-      'dsh-any-background: video route',
+      'dsh-background-by-model: video route',
     )
     webCtx.effect(
       () => webCtx.webServer.register({ kind: 'exact', path: UPLOAD_ROUTE, handler: handleVideoUpload }),
-      'dsh-any-background: upload route',
+      'dsh-background-by-model: upload route',
     )
   })
 }

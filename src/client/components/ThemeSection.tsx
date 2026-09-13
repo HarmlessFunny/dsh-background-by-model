@@ -1,5 +1,5 @@
 /**
- * dsh-any-background — settings section shell.
+ * dsh-background-by-model — settings section shell.
  *
  * The host renders this section only while the settings dialog is open and the
  * section is the active nav entry, so mounting IS being visible. The section is

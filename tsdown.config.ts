@@ -6,7 +6,7 @@
  */
 import type { UserConfig } from 'tsdown'
 
-const ID = 'dsh-any-background'
+const ID = 'dsh-background-by-model'
 
 /** Externals resolved from the loader module table at runtime. */
 const EXTERNALS = [

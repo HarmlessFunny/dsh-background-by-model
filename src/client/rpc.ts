@@ -1,12 +1,12 @@
 import type { RpcResultLike } from './types'
 import { cfg, adoptConfig, setWpUrl, setWpImageUrl, setWpVideoUrl } from './state'
 
-export const RPC_CHANNEL = '/dsh-any-background'
+export const RPC_CHANNEL = '/dsh-background-by-model'
 /** Same-origin serve URL of the persisted video (enough for <video src>/fetch). */
-export const VIDEO_SERVE_URL = '/dsh-any-background/video'
+export const VIDEO_SERVE_URL = '/dsh-background-by-model/video'
 /** HTTP route new videos are POSTed to as raw bytes (see uploadVideo). */
-export const VIDEO_UPLOAD_URL = '/dsh-any-background/video/upload'
-const RPC_NS = 'dshAnyBackground'
+export const VIDEO_UPLOAD_URL = '/dsh-background-by-model/video/upload'
+const RPC_NS = 'dshBackgroundByModel'
 const rpcEndpoint = (method: string): string => `${RPC_NS}/${method}`
 
 let rpcCallFn: ((endpoint: string, payload: unknown) => Promise<RpcResultLike | undefined>) | null = null
@@ -20,10 +20,10 @@ async function rpcCall(method: string, payload: unknown): Promise<unknown> {
   try {
     const res = await rpcCallFn(rpcEndpoint(method), payload)
     if (res && res.ok === true) return res.value
-    console.warn(`dsh-any-background: rpc "${method}" failed`, res?.error)
+    console.warn(`dsh-background-by-model: rpc "${method}" failed`, res?.error)
     return undefined
   } catch (e) {
-    console.warn(`dsh-any-background: rpc "${method}" threw`, e)
+    console.warn(`dsh-background-by-model: rpc "${method}" threw`, e)
     return undefined
   }
 }
@@ -117,7 +117,7 @@ export async function uploadVideo(blob: Blob, mime: string): Promise<boolean> {
     })
     return res.ok
   } catch (e) {
-    console.warn('dsh-any-background: video upload failed', e)
+    console.warn('dsh-background-by-model: video upload failed', e)
     return false
   }
 }

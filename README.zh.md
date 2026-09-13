@@ -1,11 +1,12 @@
-# dsh-any-background
+# dsh-background-by-model
 
 <p align="center">
-  <a href="https://github.com/Tkingxiao/dsh-any-background"><img src="https://img.shields.io/github/stars/Tkingxiao/dsh-any-background?style=social" alt="GitHub stars"></a>
-  <a href="https://dsh.directory/plugins/tkingxiao/dsh-any-background"><img src="https://dsh.directory/badges/listed.svg" alt="dsh.directory listed"></a>
+  <a href="https://github.com/HarmlessFunny/dsh-background-by-model"><img src="https://img.shields.io/github/stars/HarmlessFunny/dsh-background-by-model?style=social" alt="GitHub stars"></a>
 </p>
 
 [English](README.md) | 中文
+
+> 派生自 [`Tkingxiao/dsh-any-background`](https://github.com/Tkingxiao/dsh-any-background)，并重命名为 `dsh-background-by-model`。
 
 一个 **DeepSeek Harness** 外观插件，让你完全自定义 Web 端的主题色、背景壁纸，以及分部位精细的透明度与模糊度控制。
 
@@ -69,8 +70,8 @@
 - **分部位界面透明度** — 主背景、侧边栏、卡片面板（含对话框周围的选项框/菜单）、输入框与控件（发送框、Cordis 插件面板）、设置面板与壁纸各自独立滑块。
 - **分部位界面模糊度** — 每个界面部位可独立调整毛玻璃 `backdrop-filter` 模糊（0–60 px），并通过宿主的稳定选择器为发送框与 Cordis 面板提供真实背景模糊。
 - **对话视图卡片** — 消息列表自动包裹为半透明卡片，轨迹页可整页调节透明度与模糊，让壁纸从内容后方透出来。
-- **主题导出 / 导入** — 一键导出为自包含的 `dsh-any-theme.json`（配置 + 壁纸，视频以 data URL 内嵌），可随时导入还原。
-- **文件持久化** — 所有设置保存到文件系统 `~/.dsh/.dsh-any-background-data/`，不再依赖 `localStorage`。
+- **主题导出 / 导入** — 一键导出为自包含的 `dsh-background-by-model-theme.json`（配置 + 壁纸，视频以 data URL 内嵌），可随时导入还原。
+- **文件持久化** — 所有设置保存到文件系统 `~/.dsh/.dsh-background-by-model-data/`，不再依赖 `localStorage`。
 - **中英双语** — 完整的中英文界面，自动跟随语言设置。
 - **主题守护** — 宿主重置主题后自动重新激活自定义主题。
 
@@ -94,9 +95,9 @@
 ### 方式一：npm 安装（推荐）
 
 ```sh
-dsh plugin --profile web add github:Tkingxiao/dsh-any-background
+dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model
 # 若已发布到 registry：
-dsh plugin --profile web add dsh-any-background
+dsh plugin --profile web add dsh-background-by-model
 ```
 
 然后启动：
@@ -110,7 +111,7 @@ dsh web
 ### 方式二：npx（无需全局安装）
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add github:Tkingxiao/dsh-any-background
+npx @deepseek-ai/dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model
 npx @deepseek-ai/dsh web
 ```
 
@@ -119,11 +120,11 @@ npx @deepseek-ai/dsh web
 `lib/` 目录已提交，安装后无需构建。修改 `src/` 后重新构建：
 
 ```sh
-git clone https://github.com/Tkingxiao/dsh-any-background.git
-cd dsh-any-background
+git clone https://github.com/HarmlessFunny/dsh-background-by-model.git
+cd dsh-background-by-model
 pnpm install
 pnpm run bundle
-pnpm dsh plugin --profile web add "dsh-any-background"
+pnpm dsh plugin --profile web add "dsh-background-by-model"
 pnpm dsh web
 ```
 
@@ -134,7 +135,7 @@ pnpm dsh web
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=Tkingxiao/dsh-any-background&type=timeline&legend=bottom-right&sealed_token=f5MhnHibC049CC0Ed_nZX8rYpIq2wPTdTXUsPPafAiYxYKOeqyKyMFirxKppeLNJygxv1iw2BlsnCYOWgu9zN6ffr7kJlAG1SlRoQRmQivCIkPzZ2lhSBQ)](https://www.star-history.com/?repos=Tkingxiao%2Fdsh-any-background&type=timeline&legend=bottom-right)
+[![Star History Chart](https://api.star-history.com/chart?repos=HarmlessFunny/dsh-background-by-model&type=timeline&legend=bottom-right)](https://www.star-history.com/?repos=HarmlessFunny%2Fdsh-background-by-model&type=timeline&legend=bottom-right)
 
 ## 许可
 
