@@ -1,43 +1,27 @@
 import type { BgRule, BgState, BgMode, ThemeConfig, PartOpacities, PartBlurs } from './types'
+// The persisted shape, its key lists, its defaults and its sanitizers all live in
+// ../schema, shared verbatim with the node half — a field declared on one side
+// only used to be silently dropped by the other side's sanitizer.
+import {
+  DEFAULT_BG_STATE, DEFAULT_CHAT_TEXT_OPACITY, DEFAULT_PART_BLURS, DEFAULT_PART_OPACITIES,
+  DEFAULT_SETTINGS_OPACITY, DEFAULT_TRAJECTORY_OPACITY, PART_BLUR_KEYS, PART_OPACITY_KEYS,
+  clamp, clamp01, freshThemeConfig, normalizeConfig, normalizeRule,
+} from '../schema'
 
-export const DEFAULT_BG_STATE: BgState = { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 }
+export { DEFAULT_BG_STATE, normalizeRule }
 
-const BG_MODES: BgMode[] = ['fit', 'fill', 'stretch', 'tile', 'center']
 const PALETTE: Array<[number, number, number]> = [
   [356, 0.72, 0.55], [24, 0.78, 0.55], [44, 0.8, 0.55], [152, 0.62, 0.5],
   [174, 0.68, 0.48], [208, 0.72, 0.55], [252, 0.68, 0.6], [300, 0.64, 0.58],
 ]
 export { PALETTE }
 
-export const DEFAULT_CONFIG: ThemeConfig = {
-  rules: [],
-  opacities: { bg: 0.85, sidebar: 0.93, card: 1, input: 1 },
-  blurs: { bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, rightbar: 0, input: 0 },
-  settingsOpacity: 1,
-  chatTextOpacity: 0,
-  // 100% = untouched host surface; zero would blank the page by default.
-  trajectoryOpacity: 1,
-  // null = keep tracking the main background (the panel's host surface is the
-  // very token that slider rewrites), so an upgrade changes nothing until the
-  // user drags the file-preview card.
-  rightbarOpacity: null,
-}
-
-function freshConfig(): ThemeConfig {
-  return {
-    rules: [],
-    opacities: { ...DEFAULT_CONFIG.opacities },
-    blurs: { ...DEFAULT_CONFIG.blurs },
-    settingsOpacity: DEFAULT_CONFIG.settingsOpacity,
-    chatTextOpacity: DEFAULT_CONFIG.chatTextOpacity,
-    trajectoryOpacity: DEFAULT_CONFIG.trajectoryOpacity,
-    rightbarOpacity: DEFAULT_CONFIG.rightbarOpacity,
-  }
-}
+/** The defaults every accessor falls back to; the shape itself lives in ../schema. */
+export const DEFAULT_CONFIG: ThemeConfig = freshThemeConfig()
 
 // In-memory mirror of the file-backed store; the UI reads and mutates this and
 // it is synced to disk via the RPC layer.
-export let cfg: ThemeConfig = freshConfig()
+export let cfg: ThemeConfig = freshThemeConfig()
 
 // ── Image cache (slot → data URL) ──────────────────────────────────────────
 // Rule images are fetched lazily per slot; only the active rule's bytes are
@@ -155,11 +139,6 @@ export function nextRuleId(): string {
 }
 
 // ── Accessors used by the render layer (they follow the ACTIVE rule) ───────
-const clamp01 = (n: unknown, def: number): number =>
-  typeof n === 'number' && isFinite(n) ? Math.min(1, Math.max(0, n)) : def
-const clamp = (n: unknown, lo: number, hi: number, def: number): number =>
-  typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
-
 export function rHasColor(): boolean { return activeRule()?.color !== null && activeRule() !== null }
 export function rColor(): [number, number, number] { return activeRule()?.color ?? [220, 0.55, 0.25] }
 export function rBgMode(): BgMode { return activeRule()?.bgMode ?? 'fit' }
@@ -174,22 +153,22 @@ export function rWp(): string | null {
 export function rOps(): PartOpacities {
   const o = cfg.opacities ?? {}
   const out = {} as PartOpacities
-  for (const k of ['bg', 'sidebar', 'card', 'input'] as const) {
-    out[k] = clamp01(o[k], DEFAULT_CONFIG.opacities[k])
+  for (const k of PART_OPACITY_KEYS) {
+    out[k] = clamp01(o[k], DEFAULT_PART_OPACITIES[k])
   }
   return out
 }
 export function rBlurs(): PartBlurs {
   const b = cfg.blurs ?? {}
   const out = {} as PartBlurs
-  for (const k of ['bg', 'sidebar', 'card', 'settings', 'chat', 'trajectory', 'rightbar', 'input'] as const) {
-    out[k] = clamp(b[k], 0, 60, DEFAULT_CONFIG.blurs[k])
+  for (const k of PART_BLUR_KEYS) {
+    out[k] = clamp(b[k], 0, 60, DEFAULT_PART_BLURS[k])
   }
   return out
 }
-export function rSop(): number { return clamp01(cfg.settingsOpacity, DEFAULT_CONFIG.settingsOpacity) }
-export function rChatTextOpacity(): number { return clamp01(cfg.chatTextOpacity, DEFAULT_CONFIG.chatTextOpacity) }
-export function rTrajectoryOpacity(): number { return clamp01(cfg.trajectoryOpacity, DEFAULT_CONFIG.trajectoryOpacity) }
+export function rSop(): number { return clamp01(cfg.settingsOpacity, DEFAULT_SETTINGS_OPACITY) }
+export function rChatTextOpacity(): number { return clamp01(cfg.chatTextOpacity, DEFAULT_CHAT_TEXT_OPACITY) }
+export function rTrajectoryOpacity(): number { return clamp01(cfg.trajectoryOpacity, DEFAULT_TRAJECTORY_OPACITY) }
 /** Own opacity of the file-preview panel; while unowned it IS the main background's. */
 export function rRightbarOpacity(): number {
   const own = cfg.rightbarOpacity
@@ -197,78 +176,22 @@ export function rRightbarOpacity(): number {
 }
 
 // ── Normalization ──────────────────────────────────────────────────────────
-function adoptBgState(s: Partial<BgState>): BgState {
-  return {
-    zoom: clamp(s.zoom, 0.1, 10, 1),
-    x: typeof s.x === 'number' && isFinite(s.x) ? s.x : 0,
-    y: typeof s.y === 'number' && isFinite(s.y) ? s.y : 0,
-    iw: typeof s.iw === 'number' && s.iw > 0 ? s.iw : 0,
-    ih: typeof s.ih === 'number' && s.ih > 0 ? s.ih : 0,
-  }
-}
-
-/** Coerce one persisted rule, or null when it lacks a usable id/slot. */
-export function normalizeRule(raw: unknown): BgRule | null {
-  const r = (raw ?? {}) as Partial<BgRule>
-  const id = typeof r.id === 'string' && r.id !== '' ? r.id : null
-  const slot = typeof r.slot === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(r.slot) ? r.slot : null
-  if (id === null || slot === null) return null
-  const c = r.color
-  const color: [number, number, number] | null =
-    Array.isArray(c) && c.length === 3 && c.every(n => typeof n === 'number' && isFinite(n))
-      ? [clamp(c[0], 0, 360, 220), clamp(c[1], 0, 1, 0.55), clamp(c[2], 0, 1, 0.25)]
-      : null
-  return {
-    id,
-    slot,
-    match: typeof r.match === 'string' ? r.match : '',
-    enabled: r.enabled !== false,
-    color,
-    bgMode: BG_MODES.includes(r.bgMode as BgMode) ? (r.bgMode as BgMode) : 'fit',
-    wallpaperOpacity: clamp01(r.wallpaperOpacity, 1),
-    blur: clamp(r.blur, 0, 60, 0),
-    bgState: adoptBgState((r.bgState ?? {}) as Partial<BgState>),
-  }
-}
+// The sanitizers are the shared ones from ../schema (the same code the node half
+// runs before writing to disk), so what the UI shows and what is persisted can
+// never be clamped differently.
 
 /** Move a possibly-absent partial config into the shape the UI reads. */
 export function adoptConfig(raw: unknown): void {
-  const c = (raw ?? {}) as Partial<ThemeConfig>
-  const rules = Array.isArray(c.rules)
-    ? c.rules.map(normalizeRule).filter((r): r is BgRule => r !== null)
-    : []
-  const ops = (c.opacities ?? {}) as Partial<PartOpacities>
-  const bl = (c.blurs ?? {}) as Partial<PartBlurs>
-  const blurs = {} as PartBlurs
-  for (const k of ['bg', 'sidebar', 'card', 'settings', 'chat', 'trajectory', 'rightbar', 'input'] as const) {
-    blurs[k] = clamp(bl[k], 0, 60, DEFAULT_CONFIG.blurs[k])
-  }
-  cfg = {
-    rules,
-    opacities: {
-      bg: clamp01(ops.bg, DEFAULT_CONFIG.opacities.bg),
-      sidebar: clamp01(ops.sidebar, DEFAULT_CONFIG.opacities.sidebar),
-      card: clamp01(ops.card, DEFAULT_CONFIG.opacities.card),
-      input: clamp01(ops.input, DEFAULT_CONFIG.opacities.input),
-    },
-    blurs,
-    settingsOpacity: clamp01(c.settingsOpacity, DEFAULT_CONFIG.settingsOpacity),
-    chatTextOpacity: clamp01(c.chatTextOpacity, DEFAULT_CONFIG.chatTextOpacity),
-    trajectoryOpacity: clamp01(c.trajectoryOpacity, DEFAULT_CONFIG.trajectoryOpacity),
-    // Absent or non-numeric keeps "follow the main background" (see ThemeConfig).
-    rightbarOpacity: typeof c.rightbarOpacity === 'number' && isFinite(c.rightbarOpacity)
-      ? clamp01(c.rightbarOpacity, 1)
-      : null,
-  }
+  cfg = normalizeConfig(raw)
   // A rule that vanished (import/removal) must not stay active.
-  if (activeRuleId !== null && !rules.some(r => r.id === activeRuleId)) {
+  if (activeRuleId !== null && !cfg.rules.some(r => r.id === activeRuleId)) {
     activeRuleId = null
     activeMatched = false
   }
 }
 
 export function resetConfig(): void {
-  cfg = freshConfig()
+  cfg = freshThemeConfig()
   clearImages()
   activeRuleId = null
   activeMatched = false

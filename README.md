@@ -204,6 +204,12 @@ No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
 
+### v0.3.3
+
+- **The config shape is declared once, for both halves** — The node half (which sanitizes every write to disk) and the browser half (the UI's own view of the same file) used to spell the shape out separately: the key lists appeared 6 times across the two halves plus two sets of defaults, so a field added to one side only was silently dropped by the other side's sanitizer — the slider stayed live in memory, `writeConfig` wrote a config without it, and the next load fell back to the default. That is exactly how `blurs.rightbar` / `rightbarOpacity` were lost in 0.3.2. The types, the key lists, the defaults and the pure normalizers now live in one shared module (`src/schema.ts`) that both halves import, and both run the *same* sanitizer, so the UI and the disk copy can no longer disagree.
+- **Unknown config fields are now reported** — While sanitizing a write, the node half logs one warning per key the shared shape does not declare (`ignoring unknown config field "blurs.produced" (declared in one half only?)`), so this class of drift shows up in the host log instead of quietly discarding a setting. Legacy pre-0.3 top-level keys are exempt (the migration consumes them).
+- **No behaviour change** — Defaults, clamps, migration and the persisted file stay byte-for-byte what they were; this release only removes the duplication.
+
 ### v0.3.2
 
 - **New "File preview panel" card** — The column that slides in from the right when you open a file now has opacity and blur sliders of its own. Its only surface was `--dsw-alias-bg-base` — the very token the Main background slider rewrites — so it used to be an unnamed second copy of the main background with no control of its own. The new card's opacity **follows Main background by default** and only takes over on the first drag, so nothing changes on upgrade; its blur stacks on top of the main-background blur. While the panel is closed it is merely slid off-screen, so the card costs nothing.

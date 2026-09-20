@@ -15,6 +15,9 @@
  */
 import { access, mkdir, readFile, writeFile, rm, rename, readdir } from 'node:fs/promises'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+// The persisted shape lives in ./schema, shared verbatim with the browser half.
+import { SLOT_RE, normalizeConfig } from './schema'
+import type { BgState, ThemeConfig } from './schema'
 
 export const name = 'dsh-background-by-model'
 export const inject = ['connection', 'webServer']
@@ -29,50 +32,13 @@ const LEGACY_FILES = [
   'wallpaper.mp4', 'wallpaper.webm', 'wallpaper.ogv', 'wallpaper.mov',
   'wallpaper.mkv', 'wallpaper.video', 'wallpaper.upload.tmp',
 ]
-/** Slot names reach the filesystem, so they are strictly whitelisted. */
-const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
 // Network-URL wallpaper fetch: cap the download and time it out so a bad link
 // can't stall the UI or fill the drive.
 const WALLPAPER_FETCH_MAX = 25 * 1024 * 1024
 const WALLPAPER_FETCH_TIMEOUT = 20_000
 
-interface BgState { zoom: number; x: number; y: number; iw: number; ih: number }
-type BgMode = 'fit' | 'fill' | 'stretch' | 'tile' | 'center'
-interface PartOpacities { bg: number; sidebar: number; card: number; input: number }
-interface PartBlurs {
-  bg: number; sidebar: number; card: number; settings: number; chat: number; trajectory: number; rightbar: number; input: number
-}
-interface BgRule {
-  id: string
-  match: string
-  slot: string
-  enabled: boolean
-  color: [number, number, number] | null
-  bgMode: BgMode
-  wallpaperOpacity: number
-  blur: number
-  bgState: BgState
-}
-interface ThemeConfig {
-  rules: BgRule[]
-  opacities: PartOpacities
-  blurs: PartBlurs
-  settingsOpacity: number
-  chatTextOpacity: number
-  trajectoryOpacity: number
-  /** File-preview panel opacity; null = keep following `opacities.bg`. */
-  rightbarOpacity: number | null
-}
-
-const DEFAULT_CONFIG: ThemeConfig = {
-  rules: [],
-  opacities: { bg: 0.85, sidebar: 0.93, card: 1, input: 1 },
-  blurs: { bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, rightbar: 0, input: 0 },
-  settingsOpacity: 1,
-  chatTextOpacity: 0,
-  trajectoryOpacity: 1,
-  rightbarOpacity: null,
-}
+// The config shape, its defaults and its sanitizers are shared with the browser
+// half — see ./schema, the module that keeps the two halves from drifting.
 
 const dataDir = (): string => dshHomePath(DATA_DIR)
 const configPath = (): string => dshHomePath(DATA_DIR, CONFIG_FILE)
@@ -80,81 +46,6 @@ const legacyWallpaperPath = (): string => dshHomePath(DATA_DIR, LEGACY_WALLPAPER
 const imagePath = (slot: string): string => dshHomePath(DATA_DIR, `${IMAGE_PREFIX}${slot}`)
 
 const exists = async (p: string): Promise<boolean> => { try { await access(p); return true } catch { return false } }
-
-function clamp(n: unknown, lo: number, hi: number, def: number): number {
-  return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
-}
-const clamp01 = (n: unknown, def: number): number => clamp(n, 0, 1, def)
-
-function normalizeBgState(s: Partial<BgState> | undefined): BgState {
-  const v = s ?? {}
-  return {
-    zoom: clamp(v.zoom, 0.1, 10, 1),
-    x: typeof v.x === 'number' && isFinite(v.x) ? v.x : 0,
-    y: typeof v.y === 'number' && isFinite(v.y) ? v.y : 0,
-    iw: typeof v.iw === 'number' && v.iw > 0 ? v.iw : 0,
-    ih: typeof v.ih === 'number' && v.ih > 0 ? v.ih : 0,
-  }
-}
-
-/** Coerce one persisted rule, or null when it lacks a usable id/slot. */
-function normalizeRule(raw: unknown): BgRule | null {
-  const r = (raw ?? {}) as Partial<BgRule>
-  const id = typeof r.id === 'string' && r.id !== '' ? r.id : null
-  const slot = typeof r.slot === 'string' && SLOT_RE.test(r.slot) ? r.slot : null
-  if (id === null || slot === null) return null
-  const c = r.color
-  const color: [number, number, number] | null =
-    Array.isArray(c) && c.length === 3 && c.every(n => typeof n === 'number' && isFinite(n))
-      ? [clamp(c[0], 0, 360, 220), clamp(c[1], 0, 1, 0.55), clamp(c[2], 0, 1, 0.25)]
-      : null
-  const mode: BgMode = (['fit', 'fill', 'stretch', 'tile', 'center'] as BgMode[]).includes(r.bgMode as BgMode)
-    ? (r.bgMode as BgMode)
-    : 'fit'
-  return {
-    id,
-    slot,
-    match: typeof r.match === 'string' ? r.match : '',
-    enabled: r.enabled !== false,
-    color,
-    bgMode: mode,
-    wallpaperOpacity: clamp01(r.wallpaperOpacity, 1),
-    blur: clamp(r.blur, 0, 60, 0),
-    bgState: normalizeBgState(r.bgState as Partial<BgState> | undefined),
-  }
-}
-
-/** Coerce an unknown persisted value into a valid ThemeConfig, falling back per-field. */
-function normalizeConfig(raw: unknown): ThemeConfig {
-  const r = (raw ?? {}) as Partial<ThemeConfig>
-  const rules = Array.isArray(r.rules)
-    ? r.rules.map(normalizeRule).filter((x): x is BgRule => x !== null)
-    : []
-  const ops = (r.opacities ?? {}) as Partial<PartOpacities>
-  const bl = (r.blurs ?? {}) as Partial<PartBlurs>
-  const blurs = {} as PartBlurs
-  for (const k of ['bg', 'sidebar', 'card', 'settings', 'chat', 'trajectory', 'rightbar', 'input'] as const) {
-    blurs[k] = clamp(bl[k], 0, 60, DEFAULT_CONFIG.blurs[k])
-  }
-  return {
-    rules,
-    opacities: {
-      bg: clamp01(ops.bg, DEFAULT_CONFIG.opacities.bg),
-      sidebar: clamp01(ops.sidebar, DEFAULT_CONFIG.opacities.sidebar),
-      card: clamp01(ops.card, DEFAULT_CONFIG.opacities.card),
-      input: clamp01(ops.input, DEFAULT_CONFIG.opacities.input),
-    },
-    blurs,
-    settingsOpacity: clamp01(r.settingsOpacity, DEFAULT_CONFIG.settingsOpacity),
-    chatTextOpacity: clamp01(r.chatTextOpacity, DEFAULT_CONFIG.chatTextOpacity),
-    trajectoryOpacity: clamp01(r.trajectoryOpacity, DEFAULT_CONFIG.trajectoryOpacity),
-    // Anything but a real number means "not owned yet" — including the absent
-    // field of a config written before this option existed.
-    rightbarOpacity: typeof r.rightbarOpacity === 'number' && isFinite(r.rightbarOpacity)
-      ? clamp01(r.rightbarOpacity, 1)
-      : null,
-  }
-}
 
 /**
  * One-shot migration of the pre-0.3 store.
@@ -232,10 +123,58 @@ async function readConfig(): Promise<ThemeConfig> {
   return normalizeConfig(await migrateLegacy(raw))
 }
 
+// ── Two-half drift guard ───────────────────────────────────────────────────
+// The shape lives in ./schema now, so this can only fire when one half adds a
+// field the shared shape does not declare yet (a half-built edit, a stale
+// bundle, or a hand-edited JSON). Without it the sanitizer drops the field
+// silently: the slider stays live in memory, the disk copy loses it, and the
+// next load quietly falls back to the default. Warn once per key so the drift
+// shows up in the host log instead.
+const LEGACY_CONFIG_KEYS = new Set(['color', 'bgMode', 'wallpaperOpacity', 'blur', 'bgState'])
+const warnedConfigKeys = new Set<string>()
+
+function warnUnknownConfigKeys(raw: unknown, normalized: ThemeConfig): void {
+  if (raw === null || typeof raw !== 'object') return
+  const r = raw as Record<string, unknown>
+  const warned = (id: string): void => {
+    if (warnedConfigKeys.has(id)) return
+    warnedConfigKeys.add(id)
+    console.warn(`dsh-background-by-model: ignoring unknown config field "${id}" (declared in one half only?)`)
+  }
+  // The normalized object IS the authoritative key set — it is what the
+  // sanitizer in ./schema emits, so no second list can fall behind.
+  const known = new Set(Object.keys(normalized))
+  for (const key of Object.keys(r)) {
+    // Pre-0.3 top-level fields: migrateLegacy turns them into rule 1.
+    if (!known.has(key) && !LEGACY_CONFIG_KEYS.has(key)) warned(key)
+  }
+  const groups: Array<[string, object]> = [['blurs', normalized.blurs], ['opacities', normalized.opacities]]
+  for (const [group, have] of groups) {
+    const got = r[group]
+    if (got === null || typeof got !== 'object') continue
+    const keys = new Set(Object.keys(have))
+    for (const key of Object.keys(got as Record<string, unknown>)) {
+      if (!keys.has(key)) warned(`${group}.${key}`)
+    }
+  }
+  // Rule fields drift the same way; every rule goes through one sanitizer, so
+  // comparing the first sent rule with the first normalized one is enough.
+  const sent = Array.isArray(r.rules) ? r.rules[0] : undefined
+  const have = normalized.rules[0]
+  if (sent !== null && typeof sent === 'object' && have !== undefined) {
+    const keys = new Set(Object.keys(have))
+    for (const key of Object.keys(sent as Record<string, unknown>)) {
+      if (!keys.has(key)) warned(`rules[].${key}`)
+    }
+  }
+}
+
 async function writeConfig(config: unknown): Promise<boolean> {
   await ensureDir()
   try {
-    await writeFile(configPath(), JSON.stringify(normalizeConfig(config), null, 2), 'utf8')
+    const normalized = normalizeConfig(config)
+    warnUnknownConfigKeys(config, normalized)
+    await writeFile(configPath(), JSON.stringify(normalized, null, 2), 'utf8')
     return true
   } catch (e) {
     console.error(`dsh-background-by-model: failed to write "${CONFIG_FILE}"`, e)
