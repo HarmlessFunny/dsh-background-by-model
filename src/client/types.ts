@@ -81,43 +81,14 @@ export interface Ctx {
   locale: LocaleService; slots: SlotsService; theme: ThemeService; connection: ConnectionService
 }
 
-/** Placement state of one background image (zoom + fractional center + intrinsic size). */
-export interface BgState { zoom: number; x: number; y: number; iw: number; ih: number }
-
-/** Per-part main interface opacities (0..1). Global (Interface page). */
-export interface PartOpacities {
-  /** Main background (--dsw-alias-bg-base). */
-  bg: number
-  /** Sidebar (--dsw-specific-sidebar-fill). */
-  sidebar: number
-  /** Cards/panels (--dsw-alias-bg-layer-1/2/3, --dsw-specific-menu). */
-  card: number
-  /** Input/control surfaces (--dsw-specific-input-major). */
-  input: number
-}
-
-/** Per-part interface blur (px, 0..60). Global (Interface page). */
-export interface PartBlurs {
-  /** Main background (AppFrame grid). */
-  bg: number
-  /** Sidebar column. */
-  sidebar: number
-  /** Cards/panels (center + details columns). */
-  card: number
-  /** Settings panel. */
-  settings: number
-  /** Conversation text region (message column of the chat view). */
-  chat: number
-  /** Trajectory view surface. */
-  trajectory: number
-  /** File-preview panel — the right sidebar a file click opens. */
-  rightbar: number
-  /** Input/control surfaces ([data-composer-card], [data-cordis-panel]). */
-  input: number
-}
-
-/** Adaptive placement of a background image. */
-export type BgMode = 'fit' | 'fill' | 'stretch' | 'tile' | 'center'
+// ── The persisted shape ────────────────────────────────────────────────────
+// BgState / BgMode / PartOpacities / PartBlurs / BgRule / ThemeConfig are
+// declared ONCE in ../schema and shared with the node half, so a field can never
+// exist on one side only (that drift is what silently dropped a setting before).
+// They are re-exported here because every client module imports them from this
+// module.
+import type { BgRule, BgState, BgMode, PartOpacities, PartBlurs, ThemeConfig } from '../schema'
+export type { BgRule, BgState, BgMode, PartOpacities, PartBlurs, ThemeConfig }
 
 /** Material-You-style palette extracted from a background image. */
 export interface ColorPalette {
@@ -131,59 +102,6 @@ export interface ColorPalette {
   surface: [number, number, number]
   /** Average lightness of the source image (0..1) for auto light/dark. */
   luminance: number
-}
-
-/**
- * One model rule: a match string plus everything the background needs while it
- * is the active rule. Every appearance field lives HERE rather than globally —
- * the settings UI edits a rule, and the render layer follows whichever rule the
- * current model selected.
- */
-export interface BgRule {
-  /** Stable id; also the render key. */
-  id: string
-  /**
-   * Case-insensitive substring tested against the current model text (provider,
-   * model id and display name joined with spaces). An EMPTY string never matches
-   * on its own — that rule then only ever serves as the fallback.
-   */
-  match: string
-  /** Image slot; the bytes live in `modelbg-<slot>` under the data dir. */
-  slot: string
-  /** Disabled rules are skipped by matching AND by the fallback pick. */
-  enabled: boolean
-  /** Saved HSL theme color of this rule; null = use the system theme. */
-  color: [number, number, number] | null
-  bgMode: BgMode
-  /** Wallpaper layer opacity (0..1). */
-  wallpaperOpacity: number
-  /** Wallpaper layer blur (px, 0..60) — NOT the interface part blur. */
-  blur: number
-  /** Image framing (zoom + fractional center + intrinsic size). */
-  bgState: BgState
-}
-
-/** The persisted plugin configuration. */
-export interface ThemeConfig {
-  /** Ordered rules: matching runs top→bottom, rule 1 doubles as the fallback. */
-  rules: BgRule[]
-  /** Global per-part opacities (Interface page). */
-  opacities: PartOpacities
-  /** Global per-part blur (Interface page). */
-  blurs: PartBlurs
-  /** Settings-panel opacity (0..1). */
-  settingsOpacity: number
-  /** Translucent tint over the conversation text region (0 = none, 1 = solid). */
-  chatTextOpacity: number
-  /** Translucent tint over the trajectory view surface (0 = none, 1 = solid). */
-  trajectoryOpacity: number
-  /**
-   * Surface opacity of the file-preview panel (0..1). `null` = never touched, so
-   * the panel keeps following `opacities.bg`: the panel's only surface IS
-   * `--dsw-alias-bg-base`, which the main-background slider already re-emits, so
-   * an untouched card must stay indistinguishable from the interface behind it.
-   */
-  rightbarOpacity: number | null
 }
 
 /**
