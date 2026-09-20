@@ -162,6 +162,8 @@ export interface ThemeSectionProps {
   setSop: (v: number) => void
   /** Own the file-preview panel's opacity; null restores "follow the main background". */
   setRightbarOpacity: (v: number | null) => void
+  /** Fill a rule's theme color from its image when the rule has none yet. */
+  setAutoExtract: (v: boolean) => void
   /** Download every rule + its image as one JSON file. */
   exportTheme: () => void
   /** Import such a JSON file: replaces the whole rule set and its images. */

@@ -246,6 +246,33 @@ export function apply(ctx: Ctx): void {
   // ── 7. Locale ─────────────────────────────────────────────────────────────
   ctx.effect(() => ctx.locale.register(NS, { zh, en }) as any, 'dsh-background-by-model: i18n')
 
+  /**
+   * The automatic half of "extract from image": fill a rule's theme color from
+   * the picture it just received, but only while the rule has no color at all —
+   * a color the user picked (or a previous extraction produced) is never
+   * overwritten, so this cannot fight a deliberate choice.
+   *
+   * The decode is asynchronous, so the "still empty?" question is asked AGAIN on
+   * arrival: a color chosen while it ran must win over the one being computed.
+   */
+  const maybeAutoExtract = async (id: string): Promise<void> => {
+    if (!cfg.autoExtract) return
+    const rule = ruleById(id)
+    if (rule === null || rule.color !== null) return
+    const url = displayImageOf(rule.slot)
+    if (url === null) return
+    let hsl: [number, number, number] | null = null
+    try { hsl = await extractWallpaperColor(url, rule.bgState) } catch { hsl = null }
+    if (hsl === null) return
+    const current = ruleById(id)
+    if (current === null || current.color !== null) return
+    current.color = hsl
+    rulesRev++
+    saveConfig()
+    if (id === activeRuleId) applyActive()
+    else sync()
+  }
+
   // ── 8. Section injection ──────────────────────────────────────────────────
   const sectionInject = (actions: { sync: (...a: any[]) => void }): Omit<ThemeSectionProps, 'useStore'> => {
     bound = actions
@@ -303,6 +330,9 @@ export function apply(ctx: Ctx): void {
         void (dataUrl === null ? deleteImage(rule.slot) : writeImage(rule.slot, dataUrl))
         if (id === activeRuleId) applyActive()
         else sync()
+        // A rule that has never been themed should simply come out themed; an
+        // explicit color (or a cleared one the user set on purpose) is left be.
+        if (dataUrl !== null) void maybeAutoExtract(id)
       },
       setRuleImageFromUrl: async (id: string, url: string): Promise<FetchResult> => {
         const rule = ruleById(id)
@@ -312,6 +342,7 @@ export function apply(ctx: Ctx): void {
           setImage(rule.slot, res.dataUrl ?? null)
           if (id === activeRuleId) applyActive()
           else sync()
+          void maybeAutoExtract(id)
         }
         return res
       },
@@ -339,6 +370,7 @@ export function apply(ctx: Ctx): void {
         applyRightbarOverrides(rRightbarOpacity())
         saveConfig()
       },
+      setAutoExtract: (v: boolean): void => { cfg.autoExtract = v; saveConfig(); sync() },
       // Download every rule plus its image as one JSON file.
       exportTheme: (): void => {
         const images: Record<string, string> = {}

@@ -254,7 +254,12 @@ function extractWallpaperPalette(dataUrl: string, bgState: BgState): Promise<Col
           const s = max === 0 ? 0 : (max - min) / max
           // Include all non-extreme pixels in luminance; only vivid pixels in
           // palette buckets so we don't theme around gray/black/white.
-          totalLum += v
+          // Rec.709 luma — the measure a display reads as brightness, and the one
+          // the light/dark band below is decided with. The HSV value used here
+          // before counts every saturated pixel as bright (pure blue: v = 1.0,
+          // luma = 0.072), which pushed dark saturated wallpapers into the light
+          // band and built a light palette over a dark picture.
+          totalLum += (0.2126 * r + 0.7152 * gg + 0.0722 * b) / 255
           sampled++
           if (s < 0.08 || v < 0.12 || v > 0.97) continue
           const key = ((r >> 4) << 8) | ((gg >> 4) << 4) | (b >> 4)

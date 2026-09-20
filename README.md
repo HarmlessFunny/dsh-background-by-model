@@ -204,6 +204,13 @@ No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
 
+### v0.4.0
+
+- **Color extraction now measures brightness the way a display does** — The auto light/dark band was decided from the average HSV *value* (the max channel), which reads every saturated pixel as bright: pure blue is `v = 1.0` while its Rec.709 luma is `0.072`. A dark, saturated wallpaper was therefore pushed into the light band and got a light palette built on top of a dark picture. The extractor now averages Rec.709 luma — the same measure the wallpaper verdict always used.
+- **Choosing an image now themes the rule** — Picking or replacing a rule's image extracts its theme color automatically (global toggle, on by default). It only ever fills a rule that has *no* color, so a color you picked — or deliberately cleared — is never overwritten; because the decode is asynchronous the rule is re-checked on arrival, so a color chosen while it ran wins.
+- **Match test card replaces the "Active now" readout** — The status card answered "what is active" and went stale between switches; the tester answers the better question one step earlier. Type any model name (the field follows the detected model until you type) and it reports which rule would match, or that the fallback would. The diagnostics it could not express — the value being *host default* rather than this session's model, and a sessions service that is not up yet — moved into the card as hints, so a broken lookup still cannot masquerade as a correct read.
+- **Config** — The one new persisted field (`autoExtract`) landed in the shared schema, so both halves sanitize it identically.
+
 ### v0.3.3
 
 - **The config shape is declared once, for both halves** — The node half (which sanitizes every write to disk) and the browser half (the UI's own view of the same file) used to spell the shape out separately: the key lists appeared 6 times across the two halves plus two sets of defaults, so a field added to one side only was silently dropped by the other side's sanitizer — the slider stayed live in memory, `writeConfig` wrote a config without it, and the next load fell back to the default. That is exactly how `blurs.rightbar` / `rightbarOpacity` were lost in 0.3.2. The types, the key lists, the defaults and the pure normalizers now live in one shared module (`src/schema.ts`) that both halves import, and both run the *same* sanitizer, so the UI and the disk copy can no longer disagree.
