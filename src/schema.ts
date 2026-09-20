@@ -116,6 +116,12 @@ export interface ThemeConfig {
    * an untouched card must stay indistinguishable from the interface behind it.
    */
   rightbarOpacity: number | null
+  /**
+   * Extract a rule's theme color from its own image when the rule has none yet.
+   * Only ever FILLS an empty color — a color the user picked or that an earlier
+   * extraction produced is never overwritten, so this cannot fight the user.
+   */
+  autoExtract: boolean
 }
 
 /** 100% = untouched host surface; zero would blank the page by default. */
@@ -125,6 +131,8 @@ export const DEFAULT_CHAT_TEXT_OPACITY = 0
 export const DEFAULT_TRAJECTORY_OPACITY = 1
 /** `null` = the file-preview panel still follows the main background. */
 export const DEFAULT_RIGHTBAR_OPACITY: number | null = null
+/** Picking an image should just work; the toggle is there for people who don't want it. */
+export const DEFAULT_AUTO_EXTRACT = true
 
 /** A default config with independent nested objects (never hand out the shared ones). */
 export function freshThemeConfig(): ThemeConfig {
@@ -136,6 +144,7 @@ export function freshThemeConfig(): ThemeConfig {
     chatTextOpacity: DEFAULT_CHAT_TEXT_OPACITY,
     trajectoryOpacity: DEFAULT_TRAJECTORY_OPACITY,
     rightbarOpacity: DEFAULT_RIGHTBAR_OPACITY,
+    autoExtract: DEFAULT_AUTO_EXTRACT,
   }
 }
 
@@ -164,24 +173,26 @@ export function normalizeBgState(s: Partial<BgState> | undefined): BgState {
   }
 }
 
+/** One `[h, s, l]` triple, or null when the value is not a complete finite triple. */
+export function normalizeHsl(raw: unknown): [number, number, number] | null {
+  if (!Array.isArray(raw) || raw.length !== 3) return null
+  if (!raw.every(n => typeof n === 'number' && isFinite(n))) return null
+  return [clamp(raw[0], 0, 360, 220), clamp(raw[1], 0, 1, 0.55), clamp(raw[2], 0, 1, 0.25)]
+}
+
 /** Coerce one persisted rule, or null when it lacks a usable id/slot. */
 export function normalizeRule(raw: unknown): BgRule | null {
   const r = (raw ?? {}) as Partial<BgRule>
   const id = typeof r.id === 'string' && r.id !== '' ? r.id : null
   const slot = typeof r.slot === 'string' && SLOT_RE.test(r.slot) ? r.slot : null
   if (id === null || slot === null) return null
-  const c = r.color
-  const color: [number, number, number] | null =
-    Array.isArray(c) && c.length === 3 && c.every(n => typeof n === 'number' && isFinite(n))
-      ? [clamp(c[0], 0, 360, 220), clamp(c[1], 0, 1, 0.55), clamp(c[2], 0, 1, 0.25)]
-      : null
   const mode: BgMode = BG_MODES.includes(r.bgMode as BgMode) ? (r.bgMode as BgMode) : 'fit'
   return {
     id,
     slot,
     match: typeof r.match === 'string' ? r.match : '',
     enabled: r.enabled !== false,
-    color,
+    color: normalizeHsl(r.color),
     bgMode: mode,
     wallpaperOpacity: clamp01(r.wallpaperOpacity, 1),
     blur: clamp(r.blur, 0, 60, 0),
@@ -217,5 +228,8 @@ export function normalizeConfig(raw: unknown): ThemeConfig {
     rightbarOpacity: typeof r.rightbarOpacity === 'number' && isFinite(r.rightbarOpacity)
       ? clamp01(r.rightbarOpacity, 1)
       : DEFAULT_RIGHTBAR_OPACITY,
+    // Only an explicit `false` turns it off, so a config written before this
+    // option existed starts with the helpful default.
+    autoExtract: r.autoExtract !== false,
   }
 }

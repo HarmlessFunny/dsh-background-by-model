@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { BgMode, BgRule, ThemeSectionProps, ThemeStoreState } from '../../types'
 import { cfg, PALETTE } from '../../state'
+import { matchRule } from '../../modelbg'
 import { readImg } from '../../utils/image'
 import { hslToHsv, hsvToHsl, hslToRgb } from '../../utils/color'
 import { ColorWheel } from '../ColorWheel'
@@ -41,7 +42,24 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
   const { t, useStore } = p
   const store = useStore((s: ThemeStoreState) => s)
   const rules = cfg.rules
-  const activeIndex = store.activeRuleId === null ? -1 : rules.findIndex(r => r.id === store.activeRuleId)
+
+  // Match tester: the field follows the detected model until the user types
+  // their own text, so the card is useful the moment it is looked at and never
+  // fights the watcher once it is not. It replaced the old "active now" readout —
+  // the same question ("what does this model resolve to?") one step earlier, and
+  // it does not go stale between switches.
+  const [text, setText] = useState('')
+  const [touched, setTouched] = useState(false)
+  useEffect(() => { if (!touched) setText(store.model) }, [store.model, touched])
+  const probe = text.trim()
+  const result = ((): string | null => {
+    if (probe === '') return null
+    const hit = matchRule(rules, probe)
+    const rule = hit.rule
+    if (rule === null) return null
+    const n = rules.findIndex(r => r.id === rule.id) + 1
+    return `${hit.matched ? t('tryoutHit') : t('tryoutFallback')} ${n}`
+  })()
 
   return (
     <>
@@ -51,32 +69,29 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
         <p className="dab-desc">{t('descModelBg')}</p>
       </header>
 
-      {/* Live resolution readout — the fastest way to see whether a rule set
-          behaves the way it was written. */}
       <section className="dab-card dab-rise" style={{ '--d': 1 } as CSSProperties}>
-        <div className="dab-status">
-          <span>{t('statusModel')}</span>
-          {store.model !== ''
-            ? <span className="dab-status-model">{store.model}</span>
-            : <span className="dab-status-none">{t('statusUnknown')}</span>}
-          {store.model !== '' && store.modelSource === 'default'
-            ? <span className="dab-status-src">{t('statusSourceDefault')}</span>
-            : null}
-          {store.model !== '' ? <span className="dab-status-arrow">→</span> : null}
-          {activeIndex >= 0
-            ? (
-              <span className={store.matched ? 'dab-status-hit' : ''}>
-                {store.matched ? t('statusHit') : t('statusFallback')} · {t('statusRule')} {activeIndex + 1}
-              </span>
-            )
-            : <span className="dab-status-none">{t('statusNone')}</span>}
+        <div className="dab-swatch-title">{t('tryoutTitle')}</div>
+        <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <input
+            type="text" className="dab-urlinput" value={text}
+            placeholder={t('tryoutPlaceholder')}
+            onChange={e => { setTouched(true); setText(e.target.value) }} />
+          {store.model !== '' ? (
+            <button type="button" className="dab-btn" onClick={() => { setTouched(true); setText(store.model) }}>
+              {t('tryoutUseCurrent')}
+            </button>
+          ) : null}
         </div>
-        {store.model === '' ? <p className="dab-hint" style={{ marginTop: 9 }}>{t('statusUnknownHint')}</p> : null}
+        <p className="dab-hint" style={{ marginTop: 9 }}>
+          {probe === '' ? t('tryoutEmpty') : result === null ? t('tryoutNone') : result}
+        </p>
+        {/* Why the pre-filled value is what it is: without these, a host default
+            passed off as this session's model, or a sessions service that simply
+            is not up yet, is indistinguishable from a correct read. */}
+        {store.model === '' ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('statusUnknownHint')}</p> : null}
         {store.model !== '' && store.modelSource === 'default'
-          ? <p className="dab-hint" style={{ marginTop: 9 }}>{t('statusSourceDefaultHint')}</p>
+          ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('statusSourceDefaultHint')}</p>
           : null}
-        {/* The failing hop, so a broken service lookup is never mistaken for a
-            session that really is on some other model. */}
         {MODEL_NOTE_KEYS[store.modelNote] !== undefined
           ? <p className="dab-hint" style={{ marginTop: 6 }}>{t(MODEL_NOTE_KEYS[store.modelNote]!)}</p>
           : null}
@@ -85,6 +100,18 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
       <section className="dab-rise" style={{ '--d': 2 } as CSSProperties}>
         <div className="dab-swatch-title">{t('rulesTitle')}</div>
         <p className="dab-hint" style={{ marginBottom: 11 }}>{t('rulesHint')}</p>
+
+        {/* Picking an image should just theme the rule; this is the off switch
+            for people who want the color to be their own choice every time. */}
+        <div className="dab-chip-row" style={{ marginBottom: 12, alignItems: 'center' }}>
+          <button type="button" className={`dab-toggle${cfg.autoExtract ? ' is-on' : ''}`}
+            role="switch" aria-checked={cfg.autoExtract} title={t('autoExtract')}
+            onClick={() => p.setAutoExtract(!cfg.autoExtract)}>
+            <span className="dab-toggle-knob" />
+          </button>
+          <span className="dab-hint">{t('autoExtract')}</span>
+        </div>
+        <p className="dab-hint" style={{ marginBottom: 11 }}>{t('autoExtractHint')}</p>
 
         <div className="dab-rules">
           {rules.map((rule, i) => (
