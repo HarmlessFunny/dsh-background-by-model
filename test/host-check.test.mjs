@@ -1,19 +1,19 @@
-/**
- * The host self-check's own tests — run with
+﻿/**
+ * The host self-check's own tests 鈥?run with
  *
  *   pnpm test
  *
  * Three things are covered, and they are the three that can rot silently:
  *
- *  1. **The contract table holds together** — unique ids, machine-checkable
+ *  1. **The contract table holds together** 鈥?unique ids, machine-checkable
  *     sources, a known criticality, and at least one check or an explicit
  *     "documentation only" marker. A contract point added without a source would
  *     otherwise be invisible to the offline scan.
- *  2. **The probe reports what is actually there** — the whole probe is driven
+ *  2. **The probe reports what is actually there** 鈥?the whole probe is driven
  *     against a fixture written in the shape of a host DOM, so "the host renamed
  *     `--dsw-specific-menu`" produces exactly the failure the panel claims, and a
  *     surface that is merely off screen produces `n/a` rather than a false alarm.
- *  3. **The UI stylesheet, and the one piece of version logic** — every `dab-*`
+ *  3. **The UI stylesheet, and the one piece of version logic** 鈥?every `dab-*`
  *     class a component uses is defined in it, and the floor comparison is exact
  *     on the release triple.
  *
@@ -36,7 +36,7 @@ const { HOST_CONTRACTS, DSH_FLOOR, probeContracts, verdictOf, meetsFloor, UI_CSS
 
 const { readFile, readdir } = await import('node:fs/promises')
 
-// ── 1. the contract table ────────────────────────────────────────────────────
+// 鈹€鈹€ 1. the contract table 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 test('contract ids are unique and non-empty', () => {
   const seen = new Set()
@@ -75,19 +75,27 @@ test('critical contracts carry a check that can fail', () => {
   }
 })
 
-// ── 2. the probe, against a fixture in the shape of a host DOM ───────────────
+// 鈹€鈹€ 2. the probe, against a fixture in the shape of a host DOM 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /** A DOM stand-in with just enough selector support for the contract checks. */
 function makeDom(host) {
-  /** `selector → present`, including attribute and comma-OR forms. */
-  const matches = sel => {
-    for (const part of sel.split(',').map(p => p.trim())) {
-      if (host.has(part)) return true
-      const attr = /^\[([a-z-]+)\]$/.exec(part)
-      if (attr !== null && host.has(`[${attr[1]}]`)) return true
-    }
+  /**
+   * `selector 鈫?present`, including attribute and comma-OR forms. A descendant
+   * selector is satisfied when every compound in it is present 鈥?the stand-in has
+   * no tree, and the contracts are written so that "the elements exist" is the
+   * question being asked.
+   */
+  const one = part => {
+    // `*` is the universal selector: always satisfied.
+    if (part === '*') return true
+    if (host.has(part)) return true
+    const attr = /^\[([a-z-]+)\]$/.exec(part)
+    if (attr !== null && host.has(`[${attr[1]}]`)) return true
     return false
   }
+  const matches = sel => sel.split(',').map(p => p.trim()).some(
+    part => part.split(/\s+/).every(one),
+  )
   return {
     querySelector: sel => (matches(sel) ? { style: {} } : null),
     // Where the host publishes its palette: `body` in the real client, and the
@@ -96,7 +104,7 @@ function makeDom(host) {
     tokenRoot: () => ({ style: {} }),
     // `on` is null for an unscoped token check (the probe reads it off the token
     // root) and the resolved element otherwise. The fixture answers from its own
-    // table either way — whether a value is readable is the host's own business,
+    // table either way 鈥?whether a value is readable is the host's own business,
     // and that is exactly what the table stands in for.
     computedValue: (token, _on) => (host.get(`computed:${token}`) ?? ''),
     styleSheets: () => [],
@@ -132,8 +140,8 @@ const PRESENT_TOKENS = [
 
 /**
  * The literals the HOST's stylesheets declare. The two halves of a token
- * contract ask different questions — `rule` = "does the host still declare this
- * name", `computed` = "does it resolve to a value" — so both are listed.
+ * contract ask different questions 鈥?`rule` = "does the host still declare this
+ * name", `computed` = "does it resolve to a value" 鈥?so both are listed.
  */
 const HOST_RULES = [
   '--dsw-menu-surface-fill', '--dsw-specific-menu', '--dsw-specific-sidebar-fill',
@@ -149,7 +157,7 @@ const OWN_RULES = ['.dab-card']
 /**
  * A stylesheet the probe may read.
  *
- * `own: true` writes this plugin's marker — the ONLY thing that tells our sheets
+ * `own: true` writes this plugin's marker 鈥?the ONLY thing that tells our sheets
  * apart from the host's, since the host's own CSS modules set `data-plugin` on
  * theirs, so a probe keying off that skips the entire host theme.
  *
@@ -196,8 +204,27 @@ function hostEnv({ ctx, selectors = CORE_PRESENT, rules = HOST_RULES, tokens = P
   return { ...makeDom(host), styleSheets: () => hostStyles(rules), ctx }
 }
 
-/** The healthy fixture: nothing missing, every service published. */
-const healthyEnv = () => hostEnv({ ctx: healthyCtx() })
+/**
+ * The two states the dock alternates between. In the real DOM they live in
+ * different panes (a populated tab host carries `data-dockkit-content`, an empty
+ * pane carries `data-dockkit-empty`), and each contract's anchor is what says
+ * whether its own attribute can be observed 鈥?so the fixture provides the anchor
+ * for every contract it expects to answer, and omits the anchors of the ones it
+ * expects to read as n/a.
+ */
+const DOCK_POPULATED = [
+  'div[data-sidebar-right-panel]',
+  '[data-dockkit-tab]',
+  '[data-dockkit-content]',
+  '[data-dockkit-empty]',
+]
+const DOCK_EMPTY = ['div[data-sidebar-right-panel]', '[data-dockkit-empty]']
+
+/** The healthy fixtures: nothing missing, every service published. */
+const healthyEnv = (dock = DOCK_POPULATED) => hostEnv({
+  ctx: healthyCtx(),
+  selectors: [...CORE_PRESENT, ...dock],
+})
 
 /** A context publishing the four services the model hop needs. */
 function healthyCtx(overrides = {}) {
@@ -211,11 +238,14 @@ function healthyCtx(overrides = {}) {
   return { get: id => services[id] }
 }
 
-test('a healthy host passes every contract', () => {
-  const results = probeContracts(healthyEnv(), 'en')
-  const failed = results.filter(r => r.status === 'fail')
-  assert.deepEqual(failed.map(r => r.id), [], `unexpected failures: ${failed.map(r => `${r.id}: ${r.reason}`).join('; ')}`)
-  assert.equal(verdictOf({ results, summary: { pass: results.length, fail: 0, skip: 0, total: results.length } }), 'ok')
+test('a healthy host passes every contract, in either dock state', () => {
+  for (const [name, dock] of [['populated tab', DOCK_POPULATED], ['empty seat', DOCK_EMPTY]]) {
+    const results = probeContracts(healthyEnv(dock), 'en')
+    const failed = results.filter(r => r.status === 'fail')
+    assert.deepEqual(failed.map(r => r.id), [],
+      `unexpected failures with a ${name}: ${failed.map(r => `${r.id}: ${r.reason}`).join('; ')}`)
+    assert.equal(verdictOf({ results, summary: { pass: results.length, fail: 0, skip: 0, total: results.length } }), 'ok')
+  }
 })
 
 test('a renamed menu token fails exactly that contract, and names the symptom', () => {
@@ -232,8 +262,8 @@ test('a renamed menu token fails exactly that contract, and names the symptom', 
 
 test('a renamed token the host still aliases is caught by the rule half', () => {
   // The 0.1.7 menu split in reverse: the host keeps the OLD name working (aliased)
-  // but stops declaring the new one. `computed` still answers — which is exactly
-  // how that bug stayed silent — so the `rule` half is the only thing that can
+  // but stops declaring the new one. `computed` still answers 鈥?which is exactly
+  // how that bug stayed silent 鈥?so the `rule` half is the only thing that can
   // tell "renamed" from "still there".
   const env = hostEnv({
     ctx: healthyCtx(),
@@ -248,7 +278,7 @@ test('a renamed token the host still aliases is caught by the rule half', () => 
 
 test('a host that stops publishing the palette fails the computed half', () => {
   // The other failure shape: the name is still declared somewhere, but body no
-  // longer carries a value — the case that made 7 healthy tokens look empty when
+  // longer carries a value 鈥?the case that made 7 healthy tokens look empty when
   // the probe read the wrong element.
   const env = hostEnv({
     ctx: healthyCtx(),
@@ -270,7 +300,7 @@ test('a dropped session service fails the model hop', () => {
 test('the plugin\'s own token stylesheet cannot make a host check pass', () => {
   // The situation that produced the 0.1.7 white band: the plugin re-emits the
   // menu fill itself, so its own sheet declares the token. That re-emission must
-  // never be accepted as evidence about the HOST — otherwise the check is green
+  // never be accepted as evidence about the HOST 鈥?otherwise the check is green
   // by construction on exactly the host where the token was renamed away.
   const env = hostEnv({
     ctx: healthyCtx(),
@@ -287,7 +317,7 @@ test('the plugin\'s own token stylesheet cannot make a host check pass', () => {
   assert.equal(byId('token.menuSurface').status, 'fail')
   assert.match(byId('token.menuSurface').reason, /no host stylesheet declares/)
   assert.equal(byId('token.menuAlias').status, 'fail')
-  // …while the contract whose other half IS our own sheet still passes: this is
+  // 鈥hile the contract whose other half IS our own sheet still passes: this is
   // what `side: 'own'` is for, and why the two sides must never be merged.
   assert.equal(byId('settings.card').status, 'pass')
 })
@@ -304,9 +334,53 @@ test('a host sheet carrying data-plugin is not mistaken for ours', () => {
   assert.equal(results.find(r => r.id === 'token.bgBase').status, 'pass')
 })
 
+test('a closed dock holding only its empty seat is n/a, not a failure', () => {
+  // The state a healthy host sits in most of the time: the dock holds no tab, so
+  // `data-dockkit-content` (a JS-set attribute the host never styles) cannot be
+  // observed at all. It used to read as "no host stylesheet declares it" 鈥?a
+  // perfectly healthy host reported as broken.
+  const env = healthyEnv(DOCK_EMPTY)
+  const results = probeContracts(env, 'en')
+  const byId = id => results.find(r => r.id === id)
+  assert.equal(byId('dockkit.content').status, 'skip')
+  // The empty seat IS on screen here, so its own contract answers.
+  assert.equal(byId('dockkit.empty').status, 'pass')
+  assert.equal(byId('dockkit.float').status, 'skip')
+  assert.deepEqual(results.filter(r => r.status === 'fail').map(r => r.id), [])
+})
+
+test('a renamed dock tab attribute still fails once a tab is open', () => {
+  // The guard must not swallow a real rename: with a tab open the host has to
+  // carry `data-dockkit-content` on the tab host, and if the name moved, say so.
+  // A populated tab is on screen (the host marks the tab chip), but the attribute
+  // the contract names no longer matches anything.
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    selectors: ['div[data-sidebar-right-panel]', '[data-dockkit-tab]'],
+  })
+  const results = probeContracts(env, 'en')
+  const row = results.find(r => r.id === 'dockkit.content')
+  assert.equal(row.status, 'fail')
+  assert.match(row.reason, /data-dockkit-content/)
+})
+
+test('a floating pane missing its flag is a failure while it is on screen', () => {
+  // The float flag is a JS attribute too, so it is only observable when the user
+  // has a pane floated 鈥?and then, if the host stopped setting it, the plugin
+  // would paint that pane like a docked one.
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    selectors: [...CORE_PRESENT, ...DOCK_POPULATED, '[data-sidebar-right-mode="float"]'],
+  })
+  const results = probeContracts(env, 'en')
+  const row = results.find(r => r.id === 'dockkit.float')
+  assert.equal(row.status, 'fail')
+  assert.match(row.reason, /data-dockkit-float/)
+})
+
 test('a surface that is merely off screen is n/a, not a failure', () => {
   // The app frame and every service are up (the settings section is rendered
-  // inside the frame, so the frame is always there) — but the conversation view,
+  // inside the frame, so the frame is always there) 鈥?but the conversation view,
   // the right panel and the Cordis panel are not. Nothing is broken; those
   // surfaces simply are not there to observe.
   const env = hostEnv({
@@ -326,7 +400,7 @@ test('a surface that is merely off screen is n/a, not a failure', () => {
 })
 
 test('a mounted but marker-less surface is a failure, not n/a', () => {
-  // The dialog is open, so the right panel's anchor is off screen — but the
+  // The dialog is open, so the right panel's anchor is off screen 鈥?but the
   // dialog's own selector still matches. A surface whose anchor IS on screen and
   // whose selector is not is a rename, and must not read as "not observable".
   const env = hostEnv({
@@ -342,7 +416,7 @@ test('a mounted but marker-less surface is a failure, not n/a', () => {
   assert.equal(byId('chat.flow').status, 'skip')
 })
 
-// ── 3. the settings UI's own stylesheet ──────────────────────────────────────
+// 鈹€鈹€ 3. the settings UI's own stylesheet 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 test('every dab-* class a component uses is defined in the UI stylesheet', async () => {
   const dir = join(pluginDir, 'src', 'client')
@@ -372,7 +446,7 @@ test('every dab-* class a component uses is defined in the UI stylesheet', async
   assert.deepEqual(missing, [], `classes used but never styled: ${missing.map(m => `${m.cls} (${m.file})`).join(', ')}`)
 })
 
-// ── 4. the floor comparison ──────────────────────────────────────────────────
+// 鈹€鈹€ 4. the floor comparison 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 test('the floor comparison is coarse on purpose and exact on the triple', () => {
   assert.equal(meetsFloor('0.1.7-rc.2', DSH_FLOOR), true, 'the floor itself satisfies the floor')

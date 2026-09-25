@@ -225,6 +225,11 @@ No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
 
+### v0.4.4
+
+- **The dock contracts stop asking a stylesheet question about JS attributes** — `dockkit.content` and `dockkit.float` were `rule` checks ("does a host stylesheet mention this literal?"). The host sets both attributes from JavaScript — `data-dockkit-content` on a tab host that has a tab, `data-dockkit-float` on a pane the user has floated — and never writes a CSS rule for either, so that question could only ever be answered "no". Both are now **presence** checks, guarded by the host's own tab marker (`data-dockkit-tab`) and by float mode respectively, so a dock with no tab open reads as *n/a* rather than as a rename. `dockkit.empty` — the empty seat the host renders in place of a populated tab host — is a presence check too. Verified against a live host: with no tab open `data-dockkit-tab`/`data-dockkit-content` are absent; clicking the dock's `+` makes both appear (tab 0→1, content 0→1, empty 1→0), and the checks then answer instead of skipping.
+- **Anchors no longer depend on combinators** — The populated-tab anchor started out as `[data-dockkit-strip-tabs] > *`, which a DOM stand-in cannot answer and which let the fixture and the browser disagree. It is now a plain attribute selector.
+
 ### v0.4.3
 
 - **The Host check tab stops crying wolf** — Its first real run on a healthy 0.1.7 install reported **9 failures out of 28 contracts** (7 tokens "no longer declared", 2 attributes gone). Every one was the *probe reading the wrong place*, not the host: the tokens are published as `body{--dsw-…}` while the probe asked `getComputedStyle(document.documentElement)`, and `data-plugin` — which the host's own CSS modules set on every `<style>` they inject — was being used to mean "this plugin's sheet", so the check skipped the entire host theme and then called the tokens renamed. Both are fixed, and both now have tests that fail if they come back: the token root is a named part of `ProbeEnv`, and reading the plugin's own sheets goes through a marker the plugin writes itself (`data-dab-side`), via `getAttribute` rather than `dataset` — `dataset` only exposes the camel-cased key, so a probe indexing it by the dashed name works in a fixture and silently returns nothing in a browser.

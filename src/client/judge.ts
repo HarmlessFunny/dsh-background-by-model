@@ -134,6 +134,14 @@ const ANCHORS: Record<string, string> = {
   trajectoryNotMounted: '[data-conversation-composer-overlay]',
   noRightPanel: 'div[data-sidebar-right-panel],[data-dockkit-strip],[data-dockkit-pane]',
   cordisClosed: '[data-cordis-panel]',
+  // The dock holds either a populated tab host (which is where
+  // `data-dockkit-content` lands) or the empty seat. `[data-dockkit-tab]` is the
+  // host's own mark on a tab chip, so it answers the question directly and needs
+  // no combinator — a plain attribute selector also survives a DOM stand-in.
+  noDockTab: '[data-dockkit-tab]',
+  // True whenever no floating pane is on screen, which is the normal state: the
+  // host only sets `data-dockkit-float` on a pane the user has actually floated.
+  noFloatPane: '[data-dockkit-float],[data-sidebar-right-mode="float"]',
 }
 
 function mounted(env: ProbeEnv, anchorId: string): boolean {
