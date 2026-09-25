@@ -207,9 +207,10 @@ No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
 
-### v0.5.2
+### v0.5.0
 
-- **The host self-check is gone.** Removed together with everything that fed it: the settings page's **Host check** tab, the contract table (`src/host-contracts.ts`), the browser probe (`src/client/judge.ts`), the installed-file scan (`src/host-scan.ts`), the `hostCheck` RPC, the `pnpm scan` script and its test suite. The plugin keeps only what it does: rules, wallpapers and interface opacity/blur. What it cost to remove is in the diff — 28 contracts, three consumers and a report format, none of which ever agreed with reality for long enough to be worth the red lines it printed on a healthy host.
+- **The host self-check is gone.** Removed together with everything that fed it: the settings page's **Host check** tab, the contract table (`src/host-contracts.ts`), the browser probe (`src/client/judge.ts`), the installed-file scan (`src/host-scan.ts`), the `hostCheck` RPC, the `pnpm scan` script and its test suite. The plugin keeps only what it does: rules, wallpapers and interface opacity/blur.
+- **`0.5.0` is implemented identically in `0.5.1` and `0.5.2`.** Those two are publisher-side noise: the first `npm publish` returned HTTP 202 and the version took a few minutes to appear on the registry, which was mistaken for a failure and re-published twice before the async publish landed. All three are live, byte-identical (12 files, same code), and `latest` points at `0.5.2`. Install any of them — pin `0.5.2` if you want the tag's target by name.
 
 ### v0.4.5
 
