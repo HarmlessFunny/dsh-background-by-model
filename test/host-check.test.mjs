@@ -1,4 +1,4 @@
-﻿/**
+/**
  * The host self-check's own tests 鈥?run with
  *
  *   pnpm test
@@ -97,7 +97,11 @@ function makeDom(host) {
     part => part.split(/\s+/).every(one),
   )
   return {
-    querySelector: sel => (matches(sel) ? { style: {} } : null),
+    // The element remembers which selector found it: a stand-in has no box to
+    // measure, and several real attributes live on ONE element (the dock's tab
+    // host carries both the populated marker and the parked empty seat), so
+    // "is this element visible" has to be answered per element, not per fixture.
+    querySelector: sel => (matches(sel) ? { style: {}, foundBy: sel } : null),
     // Where the host publishes its palette: `body` in the real client, and the
     // fixture models exactly that. Reading the document element instead is what
     // made seven healthy tokens report as empty.
@@ -107,6 +111,10 @@ function makeDom(host) {
     // table either way 鈥?whether a value is readable is the host's own business,
     // and that is exactly what the table stands in for.
     computedValue: (token, _on) => (host.get(`computed:${token}`) ?? ''),
+    // A stand-in has no layout, so visibility is answered from an explicit table
+    // (`hidden:<selector>`). Anything unlisted counts as on screen 鈥?the
+    // conservative direction: an unanswerable question never fails a check.
+    visible: el => el === null || !host.has(`hidden:${el.foundBy}`),
     styleSheets: () => [],
   }
 }
@@ -119,7 +127,11 @@ const CORE_PRESENT = [
   '[data-composer-card]',
   '[data-cordis-panel]',
   '[data-chat-flow]',
+  '[data-chat-turn]',
   '[data-conversation-scroll]',
+  // The session root, so "no chat view" and "a chat view with nothing in it" can
+  // be told apart in the fixture the way they are in the host.
+  '[data-conversation-session]',
   '[data-conversation-composer-overlay]',
   '.dab-root',
   '[data-dockkit-strip]',
@@ -193,35 +205,47 @@ function hostStyles(literals = HOST_RULES, ownLiterals = OWN_RULES) {
 /**
  * A fixture host: `selectors` are the ones that match, `rules` the literals the
  * host stylesheet declares, and every token in `PRESENT_TOKENS` resolves unless
- * the caller drops it.
+ * the caller drops it. `hidden` lists selectors that are present but parked off
+ * screen (`visibility:hidden`) 鈥?the state the dock's empty seat sits in.
  */
-function hostEnv({ ctx, selectors = CORE_PRESENT, rules = HOST_RULES, tokens = PRESENT_TOKENS }) {
+function hostEnv({ ctx, selectors = CORE_PRESENT, rules = HOST_RULES, tokens = PRESENT_TOKENS, hidden = [] }) {
   // A Map, not a Set: the fixture must answer with the token's VALUE, and only a
   // Map carries one (a Set has no `get`).
   const host = new Map()
   for (const s of selectors) host.set(s, true)
+  for (const s of hidden) host.set(`hidden:${s}`, true)
   for (const t of tokens) host.set(`computed:${t}`, '#123456')
   return { ...makeDom(host), styleSheets: () => hostStyles(rules), ctx }
 }
 
 /**
- * The two states the dock alternates between. In the real DOM they live in
- * different panes (a populated tab host carries `data-dockkit-content`, an empty
- * pane carries `data-dockkit-empty`), and each contract's anchor is what says
- * whether its own attribute can be observed 鈥?so the fixture provides the anchor
+ * The two states the dock alternates between. In the real DOM the tab host and
+ * the empty seat are different elements, and each contract's anchor is what says
+ * whether its own attribute can be observed — so the fixture provides the anchor
  * for every contract it expects to answer, and omits the anchors of the ones it
  * expects to read as n/a.
+ *
+ * The panel selector is listed twice on purpose: the fixture matches selectors by
+ * exact text (it has no tree to walk), and the contracts spell it both as
+ * `[data-sidebar-right-panel]` (the anchor) and `div[data-sidebar-right-panel]`
+ * (the check).
  */
 const DOCK_POPULATED = [
+  '[data-sidebar-right-panel]',
   'div[data-sidebar-right-panel]',
   '[data-dockkit-tab]',
   '[data-dockkit-content]',
   '[data-dockkit-empty]',
 ]
-const DOCK_EMPTY = ['div[data-sidebar-right-panel]', '[data-dockkit-empty]']
+const DOCK_EMPTY = [
+  '[data-sidebar-right-panel]',
+  'div[data-sidebar-right-panel]',
+  '[data-dockkit-empty]',
+]
 
 /** The healthy fixtures: nothing missing, every service published. */
-const healthyEnv = (dock = DOCK_POPULATED) => hostEnv({
+const healthyEnv = (dock = DOCK_POPULATED, extra = {}) => hostEnv({
+  ...extra,
   ctx: healthyCtx(),
   selectors: [...CORE_PRESENT, ...dock],
 })
@@ -343,10 +367,108 @@ test('a closed dock holding only its empty seat is n/a, not a failure', () => {
   const results = probeContracts(env, 'en')
   const byId = id => results.find(r => r.id === id)
   assert.equal(byId('dockkit.content').status, 'skip')
-  // The empty seat IS on screen here, so its own contract answers.
+  // The empty seat IS the thing on screen here, so its own contract answers — it
+  // is present (the host renders it visibly in this state; it is only parked and
+  // hidden once a tab opens).
   assert.equal(byId('dockkit.empty').status, 'pass')
   assert.equal(byId('dockkit.float').status, 'skip')
   assert.deepEqual(results.filter(r => r.status === 'fail').map(r => r.id), [])
+})
+
+test('a populated dock reports its empty seat as n/a, not as missing', () => {
+  // The state the panel showed the user a red line for. With a tab open the host
+  // renders no seat on that screen at all — the seat is not the thing being shown —
+  // so the question has no answer there, which is n/a and must never be a failure.
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    selectors: [...CORE_PRESENT, 'div[data-sidebar-right-panel]', '[data-dockkit-tab]', '[data-dockkit-content]'],
+  })
+  const results = probeContracts(env, 'en')
+  const byId = id => results.find(r => r.id === id)
+  assert.equal(byId('dockkit.empty').status, 'skip')
+  assert.equal(byId('dockkit.content').status, 'pass')
+  assert.deepEqual(results.filter(r => r.status === 'fail').map(r => r.id), [])
+})
+
+test('a parked empty seat is still a pass, not a failure', () => {
+  // Presence is the whole question. The host parks the seat with
+  // `visibility:hidden` as tabs come and go, so asking whether it is VISIBLE is
+  // asking about a state the host uses both ways — which is how this contract ended
+  // up reporting a red line on a healthy dock.
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    selectors: [...CORE_PRESENT, 'div[data-sidebar-right-panel]', '[data-dockkit-add-tab]', '[data-dockkit-empty]'],
+    hidden: ['[data-dockkit-empty]'],
+  })
+  const results = probeContracts(env, 'en')
+  assert.equal(results.find(r => r.id === 'dockkit.empty').status, 'pass')
+})
+
+test('a seat that is gone while the dock is empty fails', () => {
+  // The real rename, and the one way this contract can fail: the dock is on screen
+  // with the host's "add a tab" button — so it holds no tab — and the seat is not
+  // there. (The old form tested the opposite state, a populated dock, instead.)
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    selectors: [...CORE_PRESENT, 'div[data-sidebar-right-panel]', '[data-dockkit-add-tab]'],
+  })
+  const results = probeContracts(env, 'en')
+  const row = results.find(r => r.id === 'dockkit.empty')
+  assert.equal(row.status, 'fail')
+  assert.match(row.reason, /no element matches/)
+})
+
+test('a surface that is mounted and empty is n/a, not a renamed marker', () => {
+  // The hero screen: a session is open, the composer is there, and the host has
+  // deliberately rendered no message column because there are no messages. The
+  // previous anchor ("the conversation scrollport exists") is true here, so
+  // `[data-chat-flow]` was reported as renamed on a healthy, brand-new session.
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    selectors: ['[data-conversation-session]', '[data-conversation-scroll]', '[data-composer-card]',
+      '[data-content-phase]', '[data-shell-overlay]', '.dab-root', ...DOCK_EMPTY],
+  })
+  const results = probeContracts(env, 'en')
+  const byId = id => results.find(r => r.id === id)
+  assert.equal(byId('chat.flow').status, 'skip')
+  // The two markers that ARE expected in that phase still have to answer, or this
+  // guard would hide a real rename behind "the chat is not mounted".
+  assert.equal(byId('composer.card').status, 'pass')
+  assert.equal(byId('conversation.scroll').status, 'pass')
+  assert.deepEqual(results.filter(r => r.status === 'fail').map(r => r.id), [])
+})
+
+test('the trajectory tab is n/a for the chat column, not a failure', () => {
+  // Measured on the running host: the trajectory view unmounts the chat column
+  // (`data-trajectory-scroll` in, `data-chat-flow` out) while the session root
+  // changes phase rather than disappearing. Switching to it used to report
+  // "no element matches [data-chat-flow] while its surface is on screen".
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    selectors: ['[data-conversation-session]', '[data-content-phase]', '[data-conversation-scroll]',
+      '[data-composer-card]', '[data-conversation-composer-overlay]', '[data-shell-overlay]', '.dab-root',
+      ...DOCK_POPULATED],
+  })
+  const results = probeContracts(env, 'en')
+  const byId = id => results.find(r => r.id === id)
+  assert.equal(byId('chat.flow').status, 'skip')
+  assert.equal(byId('trajectory.root').status, 'pass')
+  assert.deepEqual(results.filter(r => r.status === 'fail').map(r => r.id), [])
+})
+
+test('a message column that is present but hidden is a failure', () => {
+  // The other half of the fix: `visible` must not soften the check into "it is
+  // somewhere in the DOM". A column the user cannot see is not a column the card
+  // can be drawn on, and the report has to say which of the two happened.
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    selectors: [...CORE_PRESENT, ...DOCK_POPULATED],
+    hidden: ['[data-chat-flow]'],
+  })
+  const results = probeContracts(env, 'en')
+  const row = results.find(r => r.id === 'chat.flow')
+  assert.equal(row.status, 'fail')
+  assert.match(row.reason, /hidden/)
 })
 
 test('a renamed dock tab attribute still fails once a tab is open', () => {

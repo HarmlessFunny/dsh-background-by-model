@@ -62,7 +62,30 @@ export type ContractCheck =
   /** A dotted path off that service resolves. */
   | { kind: 'path'; service: string; path: string; expect: 'function' | 'observable' | 'any' }
   /** `document.querySelector(selector)` finds (or must not find) an element. */
-  | { kind: 'selector'; selector: string; optionalWhen?: string }
+  | {
+    kind: 'selector'
+    selector: string
+    /**
+     * The state in which the element is EXPECTED — the check only fails while
+     * this anchor is in the DOM. Use it for every surface the host unmounts,
+     * because the alternative (asking an unguarded question) reports a healthy
+     * host as broken.
+     */
+    optionalWhen?: string
+    /**
+     * Require the element to be on screen, not merely in the DOM.
+     *
+     * Set this for a surface the user is meant to see. The host keeps several of
+     * them rendered but parked — the dock's empty seat sits one panel-width to
+     * the right with `visibility:hidden` until it is the thing being shown — so
+     * "present" and "visible" are different answers, and only the second one is
+     * about the user's screen.
+     *
+     * Left off where the element is a marker for a subtree rather than a thing
+     * on screen, and where a legitimately hidden element is the healthy state.
+     */
+    visible?: boolean
+  }
   /** An element carrying the attribute exists. */
   | { kind: 'attr'; attr: string; optionalWhen?: string }
   /** A custom property resolves to a non-empty computed value. */
@@ -288,8 +311,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '分区域模糊与主背景透明度完全找不到那几列',
     },
     target: '[data-shell-overlay]',
-    checks: [{ kind: 'attr', attr: 'data-shell-overlay' }],
-    sources: [{ path: 'dsh-client-ui-layout/lib/client.js', literal: 'data-shell-overlay' }],
+    checks: [{ kind: 'attr', attr: 'data-shell-overlay' }],    sources: [{ path: 'dsh-client-ui-layout/lib/client.js', literal: 'data-shell-overlay' }],
     usedBy: 'src/client/wallpaper.ts',
   },
   {
@@ -305,7 +327,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
     },
     target: '[role="dialog"][aria-modal="true"][aria-labelledby]',
     checks: [
-      { kind: 'selector', selector: 'div[role="dialog"][aria-modal="true"][aria-labelledby]', optionalWhen: 'settingsClosed' },
+      { kind: 'selector', selector: 'div[role="dialog"][aria-modal="true"][aria-labelledby]', optionalWhen: 'settingsOpen', visible: true },
     ],    sources: [
       { path: 'dsh-client-ui-primitives/lib/index.js', literal: 'aria-modal' },
       // `.dab-card` is this plugin's own class for the dialog's option panels —
@@ -348,7 +370,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
     target: '[data-composer-card]',
     // The composer only exists inside a mounted conversation view, so its absence
     // while the chat view itself is absent is "not observable", not a rename.
-    checks: [{ kind: 'attr', attr: 'data-composer-card', optionalWhen: 'chatNotMounted' }],
+    checks: [{ kind: 'attr', attr: 'data-composer-card', optionalWhen: 'chatHasMessages' }],
     sources: [{ path: 'dsh-client-ui-conversation/lib/client.js', literal: 'data-composer-card' }],
     usedBy: 'src/client/wallpaper.ts',
   },
@@ -364,7 +386,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: 'Cordis 面板拿不到输入区滑块的透明度，仍是宿主表面',
     },
     target: '[data-cordis-panel]',
-    checks: [{ kind: 'attr', attr: 'data-cordis-panel', optionalWhen: 'cordisClosed' }],
+    checks: [{ kind: 'attr', attr: 'data-cordis-panel', optionalWhen: 'cordisMounted' }],
     sources: [{ path: 'dsh-client-ui-cordis/lib/client.js', literal: 'data-cordis-panel' }],
     usedBy: 'src/client/wallpaper.ts',
   },
@@ -384,7 +406,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       // Absent until a file is opened; `[data-dockkit-strip]` is the dock chrome
       // that exists in the same panel even while the panel is closed, so it
       // tells "the panel is not mounted" apart from "the attribute was renamed".
-      { kind: 'selector', selector: 'div[data-sidebar-right-panel]', optionalWhen: 'noRightPanel' },
+      { kind: 'selector', selector: 'div[data-sidebar-right-panel]', optionalWhen: 'rightPanelMounted', visible: true },
     ],
     sources: [{ path: `${SIDEBAR_RIGHT}/lib/client.js`, literal: 'data-sidebar-right-panel' }],
     usedBy: 'src/client/wallpaper.ts',
@@ -430,7 +452,11 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
         // establishes that the dock is there, and a single-attribute selector is
         // what a DOM stand-in can answer honestly.
         selector: '[data-dockkit-content]',
-        optionalWhen: 'noDockTab',
+        optionalWhen: 'dockHasTab',
+        // The painted surface itself, so it has to be on screen: hidden here would
+        // mean the panel's card is being painted onto something the user cannot
+        // see.
+        visible: true,
       },
     ],
     // Directory source: the dockkit component lives in the shell bundle, whose
@@ -450,10 +476,24 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '空的预览格会用宿主表面盖住壁纸',
     },
     target: '[data-dockkit-empty]',
-    // Presence, like its two siblings: this is the seat the host renders in place
-    // of a populated tab host, so it is observable exactly when no tab is open.
+    // Presence, while the dock holds no tab. With the polarity of `optionalWhen`
+    // finally the way its name reads ("the check runs while this is observable"),
+    // the anchor has to be the state in which the seat EXISTS — so it is
+    // `dockHasNoTab`, whose permanent mark is the host's "add a tab" button. Keying
+    // this on the seat itself would make the anchor vanish in the very state it
+    // describes, which is how the contract reported a healthy dock as broken:
+    //
+    //   no tab   the empty seat is what the user is looking at, so the marker has
+    //            to be there; if it is gone the backdrop rule loses its target
+    //   a tab    the host renders no seat at all (measured: the attributed element
+    //            disappears when the dock is populated), so there is nothing to
+    //            observe: n/a, never a failure
+    //
+    // `visible` is deliberately NOT set: presence is the whole question, and asking
+    // a visibility question about a surface the host parks with `visibility` is the
+    // other half of how this contract went wrong.
     checks: [
-      { kind: 'selector', selector: '[data-dockkit-empty]', optionalWhen: 'noDockTab' },
+      { kind: 'selector', selector: '[data-dockkit-empty]', optionalWhen: 'dockHasNoTab' },
     ],
     sources: [{ path: `${SIDEBAR_RIGHT}/lib/client.js`, literal: 'data-dockkit-empty' }],
     usedBy: 'src/client/wallpaper.ts',
@@ -478,7 +518,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       {
         kind: 'selector',
         selector: '[data-dockkit-float]',
-        optionalWhen: 'noFloatPane',
+        optionalWhen: 'paneFloated',
       },
     ],
     sources: [{ path: `${SIDEBAR_RIGHT}/lib/client.js`, literal: 'data-dockkit-float' }],
@@ -498,8 +538,13 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '对话卡片（及其透明度/模糊）找不到消息列',
     },
     target: '[data-chat-flow]',
+    // `chatNotMounted` is the load-bearing part: the host renders the message
+    // column ONLY when the session has messages, so its absence is the normal
+    // state of a new session (the hero screen) and of the trajectory tab. The
+    // guard has to name both of those, or a brand-new session reports the column
+    // as renamed — which is what it did.
     checks: [
-      { kind: 'selector', selector: '[data-chat-flow]', optionalWhen: 'chatNotMounted' },
+      { kind: 'selector', selector: '[data-chat-flow]', optionalWhen: 'chatHasMessages', visible: true },
     ],
     sources: [{ path: 'dsh-client-ui-chat/lib/client.js', literal: 'data-chat-flow' }],
     usedBy: 'src/client/wallpaper.ts',
@@ -517,7 +562,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
     },
     target: '[data-conversation-scroll]',
     checks: [
-      { kind: 'selector', selector: '[data-conversation-scroll]', optionalWhen: 'chatNotMounted' },
+      { kind: 'selector', selector: '[data-conversation-scroll]', optionalWhen: 'chatHasMessages' },
     ],
     sources: [{ path: 'dsh-client-ui-conversation/lib/client.js', literal: 'data-conversation-scroll' }],
     usedBy: 'src/client/wallpaper.ts',
@@ -535,7 +580,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
     },
     target: '[data-conversation-composer-overlay]',
     checks: [
-      { kind: 'selector', selector: '[data-conversation-composer-overlay]', optionalWhen: 'trajectoryNotMounted' },
+      { kind: 'selector', selector: '[data-conversation-composer-overlay]', optionalWhen: 'trajectoryMounted' },
     ],
     sources: [{ path: 'dsh-client-ui-trajectory/lib/client.js', literal: 'data-conversation-composer-overlay' }],
     usedBy: 'src/client/wallpaper.ts',
