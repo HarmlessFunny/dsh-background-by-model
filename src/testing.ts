@@ -11,10 +11,10 @@
  */
 export { HOST_CONTRACTS, CONTRACT_GROUPS, DSH_FLOOR, labelOf, symptomOf, verdictOf, reportToMarkdown } from './host-contracts'
 export type { ContractResult, HostReport, Lang } from './host-contracts'
-export { probeContracts, browserEnv } from './client/judge'
+export { probeContracts, browserEnv, OWN_SHEET_DATASET } from './client/judge'
 export type { ProbeEnv, ProbeInput, StyleSheetLike, StyleRuleLike } from './client/judge'
 export { checkHostOnDisk, meetsFloor, resolveHostRoots, versionOf } from './host-scan'
 // The settings UI's stylesheet is data (a template string), so the tests can
 // assert that every class the components use is actually defined in it — the one
 // kind of typo that React renders without complaint.
-export { UI_CSS } from './client/components/ui.css'
+export { UI_CSS, OWN_SHEET_ATTR, markOwnSheet } from './client/components/ui.css'

@@ -31,7 +31,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const pluginDir = resolve(here, '..')
 const testingPath = join(pluginDir, 'lib', 'testing.js')
 
-const { HOST_CONTRACTS, DSH_FLOOR, probeContracts, verdictOf, meetsFloor, UI_CSS } =
+const { HOST_CONTRACTS, DSH_FLOOR, probeContracts, verdictOf, meetsFloor, UI_CSS, OWN_SHEET_ATTR, OWN_SHEET_DATASET } =
   await import(pathToFileURL(testingPath).href)
 
 const { readFile, readdir } = await import('node:fs/promises')
@@ -90,10 +90,14 @@ function makeDom(host) {
   }
   return {
     querySelector: sel => (matches(sel) ? { style: {} } : null),
-    // `on` is null for an unscoped token check (the probe reads it off the
-    // document root) and the resolved element otherwise. The fixture answers from
-    // its own table either way — whether a value is readable is the host's own
-    // business, and that is exactly what the table stands in for.
+    // Where the host publishes its palette: `body` in the real client, and the
+    // fixture models exactly that. Reading the document element instead is what
+    // made seven healthy tokens report as empty.
+    tokenRoot: () => ({ style: {} }),
+    // `on` is null for an unscoped token check (the probe reads it off the token
+    // root) and the resolved element otherwise. The fixture answers from its own
+    // table either way — whether a value is readable is the host's own business,
+    // and that is exactly what the table stands in for.
     computedValue: (token, _on) => (host.get(`computed:${token}`) ?? ''),
     styleSheets: () => [],
   }
@@ -127,21 +131,55 @@ const PRESENT_TOKENS = [
 ]
 
 /**
- * A host that also declares every token/class/attribute rule the contracts look
- * for — a complete stylesheet fixture minus whatever a test removes.
+ * The literals the HOST's stylesheets declare. The two halves of a token
+ * contract ask different questions — `rule` = "does the host still declare this
+ * name", `computed` = "does it resolve to a value" — so both are listed.
  */
 const HOST_RULES = [
   '--dsw-menu-surface-fill', '--dsw-specific-menu', '--dsw-specific-sidebar-fill',
   '--dsw-specific-input-major', '--dsw-alias-bg-base', '--dsw-alias-bg-layer-1',
-  '.dab-card', '.md-table-wide', '[data-dockkit-content]', '[data-dockkit-empty]',
+  '--dsw-alias-label-caption',
+  '.md-table-wide', '[data-dockkit-content]', '[data-dockkit-empty]',
   '[data-dockkit-float]', '[data-sidebar-right-open]', 'data-ds-dark-theme',
 ]
 
-function hostStyles(literals = HOST_RULES) {
-  return [{
-    ownerNode: { dataset: {} },
+/** The one literal only THIS plugin's stylesheet declares (`.dab-card`, `side: 'own'`). */
+const OWN_RULES = ['.dab-card']
+
+/**
+ * A stylesheet the probe may read.
+ *
+ * `own: true` writes this plugin's marker — the ONLY thing that tells our sheets
+ * apart from the host's, since the host's own CSS modules set `data-plugin` on
+ * theirs, so a probe keying off that skips the entire host theme.
+ *
+ * The fixture exposes the attribute the way a REAL element does: `getAttribute`
+ * answers the dashed name, and `dataset` only the camel-cased key. Modelling this
+ * wrong is how a probe that reads `dataset['data-dab-side']` passes here and
+ * silently fails in a browser.
+ */
+function sheet(literals, own = false) {
+  const attrs = {}
+  const dataset = {}
+  if (own) {
+    attrs[OWN_SHEET_ATTR] = 'own'
+    dataset[OWN_SHEET_DATASET] = 'own'
+  }
+  return {
+    ownerNode: {
+      dataset,
+      getAttribute: name => (name in attrs ? attrs[name] : null),
+      setAttribute: (name, value) => { attrs[name] = value },
+    },
     cssRules: literals.map(l => ({ cssText: `.x{color:red}/* ${l} */` })),
-  }]
+  }
+}
+
+/** The host's sheets plus our own, minus whatever a test removes. */
+function hostStyles(literals = HOST_RULES, ownLiterals = OWN_RULES) {
+  const sheets = [sheet(literals)]
+  if (ownLiterals.length > 0) sheets.push(sheet(ownLiterals, true))
+  return sheets
 }
 
 /**
@@ -192,6 +230,36 @@ test('a renamed menu token fails exactly that contract, and names the symptom', 
   assert.match(row.symptom, /solid band|white band|sticky/i)
 })
 
+test('a renamed token the host still aliases is caught by the rule half', () => {
+  // The 0.1.7 menu split in reverse: the host keeps the OLD name working (aliased)
+  // but stops declaring the new one. `computed` still answers — which is exactly
+  // how that bug stayed silent — so the `rule` half is the only thing that can
+  // tell "renamed" from "still there".
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    rules: HOST_RULES.filter(l => l !== '--dsw-menu-surface-fill'),
+  })
+  const results = probeContracts(env, 'en')
+  const row = results.find(r => r.id === 'token.menuSurface')
+  assert.equal(row.status, 'fail')
+  // The computed half would have passed: the token still resolves a value.
+  assert.match(row.detail, /host stylesheet includes/)
+})
+
+test('a host that stops publishing the palette fails the computed half', () => {
+  // The other failure shape: the name is still declared somewhere, but body no
+  // longer carries a value — the case that made 7 healthy tokens look empty when
+  // the probe read the wrong element.
+  const env = hostEnv({
+    ctx: healthyCtx(),
+    tokens: PRESENT_TOKENS.filter(t => t !== '--dsw-alias-bg-base'),
+  })
+  const results = probeContracts(env, 'en')
+  const row = results.find(r => r.id === 'token.bgBase')
+  assert.equal(row.status, 'fail')
+  assert.match(row.reason, /--dsw-alias-bg-base/)
+})
+
 test('a dropped session service fails the model hop', () => {
   const env = hostEnv({ ctx: healthyCtx({ sessions: undefined }) })
   const results = probeContracts(env, 'en')
@@ -200,19 +268,40 @@ test('a dropped session service fails the model hop', () => {
 })
 
 test('the plugin\'s own token stylesheet cannot make a host check pass', () => {
+  // The situation that produced the 0.1.7 white band: the plugin re-emits the
+  // menu fill itself, so its own sheet declares the token. That re-emission must
+  // never be accepted as evidence about the HOST — otherwise the check is green
+  // by construction on exactly the host where the token was renamed away.
   const env = hostEnv({
     ctx: healthyCtx(),
-    // The ONLY stylesheet is the plugin's own — exactly the situation that
-    // produced the 0.1.7 white band while the check would have been green.
+    // The host sheet is readable but has moved on: it no longer declares the
+    // menu fill under this name.
     rules: [],
   })
-  env.styleSheets = () => [{
-    ownerNode: { dataset: { plugin: 'dsh-background-by-model-tokens' } },
-    cssRules: [{ cssText: 'body{--dsw-menu-surface-fill:red!important;--dsw-specific-menu:red!important}' }],
-  }]
+  env.styleSheets = () => [
+    sheet([]), // the host's own, readable, declaring nothing
+    sheet(['--dsw-menu-surface-fill', '--dsw-specific-menu', '.dab-card'], true),
+  ]
   const results = probeContracts(env, 'en')
-  assert.equal(results.find(r => r.id === 'token.menuSurface').status, 'fail')
-  assert.equal(results.find(r => r.id === 'token.menuAlias').status, 'fail')
+  const byId = id => results.find(r => r.id === id)
+  assert.equal(byId('token.menuSurface').status, 'fail')
+  assert.match(byId('token.menuSurface').reason, /no host stylesheet declares/)
+  assert.equal(byId('token.menuAlias').status, 'fail')
+  // …while the contract whose other half IS our own sheet still passes: this is
+  // what `side: 'own'` is for, and why the two sides must never be merged.
+  assert.equal(byId('settings.card').status, 'pass')
+})
+
+test('a host sheet carrying data-plugin is not mistaken for ours', () => {
+  // Regression for the probe bug that reported 7 healthy tokens as renamed: the
+  // host's CSS modules ALSO set `data-plugin` on their <style> elements, so a
+  // probe that skips "sheets with data-plugin" skips the host's whole theme.
+  const hostSheet = sheet(['--dsw-alias-bg-base'])
+  hostSheet.ownerNode.dataset.plugin = '@deepseek-ai/dsh-client-ui-theme'
+  const env = hostEnv({ ctx: healthyCtx(), rules: [] })
+  env.styleSheets = () => [hostSheet]
+  const results = probeContracts(env, 'en')
+  assert.equal(results.find(r => r.id === 'token.bgBase').status, 'pass')
 })
 
 test('a surface that is merely off screen is n/a, not a failure', () => {

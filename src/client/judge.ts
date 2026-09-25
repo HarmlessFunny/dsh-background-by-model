@@ -22,6 +22,7 @@ import type {
 } from '../host-contracts'
 import { HOST_CONTRACTS, labelOf, symptomOf } from '../host-contracts'
 import type { Ctx } from './types'
+import { OWN_SHEET_ATTR } from './components/ui.css'
 
 // The report shape lives with the contracts (../host-contracts) so the node
 // half's on-disk scan can build the same report without importing a client
@@ -55,13 +56,38 @@ export interface StyleRuleLike {
 /** One stylesheet the probe may read. */
 export interface StyleSheetLike {
   cssRules: ArrayLike<StyleRuleLike> | null
-  /** Set by this plugin on its own <style> elements; those are not host rules. */
-  ownerNode?: { dataset?: Record<string, string | undefined> } | null
+  /**
+   * The `<style>`/`<link>` element that owns it, if any.
+   *
+   * `getAttribute` is what the probe reads, NOT `dataset`: `dataset` rewrites
+   * `data-dab-side` to the camel-cased `dabSide`, so `dataset['data-dab-side']`
+   * is always `undefined` in a browser — while it works fine on the plain object
+   * a test fixture would use. That difference is invisible in tests and fatal in
+   * production, which is exactly the kind of check that has to be written
+   * against the browser's rules.
+   */
+  ownerNode?: {
+    getAttribute?(name: string): string | null
+    dataset?: Record<string, string | undefined>
+  } | null
 }
 
 export interface ProbeEnv {
   /** `null` when the selector matches nothing — the shape of querySelector. */
   querySelector(selector: string): { style?: unknown } | null
+  /**
+   * The element an unscoped token check reads from: where the host publishes its
+   * design tokens.
+   *
+   * `document.documentElement` is NOT that element, which is worth spelling out
+   * because it looks like the obvious answer: dsh declares its whole palette as
+   * `body{--dsw-…: …}` (dsh-client-ui-theme's `design-platform.css`), and
+   * `getComputedStyle(documentElement).getPropertyValue('--dsw-alias-bg-base')`
+   * comes back EMPTY on a perfectly healthy host. Reading the root made seven
+   * contracts report "the host stopped providing this token" on a host that was
+   * providing all of them.
+   */
+  tokenRoot(): { style?: unknown } | null
   /** Computed value of one custom property, already trimmed by the caller. */
   computedValue(token: string, on: { style?: unknown } | null): string
   /** Every stylesheet the probe may read (cross-origin ones throw on access). */
@@ -71,15 +97,22 @@ export interface ProbeEnv {
 
 /** The real browser environment. */
 export function browserEnv(ctx: Ctx): ProbeEnv {
+  const tokenRoot = (): { style?: unknown } | null => {
+    if (typeof document === 'undefined') return null
+    // `body` is where the host's palette lives; the document element is the
+    // fallback for the instant before `body` exists.
+    return (document.body ?? document.documentElement ?? null) as unknown as { style?: unknown } | null
+  }
   return {
     querySelector: selector => document.querySelector(selector) as { style?: unknown } | null,
-    // `on === null` means "not scoped to an element": the token is read off the
-    // document root, which is where the host publishes its design tokens. The
-    // `typeof` guard keeps the module importable outside a browser (the node test
-    // imports the probe to drive it against a fixture).
+    tokenRoot,
+    // `on === null` means "not scoped to an element": the token is read off
+    // `tokenRoot()`. The `typeof` guard keeps the module importable outside a
+    // browser (the node test imports the probe to drive it against a fixture).
     computedValue: (token, on) => {
       if (typeof document === 'undefined') return ''
-      const host = (on ?? document.documentElement) as unknown as HTMLElement
+      const host = (on ?? tokenRoot()) as unknown as HTMLElement | null
+      if (host === null) return ''
       return getComputedStyle(host).getPropertyValue(token).trim()
     },
     styleSheets: () => (typeof document === 'undefined'
@@ -141,20 +174,44 @@ function looksObservable(v: unknown): boolean {
     && typeof (v as { getSnapshot?: unknown }).getSnapshot === 'function'
 }
 
+/** The camel-cased key `data-dab-side` becomes on a real element's `dataset`. */
+export const OWN_SHEET_DATASET = 'dabSide'
+
 /**
- * A stylesheet mention of a literal.
+ * Whether a stylesheet belongs to THIS plugin.
+ *
+ * `data-plugin` cannot answer this: the host's own CSS modules set it on every
+ * `<style>` they inject (`@deepseek-ai/dsh-client-ui-theme` and its peers). Only
+ * the marker written by this plugin's `markOwnSheet` can, and getting this wrong
+ * in the "skip our own sheets" direction skips the host's whole theme.
+ *
+ * Read via `getAttribute` (the browser's own spelling) and fall back to the
+ * camel-cased `dataset` key, which is what a plain-object test fixture exposes.
+ */
+function isOwnSheet(sheet: StyleSheetLike): boolean {
+  const owner = sheet.ownerNode
+  if (owner === null || owner === undefined) return false
+  if (typeof owner.getAttribute === 'function') return owner.getAttribute(OWN_SHEET_ATTR) !== null
+  const ds = owner.dataset
+  return ds !== undefined
+    && (ds[OWN_SHEET_ATTR] !== undefined || ds[OWN_SHEET_DATASET] !== undefined)
+}
+
+/**
+ * A stylesheet mention of a literal, on the requested side.
  *
  * The host's rules are the only place a renamed token still answers honestly:
- * a token can be *declared* by this plugin while the host's rule that consumed
- * it is gone. Cross-origin sheets (none on a local dsh, but the probe must not
- * throw if one ever appears) are skipped.
+ * a token can be *declared* by this plugin while the host's rule that gave it a
+ * value is gone. Cross-origin sheets (none on a local dsh, but the probe must
+ * not throw if one ever appears) are skipped.
  */
-function ruleMentioned(env: ProbeEnv, literal: string): boolean {
+function ruleMentioned(env: ProbeEnv, literal: string, side: 'host' | 'own'): boolean {
   for (const sheet of env.styleSheets()) {
-    // The plugin's OWN stylesheets are skipped: they declare the tokens this
-    // plugin re-emits, so counting them would make every token check pass by
-    // construction — the exact blindness this probe exists to remove.
-    if (sheet.ownerNode?.dataset?.plugin !== undefined) continue
+    // `host` reads the host's sheets only, `own` reads ours only. The two must
+    // never be mixed: counting our re-emission as the host's rule makes every
+    // token check pass by construction — the exact blindness this probe exists
+    // to remove.
+    if (isOwnSheet(sheet) !== (side === 'own')) continue
     let rules: ArrayLike<StyleRuleLike> | null = null
     try {
       rules = sheet.cssRules
@@ -178,16 +235,20 @@ function ruleMentioned(env: ProbeEnv, literal: string): boolean {
   return false
 }
 
-/** Whether any reachable host stylesheet could be read (false ⇒ the check is blind). */
-function stylesReadable(env: ProbeEnv): boolean {
+/** Which sides of stylesheet the probe can actually read (a blind check must not fail). */
+function readability(env: ProbeEnv): { host: boolean; own: boolean } {
+  const out = { host: false, own: false }
   for (const sheet of env.styleSheets()) {
     try {
-      if (sheet.cssRules !== null) return true
+      if (sheet.cssRules !== null) {
+        if (isOwnSheet(sheet)) out.own = true
+        else out.host = true
+      }
     } catch {
       // cross-origin sheet — keep looking
     }
   }
-  return false
+  return out
 }
 
 function evaluate(env: ProbeEnv, check: ContractCheck): CheckOutcome {
@@ -257,11 +318,28 @@ function evaluate(env: ProbeEnv, check: ContractCheck): CheckOutcome {
         : { status: 'fail', name, detail: 'resolves to nothing', reason: `${check.token} resolves to an empty value` }
     }
     case 'rule': {
-      const name = `stylesheet includes ${JSON.stringify(check.match)}`
-      if (!stylesReadable(env)) return { status: 'skip', name, detail: 'no stylesheet is readable' }
-      return ruleMentioned(env, check.match)
-        ? { status: 'pass', name, detail: 'declared by a host rule' }
-        : { status: 'fail', name, detail: 'no rule mentions it', reason: `no stylesheet declares ${check.match}` }
+      const side = check.side ?? 'host'
+      const name = `${side === 'host' ? 'host' : 'plugin'} stylesheet includes ${JSON.stringify(check.match)}`
+      if (!readability(env)[side]) {
+        return {
+          status: 'skip', name,
+          detail: side === 'host' ? 'no host stylesheet is readable' : 'this plugin\'s sheet is not mounted',
+        }
+      }
+      return ruleMentioned(env, check.match, side)
+        ? {
+          status: 'pass',
+          name,
+          detail: side === 'host' ? 'declared by a host rule' : 'declared by this plugin\'s own sheet',
+        }
+        : {
+          status: 'fail',
+          name,
+          detail: 'no rule mentions it',
+          reason: side === 'host'
+            ? `no host stylesheet declares ${check.match}`
+            : `this plugin's own stylesheet does not declare ${check.match} — it was not injected`,
+        }
     }
     default: {
       // Exhaustiveness: a new check kind must be handled here, not silently pass.
