@@ -99,23 +99,15 @@ One interface, one config — only the current model differs:
 - **Conversation & Trajectory** — The message list is wrapped in a translucent card automatically, and the trajectory page gets whole-page opacity & blur controls, letting the wallpaper shine through the content.
 - **Right Panel** — The column that slides in from the right when you open a file now has a card of its own: its opacity follows **Main background** until you drag it (then this card owns it), and its blur stacks on top of the main-background blur. While closed it takes no space and costs nothing.
 
-### Host check (Config tab)
-
-- **Every host interface, evaluated against the build you are running** — The plugin re-emits the host's design tokens, hangs backdrop filters on the host's structural elements and reads the host's session/model services; each of those is a contract with a dsh release, and each can be renamed without an error. The check reports, per point, whether it holds, what its loss looks like on screen, the literal it depends on, the host file that should define it and the plugin file that reads it.
-- **Three states, honestly** — *ok* (the host still provides it), *n/a* (it cannot be observed from here right now — the chat view is off screen while the settings dialog is open, the file-preview panel is not in the DOM until a file has been opened) and *broken* (it is gone while the surface that uses it is on screen). Only the third is a failure.
-- **Copy diagnostics** — One click copies both halves (the live probe and the offline scan of the installed files) as markdown, ready to paste into an issue.
-- **Offline equivalent** — `pnpm scan` runs the same contract table against the installed packages with no browser, and exits non-zero when a target is gone. Use it right after upgrading dsh.
-
 ## Settings
 
-Settings → **Theme** now has four tabs:
+Settings → **Theme** now has three tabs:
 
 | Tab | Scope | Contents |
 | --- | --- | --- |
 | **Interface** | Global, shared by every model | Opacity & blur for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
 | **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's wallpaper, theme color, layout mode, framing, opacity and blur |
 | **Config** | — | Import / export the whole rule set (`dsh-background-by-model-theme.json`) |
-| **Host check** | — | Every host interface this plugin depends on, evaluated against the running dsh: what holds, what broke, and a copyable report |
 
 The old **Color** tab is gone — the theme color is now a property of each rule. The old **Background** tab became **Model Background**.
 
@@ -188,17 +180,7 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
-### Checking a new dsh release
-
-The plugin talks to dsh through a small, explicit set of host interfaces (see [`src/host-contracts.ts`](src/host-contracts.ts)). After upgrading dsh, check them before wondering why something looks off:
-
-```sh
-pnpm run bundle
-pnpm run scan    # offline: fails when a contract target vanished from the installed dsh
-pnpm test        # the contract table, the live probe's logic, the UI stylesheet, the version floor
-```
-
-`pnpm scan` accepts `--host <dir>` (the `node_modules` directory holding `@deepseek-ai/dsh-app-boot`) and `--json`. The same check runs inside the app, against the live interface, on Settings → **Host check**.
+`pnpm test` builds and typechecks (`tsdown && tsc -p tsconfig.json`).
 
 ## Compatibility
 
@@ -224,6 +206,10 @@ Yes — export it from the **Config** tab; the JSON inlines every rule's image.
 No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
+
+### v0.5.0
+
+- **The host self-check is gone.** Removed together with everything that fed it: the settings page's **Host check** tab, the contract table (`src/host-contracts.ts`), the browser probe (`src/client/judge.ts`), the installed-file scan (`src/host-scan.ts`), the `hostCheck` RPC, the `pnpm scan` script and its test suite. The plugin keeps only what it does: rules, wallpapers and interface opacity/blur. What it cost to remove is in the diff — 28 contracts, three consumers and a report format, none of which ever agreed with reality for long enough to be worth the red lines it printed on a healthy host.
 
 ### v0.4.5
 

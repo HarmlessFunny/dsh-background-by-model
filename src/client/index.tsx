@@ -25,8 +25,6 @@ import {
 } from './wallpaper'
 import { genTokens, extractWallpaperColor } from './utils/color'
 import { matchRule, watchModel } from './modelbg'
-import { buildClientReport } from './judge'
-import { PLUGIN_VERSION, DSH_FLOOR } from './build-info'
 import { ThemeSection } from './components/ThemeSection'
 import { markOwnSheet } from './components/ui.css'
 import { SUN_PATHS } from './components/icons'
@@ -568,33 +566,6 @@ export function apply(ctx: Ctx): void {
   const onPageHide = (): void => flushSave()
   window.addEventListener('pagehide', onPageHide)
   ctx.effect(() => () => window.removeEventListener('pagehide', onPageHide), 'dsh-background-by-model: pagehide flush')
-
-  // ── 14. One boot-time host check ──────────────────────────────────────────
-  // The settings page can say exactly what broke, but only once someone opens it.
-  // A host upgrade that renames something the plugin reads should also leave a
-  // trace in the log of the session where it happened — one line per failing
-  // contract, naming the literal and this plugin's file that reads it, so a bug
-  // report can start from the log instead of from "the background stopped".
-  //
-  // Delayed: at apply time the shell is still mounting, so the surfaces that are
-  // legitimately absent would be indistinguishable from renamed ones. Only
-  // failures are logged — `skip` is the normal state of a closed panel.
-  const hostCheckTimer = window.setTimeout(() => {
-    try {
-      const report = buildClientReport({
-        ctx, lang: activeLang(), pluginVersion: PLUGIN_VERSION, floor: DSH_FLOOR, model: readModelFacts(),
-      }, { version: '', compatible: null, note: '' })
-      const failed = report.results.filter(r => r.status === 'fail')
-      if (failed.length === 0) return
-      console.warn(`dsh-background-by-model: ${failed.length} of ${report.results.length} host contract(s) are broken on this dsh build. Open Settings → ${ctx.locale.bind(NS)('pageHostCheck')} for the full report.`)
-      for (const r of failed) {
-        console.warn(`dsh-background-by-model: [${r.id}] ${r.reason ?? r.detail} — read by ${r.usedBy}; expected in ${r.sources.map(s => s.path).join(', ')}`)
-      }
-    } catch {
-      // The check itself must never break the plugin it is checking.
-    }
-  }, 2500)
-  ctx.effect(() => () => window.clearTimeout(hostCheckTimer), 'dsh-background-by-model: host check')
 }
 
 /** Color of the currently active rule, or null when it uses the system theme. */

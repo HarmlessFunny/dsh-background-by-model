@@ -110,9 +110,9 @@ export interface Ctx {
 import type { BgRule, BgState, BgMode, PartOpacities, PartBlurs, ThemeConfig } from '../schema'
 export type { BgRule, BgState, BgMode, PartOpacities, PartBlurs, ThemeConfig }
 
-// The self-check report shape lives with the contract table (../host-contracts),
-// which the node half also imports; re-exported for the section's props.
-import type { ModelFacts } from '../host-contracts'
+// The model-resolution facts the section shows for the active rule. Declared with
+// the schema (../model-facts) because the node half names the same shape.
+import type { ModelFacts } from '../model-facts'
 export type { ModelFacts }
 
 /** Material-You-style palette extracted from a background image. */
@@ -170,16 +170,16 @@ export interface ThemeSectionProps {
   /** Live paintable URL (object URL) of a slot, or null when none is stored. */
   imageOf: (slot: string) => string | null
   /**
-   * The Cordis context this section was injected from — needed by the "Host
-   * check" page, whose probe asks the running host about its services, DOM and
-   * stylesheets (see ./judge).
+   * The Cordis context this section was injected from — the section's own RPC
+   * calls and locale binding go through it.
    */
   ctx: Ctx
   /** Active UI language of the section, for copy that is not in the dictionary. */
   lang: 'zh' | 'en'
   /**
-   * The model-resolution facts of this session, read on demand (the "Host check"
-   * page asks for them when its probe runs, so they are never stale).
+   * The model-resolution facts of this session, read on demand (the page that
+   * shows which rule the current model resolved to asks for them when it renders,
+   * so they are never stale).
    */
   readModelFacts: () => ModelFacts
   /** Create a rule at the END of the list; returns its id. */
