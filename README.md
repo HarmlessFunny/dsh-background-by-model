@@ -99,15 +99,23 @@ One interface, one config — only the current model differs:
 - **Conversation & Trajectory** — The message list is wrapped in a translucent card automatically, and the trajectory page gets whole-page opacity & blur controls, letting the wallpaper shine through the content.
 - **Right Panel** — The column that slides in from the right when you open a file now has a card of its own: its opacity follows **Main background** until you drag it (then this card owns it), and its blur stacks on top of the main-background blur. While closed it takes no space and costs nothing.
 
+### Host check (Config tab)
+
+- **Every host interface, evaluated against the build you are running** — The plugin re-emits the host's design tokens, hangs backdrop filters on the host's structural elements and reads the host's session/model services; each of those is a contract with a dsh release, and each can be renamed without an error. The check reports, per point, whether it holds, what its loss looks like on screen, the literal it depends on, the host file that should define it and the plugin file that reads it.
+- **Three states, honestly** — *ok* (the host still provides it), *n/a* (it cannot be observed from here right now — the chat view is off screen while the settings dialog is open, the file-preview panel is not in the DOM until a file has been opened) and *broken* (it is gone while the surface that uses it is on screen). Only the third is a failure.
+- **Copy diagnostics** — One click copies both halves (the live probe and the offline scan of the installed files) as markdown, ready to paste into an issue.
+- **Offline equivalent** — `pnpm scan` runs the same contract table against the installed packages with no browser, and exits non-zero when a target is gone. Use it right after upgrading dsh.
+
 ## Settings
 
-Settings → **Theme** now has three tabs:
+Settings → **Theme** now has four tabs:
 
 | Tab | Scope | Contents |
 | --- | --- | --- |
 | **Interface** | Global, shared by every model | Opacity & blur for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
 | **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's wallpaper, theme color, layout mode, framing, opacity and blur |
 | **Config** | — | Import / export the whole rule set (`dsh-background-by-model-theme.json`) |
+| **Host check** | — | Every host interface this plugin depends on, evaluated against the running dsh: what holds, what broke, and a copyable report |
 
 The old **Color** tab is gone — the theme color is now a property of each rule. The old **Background** tab became **Model Background**.
 
@@ -180,6 +188,18 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
+### Checking a new dsh release
+
+The plugin talks to dsh through a small, explicit set of host interfaces (see [`src/host-contracts.ts`](src/host-contracts.ts)). After upgrading dsh, check them before wondering why something looks off:
+
+```sh
+pnpm run bundle
+pnpm run scan    # offline: fails when a contract target vanished from the installed dsh
+pnpm test        # the contract table, the live probe's logic, the UI stylesheet, the version floor
+```
+
+`pnpm scan` accepts `--host <dir>` (the `node_modules` directory holding `@deepseek-ai/dsh-app-boot`) and `--json`. The same check runs inside the app, against the live interface, on Settings → **Host check**.
+
 ## Compatibility
 
 - **dsh `>=0.1.7-rc.2`** — Declared in `peerDependencies` (every `@deepseek-ai/dsh-*` entry) and mirrored in `engines.dsh`. The host evaluates those peers against its own runtime version, so an older host reports the plugin as incompatible instead of running it silently.
@@ -204,6 +224,13 @@ Yes — export it from the **Config** tab; the JSON inlines every rule's image.
 No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
+
+### v0.4.2
+
+- **New "Host check" tab — the plugin now reports what broke, instead of just breaking** — A plugin that styles someone else's interface depends on values it does not own: the host's session and model services, the elements it hangs backdrop filters on, and the design tokens it re-emits. Every one of those can be renamed between dsh releases, and all three 0.1.7 breakages were *silent* — nothing threw, the interface simply stopped following the settings. Settings → **Host check** now evaluates each of those touch points against the running build — the live DOM, the host's own stylesheets and the Cordis services — and shows, per point, whether it holds, what its loss looks like on screen, the literal it depends on, the host file that should define it and the plugin file that reads it. **Copy diagnostics** turns both halves into one markdown block for an issue. A surface that is merely off screen (the conversation view while the settings dialog is open, the file-preview panel before a file has been opened) is reported as *n/a*, never as a failure.
+- **The same table is checked offline, with no browser** — `pnpm scan` (`scripts/host-contract-scan.mjs`) walks the installed dsh packages and fails non-zero the moment a contract target is gone, so a host rename turns into a red build right after `npm i -g @deepseek-ai/dsh@latest`, before anyone looks at the interface. It also prints the host version it found and whether it satisfies this plugin's floor.
+- **One contract table, three consumers** — `src/host-contracts.ts` declares every touch point exactly once; the browser probe, the node scan and the tests all read it, so a newly added selector cannot be forgotten by the check that is supposed to notice it changing. `pnpm test` covers the table, the probe (against a fixture written in the shape of a host DOM), the UI stylesheet and the version floor.
+- **A broken contract is no longer invisible in a log** — Two and a half seconds after boot, if any contract fails, the browser console gets one line per failure naming the literal, the plugin file that reads it and the host file expected to define it.
 
 ### v0.4.1
 

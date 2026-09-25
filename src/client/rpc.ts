@@ -1,4 +1,5 @@
 import type { FetchResult, RpcResultLike } from './types'
+import type { HostReport } from '../host-contracts'
 import { cfg } from './state'
 
 export const RPC_CHANNEL = '/dsh-background-by-model'
@@ -112,4 +113,20 @@ export async function readDefaultModel(): Promise<string | null> {
   const d = data as { provider?: unknown; model?: unknown }
   const parts = [d.provider, d.model].filter((s): s is string => typeof s === 'string' && s !== '')
   return parts.length > 0 ? parts.join(' ') : null
+}
+
+/**
+ * The installed-host half of the self-check: the host version and whether the
+ * packages on disk still contain every literal the plugin depends on.
+ *
+ * Returns null when the node half does not answer (an older build of this plugin
+ * still mounted, a host without the RPC channel); the panel then shows the live
+ * probe alone rather than claiming the disk scan passed.
+ */
+export async function readHostScan(lang: 'zh' | 'en'): Promise<HostReport | null> {
+  const data = await rpcCall('hostCheck', { lang })
+  if (data === null || typeof data !== 'object') return null
+  const d = data as Partial<HostReport>
+  if (!Array.isArray(d.results)) return null
+  return data as HostReport
 }

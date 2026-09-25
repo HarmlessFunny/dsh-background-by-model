@@ -195,6 +195,48 @@ export const UI_CSS = `
 .dab-rule-section-title{font-size:12px;font-weight:600;margin-bottom:9px;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
 @container (max-width:760px){.dab-rule-cols{grid-template-columns:1fr}}
 
+/* ── host self-check ─────────────────────────────────────────────────────── */
+.dab-verdict{display:flex;flex-direction:column;gap:14px;position:relative;overflow:hidden}
+.dab-verdict::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:.5;background:linear-gradient(120deg,transparent 55%,color-mix(in srgb,var(--dab-verdict-tone,transparent) 26%,transparent))}
+.dab-verdict-ok{--dab-verdict-tone:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary));border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary)) 38%,var(--dsw-alias-border-l2))}
+.dab-verdict-partial,.dab-verdict-broken{--dab-verdict-tone:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,var(--dsw-alias-border-l2))}
+.dab-verdict-unknown{--dab-verdict-tone:var(--dsw-alias-label-tertiary)}
+.dab-verdict-head{display:flex;align-items:center;gap:13px;flex-wrap:wrap}
+.dab-verdict-ico{width:34px;height:34px;flex:none;border-radius:11px;display:grid;place-items:center;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2)}
+.dab-verdict-ico-ok{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary));background:color-mix(in srgb,var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary)) 14%,transparent)}
+.dab-verdict-ico-partial,.dab-verdict-ico-broken{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}
+.dab-verdict-text{flex:1;min-width:170px}
+.dab-verdict-title{font-size:14.5px;font-weight:650}
+.dab-verdict-sub{margin-top:4px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.dab-verdict-actions{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.dab-facts{display:flex;flex-wrap:wrap;gap:8px;position:relative;z-index:1}
+.dab-fact{display:inline-flex;align-items:center;gap:7px;height:27px;padding:0 11px;border-radius:99px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);max-width:100%}
+.dab-fact.is-bad{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent)}
+.dab-fact-k{font-size:10.5px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
+.dab-fact-v{font-family:var(--dab-mono);font-size:11.5px;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:32ch}
+.dab-check-group-title{display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:650;margin-bottom:11px}
+.dab-check-group-count{margin-left:auto;font-family:var(--dab-mono);font-size:11px;font-weight:500;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);border-radius:99px;padding:3px 9px}
+.dab-checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.dab-check{display:flex;gap:10px;padding:9px 10px;border-radius:11px;transition:background .2s ease}
+.dab-check:hover{background:var(--dsw-alias-bg-layer-2)}
+.dab-check-ico{width:19px;height:19px;flex:none;margin-top:1px;border-radius:50%;display:grid;place-items:center;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2)}
+.dab-check-ico-pass{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary));background:color-mix(in srgb,var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary)) 15%,transparent)}
+.dab-check-ico-fail{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 15%,transparent)}
+.dab-check-dot{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.65}
+.dab-check-body{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
+.dab-check-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.dab-check-label{font-size:12.5px;font-weight:600}
+.dab-check-status{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:1px 7px;border-radius:99px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary)}
+.dab-check-status-pass{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary));background:color-mix(in srgb,var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary)) 14%,transparent)}
+.dab-check-status-fail{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}
+.dab-check-target{font-family:var(--dab-mono);font-size:10.5px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);border-radius:6px;padding:1px 6px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dab-check-detail{font-family:var(--dab-mono);font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:1.5;overflow-wrap:anywhere}
+.dab-check-reason{display:flex;flex-direction:column;gap:5px;font-size:12px;line-height:1.55;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
+.dab-check-symptom{color:var(--dsw-alias-state-error-primary)}
+.dab-check-where{display:flex;gap:7px;align-items:baseline;flex-wrap:wrap;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.dab-check-where code{font-family:var(--dab-mono);font-size:10.5px;overflow-wrap:anywhere}
+.dab-check-note{margin:12px 0 0;font-size:11.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary);position:relative;z-index:1}
+
 /* ── keyframes ───────────────────────────────────────────────────────────── */
 @keyframes dab-fade-in{from{opacity:0}to{opacity:1}}
 @keyframes dab-page-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
@@ -216,6 +258,8 @@ export const UI_CSS = `
   .dab-nav-item{flex:none;padding:0 10px}
   .dab-nav-item.is-active{background:var(--dsw-alias-bg-layer-2)}
   .dab-types{grid-template-columns:1fr}
+  .dab-verdict-actions{margin-left:0;width:100%}
+  .dab-verdict-actions .dab-btn{flex:1}
 }
 @container (min-width:621px){
   .dab-shell{grid-template-columns:158px minmax(0,1fr);gap:26px}
