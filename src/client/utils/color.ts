@@ -43,6 +43,13 @@ function buildTokens(hue: number, sat: number, lit: number): { colorScheme: 'lig
     `hsla(${Math.round(hh)},${Math.round(ss * 100)}%,${Math.round(ll * 100)}%,${a})`
 
   if (dark) {
+    // dsh 0.1.7 splits the menu surface in two: the shared MenuSurface material
+    // paints `--dsw-menu-surface-fill`, and every other overlay paints
+    // `--dsw-specific-menu`, which the host aliases to the former
+    // (`--dsw-specific-menu: var(--dsw-menu-surface-fill)`). Both are generated
+    // from this one expression so the plugin's override of either can never let
+    // the pair drift apart — see OPACITY_VARS in wallpaper.ts.
+    const menuFill = hsl(h(0), s(0), l(0.08))
     return {
       colorScheme: 'dark',
       tokens: {
@@ -121,7 +128,8 @@ function buildTokens(hue: number, sat: number, lit: number): { colorScheme: 'lig
         '--dsw-specific-sidebar-nav-item-active': hsl(h(0), s(0), l(0.04)),
         '--dsw-specific-sidebar-nav-item-hover': hsl(h(0), s(0), l(0)),
         '--dsw-specific-input-major': hsl(h(0), s(0), l(0.02)),
-        '--dsw-specific-menu': hsl(h(0), s(0), l(0.08)),
+        '--dsw-specific-menu': menuFill,
+        '--dsw-menu-surface-fill': menuFill,
         '--dsw-specific-bubble': hsl(h(0), s(0), l(0.03)),
         '--dsw-specific-bubble-highlight': hsl(h(0), s(0), l(0.08)),
         '--dsw-specific-selector': hsl(h(0), s(0), l(0.05)),
@@ -136,6 +144,8 @@ function buildTokens(hue: number, sat: number, lit: number): { colorScheme: 'lig
       },
     }
   }
+  // Same one-expression contract as the dark branch above.
+  const menuFill = hsl(h(0), s(-0.12), l(0.15))
   return {
     colorScheme: 'light',
     tokens: {
@@ -168,7 +178,8 @@ function buildTokens(hue: number, sat: number, lit: number): { colorScheme: 'lig
       '--dsw-specific-sidebar-nav-item-active': hsl(h(0), s(-0.08), l(0.05)),
       '--dsw-specific-sidebar-nav-item-hover': hsl(h(0), s(-0.12), l(0)),
       '--dsw-specific-input-major': hsl(h(0), s(-0.12), l(0.1)),
-      '--dsw-specific-menu': hsl(h(0), s(-0.12), l(0.15)),
+      '--dsw-specific-menu': menuFill,
+      '--dsw-menu-surface-fill': menuFill,
       '--dsw-alias-scrollbar-bg-l1': hsl(h(0), s(-0.1), l(-0.08)),
       '--dsw-alias-scrollbar-bg-l2': hsl(h(0), s(-0.08), l(-0.12)),
       '--dsw-alias-scrollbar-hover-l1': hsl(h(0), s(-0.08), l(-0.16)),

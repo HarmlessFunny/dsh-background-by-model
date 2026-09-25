@@ -35,7 +35,8 @@ export const BG_MODES: readonly BgMode[] = ['fit', 'fill', 'stretch', 'tile', 'c
  * Main interface opacities (0..1), global (Interface page):
  *   `bg`      main background (`--dsw-alias-bg-base`)
  *   `sidebar` sidebar (`--dsw-specific-sidebar-fill`)
- *   `card`    cards/panels (`--dsw-alias-bg-layer-1/2/3`, `--dsw-specific-menu`)
+ *   `card`    cards/panels (`--dsw-alias-bg-layer-1/2/3`, `--dsw-specific-menu`
+ *             and its 0.1.7 alias `--dsw-menu-surface-fill`)
  *   `input`   input/control surfaces (`--dsw-specific-input-major`)
  */
 export const PART_OPACITY_KEYS = ['bg', 'sidebar', 'card', 'input'] as const

@@ -25,9 +25,29 @@ export interface ObservableFaceLike<T = unknown> {
   getSnapshot(): T | undefined
   subscribe(fn: () => void): () => void
 }
+/** One row of the 0.1.7 session list. */
+export interface SessionListRowLike {
+  id?: string
+  /** Retention counts; the main view's session is the row holding `mainView`. */
+  retainedBy?: { mainView?: number }
+}
+/**
+ * Session list face, covering both host generations: ≤0.1.6 published the current
+ * session id directly as `current`, while 0.1.7 publishes a row table
+ * (`ids` / `byId` / `phase`) and hands the *main view's* session to `uiSession`,
+ * identifying it by the row's `retainedBy.mainView` retention.
+ */
+export interface SessionListSnapshotLike {
+  current?: string
+  byId?: Record<string, SessionListRowLike | undefined>
+}
+/** The host's `uiSession` service: `current` is the main view's session binding. */
+export interface UiSessionLike {
+  current?: ObservableFaceLike<{ key?: string } | undefined>
+}
 /** Session list face: only `list` is read here (the current Session id). */
 export interface SessionsServiceLike {
-  readonly list: ObservableFaceLike<{ current?: string }>
+  readonly list: ObservableFaceLike<SessionListSnapshotLike>
   /** Stable session binding (pure resolution; undefined until materialized). */
   binding?(id: string): SessionBindingLike | undefined
   /** Materialize a session's scope so `binding` can resolve. */

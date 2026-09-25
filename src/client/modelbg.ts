@@ -8,15 +8,20 @@
  *
  * Sources, in the order they are consulted:
  *
- *  a. **The session's own durable model selection** —
+ *  a. **Which session is current** (`resolveMainSessionId` below) — the model is
+ *     read per session, so this hop answers before any other can. 0.1.7 moved it:
+ *     `sessions.list` stopped carrying a single `current` id, and the main view's
+ *     session is published by the `uiSession` service and marked by the list row
+ *     retained by `mainView`.
+ *  b. **The session's own durable model selection** —
  *     `ctx.sessions.binding(id).session.projections.faceOf('modelSelection')`,
  *     the same `{ lastUsed, next }` value the composer model seat and the
  *     /model popup read. This is the authoritative per-session answer.
- *  b. **`ctx.modelDirectories`** — the shared per-session directory
+ *  c. **`ctx.modelDirectories`** — the shared per-session directory
  *     (ui-model-selection). It adds the provider-group catalog, so it is the
  *     only source that can supply a display name, but it lives in that plugin's
  *     own scope on some builds and is then invisible from here, hence optional.
- *  c. **The host default model** — resolved by the CALLER as a last resort
+ *  d. **The host default model** — resolved by the CALLER as a last resort
  *     (see index.tsx). It is a global default, NOT this session's selection, so
  *     it is reported as `default` and the settings page says so.
  *
@@ -25,13 +30,15 @@
  * so `ctx.get('sessions')` is normally still undefined when `apply()` runs.
  * Giving up there — returning a no-op disposer — left the model pinned to the
  * host default for the whole session with nothing to retry it. The service is
- * now polled for until it appears, and every hop reports a `note` when it cannot
- * answer, so the settings page can name the failing one instead of silently
- * showing a value that is not this session's model.
+ * now polled for until it appears, and `uiSession` (which can mount even later)
+ * is picked up by the same poll because the session id is re-resolved on every
+ * tick. Every hop reports a `note` when it cannot answer, so the settings page
+ * can name the failing one instead of silently showing a value that is not this
+ * session's model.
  */
 import type {
   BgRule, Ctx, ModelDirectoryLike, ModelDirectoryResolverLike, ModelSelectionProjectionLike,
-  ObservableFaceLike, SessionsServiceLike,
+  ObservableFaceLike, SessionListSnapshotLike, SessionsServiceLike, UiSessionLike,
 } from './types'
 
 /** Rules that can actually paint: enabled and carrying an image slot. */
@@ -111,6 +118,60 @@ function selectionOf(value: ModelSelectionProjectionLike | undefined): { provide
   return { provider, model }
 }
 
+/** A non-empty string id, or null. */
+function asId(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null
+}
+
+/**
+ * The id of the session the main view is showing.
+ *
+ * The model is read per session, so this hop has to answer before any of the
+ * others can. 0.1.7 moved the answer: `sessions.list` stopped publishing a single
+ * `current` id in favour of a row table (`ids` / `byId` / `phase`), and the main
+ * view's session is now whatever holds a `mainView` retention — the same row the
+ * host's own `uiSession.current` binding source is built from. Reading only
+ * `list.current` therefore finds nothing on 0.1.7, and a plugin with no session
+ * id can only ever fall back to rule 1: the background stops following the model.
+ *
+ * The hops are tried in order of authority and every one is optional, so this
+ * answers on both host generations — and while `uiSession` is still mounting.
+ */
+export function resolveMainSessionId(
+  uiCurrent: { key?: string } | undefined,
+  snapshot: SessionListSnapshotLike | undefined,
+): string | null {
+  // 0.1.7: the host's own answer, already resolved from list + retention.
+  const fromUiSession = asId(uiCurrent?.key)
+  if (fromUiSession !== null) return fromUiSession
+  // ≤0.1.6: the list published the current id directly.
+  const legacy = asId(snapshot?.current)
+  if (legacy !== null) return legacy
+  // 0.1.7 without `uiSession` yet: derive it from the retention the host uses.
+  const byId = snapshot?.byId
+  if (byId !== undefined && byId !== null) {
+    for (const row of Object.values(byId)) {
+      if ((row?.retainedBy?.mainView ?? 0) > 0) {
+        const id = asId(row?.id)
+        if (id !== null) return id
+      }
+    }
+  }
+  return null
+}
+
+/** Read `uiSession.current` (if that service is on this host) and resolve. */
+function mainSessionId(ctx: Ctx, list: ObservableFaceLike<SessionListSnapshotLike> | null): string | null {
+  let uiCurrent: { key?: string } | undefined
+  try {
+    const ui = ctx.get('uiSession') as UiSessionLike | undefined
+    uiCurrent = ui?.current?.getSnapshot?.()
+  } catch {
+    // Service absent (or not mounted yet) — the list retention below still answers.
+  }
+  return resolveMainSessionId(uiCurrent, list?.getSnapshot())
+}
+
 /**
  * Watch the current session's model selection.
  *
@@ -125,7 +186,7 @@ export function watchModel(
   onChange: (text: string, label: string, source: ModelSource, note: ModelNote) => void,
 ): () => void {
   let service: SessionsServiceLike | null = null
-  let list: ObservableFaceLike<{ current?: string }> | null = null
+  let list: ObservableFaceLike<SessionListSnapshotLike> | null = null
   let offList: (() => void) | null = null
   let sessionId: string | null = null
   let directory: ModelDirectoryLike | null = null
@@ -169,7 +230,7 @@ export function watchModel(
 
   const note = (): ModelNote => {
     if (service === null) return 'no-service'
-    if ((list?.getSnapshot()?.current ?? null) === null) return 'no-session'
+    if (sessionId === null) return 'no-session'
     if (projected === null && directory === null) return 'no-projection'
     return 'empty-selection'
   }
@@ -194,7 +255,7 @@ export function watchModel(
   }
 
   const bind = (): void => {
-    const id = list?.getSnapshot()?.current ?? null
+    const id = mainSessionId(ctx, list)
     // Already bound to this session and holding at least one live source: only
     // refresh the value. A missing source keeps retrying on the poll below.
     if (id === sessionId && (directory !== null || projected !== null)) { emit(false); return }
@@ -235,7 +296,7 @@ export function watchModel(
 
   const tick = (): void => {
     if (list === null) return
-    if ((list.getSnapshot()?.current ?? null) !== sessionId || (directory === null && projected === null)) bind()
+    if (mainSessionId(ctx, list) !== sessionId || (directory === null && projected === null)) bind()
     else emit(false)
   }
 

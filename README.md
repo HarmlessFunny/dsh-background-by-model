@@ -182,6 +182,7 @@ After changing anything under `src/`, run `pnpm run bundle` again — the mounte
 
 ## Compatibility
 
+- **dsh `>=0.1.7-rc.2`** — Declared in `peerDependencies` (every `@deepseek-ai/dsh-*` entry) and mirrored in `engines.dsh`. The host evaluates those peers against its own runtime version, so an older host reports the plugin as incompatible instead of running it silently.
 - **[`dsh web`](https://github.com/deepseek-ai/deepseek-harness)** — Full support on both the npm release and the new source build. The plugin auto-detects which client-module table the host ships (the new `@deepseek-ai/dsh-client-store` or the legacy `@deepseek-ai/dsh-client-runtime`) and resolves `defineStore` accordingly at runtime.
 - **[deepseek-harness-desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)** — Supported
 
@@ -203,6 +204,14 @@ Yes — export it from the **Config** tab; the JSON inlines every rule's image.
 No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
+
+### v0.4.1
+
+- **The right panel stops painting a permanent frosted plate** — dsh 0.1.7 no longer paints the file-preview panel itself: the container became the slide / fullscreen viewport, stays mounted at its full width for the whole session, and collapsing it only slides the dock out (`transform` + `visibility`, never `display`). A background plus a backdrop-filter on that container therefore covered the empty right half of the frame whenever the panel was closed — the frosted plate 0.1.7 showed. The card now paints the elements the host actually paints (the dock's tab hosts: `[data-dockkit-content]`, `[data-dockkit-empty]`) and rides the host's own open/close and slide transitions; the old panel selector survives behind a `:has()` guard for older hosts, and the backdrop-filter is gated on `[data-sidebar-right-open]` so a collapsed panel is never filtered.
+- **Switching models switches the background again** — 0.1.7's `sessions.list` snapshot no longer publishes `current`, so the plugin could not tell which session was on screen: no session id, no `modelSelection` projection, empty model text, and every model fell through to rule 1. The session id now comes from the host's own `uiSession.current.key` binding, with the legacy `list.current` and a `retainedBy.mainView` row as fallbacks — all optional, so the lookup also works while `uiSession` mounts late. Model switches remain instant, because they ride the per-session `modelSelection` projection subscription rather than a poll.
+- **Menu group headings stop reading as white bands** — 0.1.7 split the menu surface in two: the shared `MenuSurface` material paints the new `--dsw-menu-surface-fill`, and every other overlay paints `--dsw-specific-menu`, which the host aliases to it. The plugin re-emitted only the latter, so a model-selector panel kept the host glass while its sticky provider headings took the plugin's near-opaque palette colour. Both tokens are now generated from one expression and read one plugin-owned variable, so the card slider fades them together and the alias can no longer break.
+- **The card slider's label says what it owns** — It covers menus as well as cards, so the Chinese label changed from 「对话框中选项面板」 to 「卡片与菜单面板」 and the English one from `Cards & panels` to `Cards & menus`.
+- **Declared host raised to `0.1.7-rc.2`** — Every `@deepseek-ai/dsh-*` peer and `engines.dsh` now require 0.1.7-rc.2 or later. The host's compatibility check matches those peers against its own runtime version (`includePrerelease`), so an older host reports the plugin as incompatible by name instead of running it silently. The code's own version fallbacks are unchanged.
 
 ### v0.4.0
 

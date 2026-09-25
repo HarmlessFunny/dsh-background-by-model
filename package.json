@@ -1,6 +1,6 @@
 {
   "name": "dsh-background-by-model",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Appearance plugin for DeepSeek Harness: an ordered list of model rules, each carrying its own wallpaper, theme color, layout mode, opacity and blur — the background follows the model you switch to.",
   "keywords": [
     "deepseek-harness",
@@ -23,7 +23,7 @@
   "author": "Tkingxiao",
   "type": "module",
   "engines": {
-    "dsh": ">=0.1.2-rc.1"
+    "dsh": ">=0.1.7-rc.2"
   },
   "exports": {
     ".": {
@@ -68,12 +68,12 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-client-locale": "^0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-store": "^0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-connection": "^0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-theme": "^0.1.2-alpha.2",
-    "@deepseek-ai/dsh-invariants": "^0.1.2-alpha.2",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-store": ">=0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-theme": ">=0.1.7-rc.2",
+    "@deepseek-ai/dsh-invariants": ">=0.1.7-rc.2",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
