@@ -207,7 +207,7 @@ No. Both were removed in 0.3.0; each rule uses a static image.
 
 ## Recent Optimizations
 
-### v0.5.0
+### v0.5.2
 
 - **The host self-check is gone.** Removed together with everything that fed it: the settings page's **Host check** tab, the contract table (`src/host-contracts.ts`), the browser probe (`src/client/judge.ts`), the installed-file scan (`src/host-scan.ts`), the `hostCheck` RPC, the `pnpm scan` script and its test suite. The plugin keeps only what it does: rules, wallpapers and interface opacity/blur. What it cost to remove is in the diff — 28 contracts, three consumers and a report format, none of which ever agreed with reality for long enough to be worth the red lines it printed on a healthy host.
 
