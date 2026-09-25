@@ -1,6 +1,6 @@
 {
   "name": "dsh-background-by-model",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Appearance plugin for DeepSeek Harness: an ordered list of model rules, each carrying its own wallpaper, theme color, layout mode, opacity and blur 鈥?the background follows the model you switch to.",
   "keywords": [
     "deepseek-harness",

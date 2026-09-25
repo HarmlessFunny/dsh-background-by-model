@@ -417,7 +417,22 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '面板表面不再落在任何元素上，右面板卡片会被画在一个恒定满宽的容器上',
     },
     target: '[data-dockkit-content]',
-    checks: [{ kind: 'rule', match: '[data-dockkit-content]', hint: 'dock tab host' }],
+    // Presence, not a stylesheet rule. The host sets this attribute from JS when
+    // it renders a POPULATED tab host, and never writes a CSS rule for it (the
+    // only stylesheet mentioning it is this plugin's own), so a `rule` check here
+    // answered "no host stylesheet declares it" on a perfectly healthy host: with
+    // no tab open the dock holds only its empty seat. Guarded on there being a
+    // populated tab at all, so a closed dock reads as "not observable".
+    checks: [
+      {
+        kind: 'selector',
+        // Deliberately not a parent-child selector: `noDockTab` already
+        // establishes that the dock is there, and a single-attribute selector is
+        // what a DOM stand-in can answer honestly.
+        selector: '[data-dockkit-content]',
+        optionalWhen: 'noDockTab',
+      },
+    ],
     // Directory source: the dockkit component lives in the shell bundle, whose
     // filename is hash-stamped on every dsh release.
     sources: [{ path: '.', literal: 'dockkit-content', root: 'frontend' }],
@@ -435,7 +450,11 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '空的预览格会用宿主表面盖住壁纸',
     },
     target: '[data-dockkit-empty]',
-    checks: [{ kind: 'rule', match: '[data-dockkit-empty]', hint: 'dock empty seat' }],
+    // Presence, like its two siblings: this is the seat the host renders in place
+    // of a populated tab host, so it is observable exactly when no tab is open.
+    checks: [
+      { kind: 'selector', selector: '[data-dockkit-empty]', optionalWhen: 'noDockTab' },
+    ],
     sources: [{ path: `${SIDEBAR_RIGHT}/lib/client.js`, literal: 'data-dockkit-empty' }],
     usedBy: 'src/client/wallpaper.ts',
   },
@@ -451,7 +470,17 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '浮动面板会被当作停靠面板上色，本该保持宿主样式的面板被磨砂',
     },
     target: '[data-dockkit-float]',
-    checks: [{ kind: 'rule', match: '[data-dockkit-float]', hint: 'floating pane flag' }],
+    // Presence, guarded twice over. The host only sets this on a pane the user
+    // has actually floated, and — like `content` above — writes no CSS rule for
+    // it, so a `rule` check reported a healthy host as broken. `noFloatPane` is
+    // true whenever no floating pane is on screen, which is the normal state.
+    checks: [
+      {
+        kind: 'selector',
+        selector: '[data-dockkit-float]',
+        optionalWhen: 'noFloatPane',
+      },
+    ],
     sources: [{ path: `${SIDEBAR_RIGHT}/lib/client.js`, literal: 'data-dockkit-float' }],
     usedBy: 'src/client/wallpaper.ts',
   },
