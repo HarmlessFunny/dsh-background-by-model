@@ -182,6 +182,7 @@ pnpm run typecheck
 
 ## 兼容性
 
+- **dsh `>=0.1.7-rc.2`** — 在 `peerDependencies`（所有 `@deepseek-ai/dsh-*` 条目）中声明，并在 `engines.dsh` 中同步。宿主会用自身运行时版本校验这些 peer，因此更旧的宿主会直接按名字报出「不兼容」，而不是静默运行。
 - **[`dsh web`](https://github.com/deepseek-ai/deepseek-harness)** — 同时兼容 npm 发布版与新版源码构建。插件会自动检测宿主携带的客户端模块表（新版 `@deepseek-ai/dsh-client-store` 或旧版 `@deepseek-ai/dsh-client-runtime`），并在运行时据此解析 `defineStore`。
 - **[deepseek-harness-desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)** — 支持
 
@@ -203,6 +204,14 @@ pnpm run typecheck
 不支持。两者都在 0.3.0 中移除，每条规则使用一张静态图片。
 
 ## 近期优化
+
+### v0.4.1
+
+- **右侧面板不再糊出一块常驻磨砂板** — dsh 0.1.7 不再自己绘制文件预览面板：容器变成了滑动/全屏视口，整场会话都以全宽挂载，折叠只是把 dock 用 `transform` + `visibility` 滑出去（从不 `display:none`）。于是这个容器上的背景加 backdrop-filter 在面板折叠时照样盖住右半屏——就是那块磨砂板。现在卡片只画宿主真正在画的元素（dock 的 tab host：`[data-dockkit-content]`、`[data-dockkit-empty]`），跟着宿主自己的开合与滑动过渡走；旧的容器选择器留在 `:has()` 守卫后面以兼容老宿主，backdrop-filter 只在 `[data-sidebar-right-open]` 时生效，折叠态绝不走滤镜。
+- **切换模型重新能切背景** — 0.1.7 的 `sessions.list` 快照不再发布 `current`，插件无法得知当前在屏的是哪个会话：拿不到会话 id → 没有 `modelSelection` 投影 → 模型文本为空 → 所有模型都退到规则 1。现在会话 id 先取宿主自己的 `uiSession.current.key`，老字段 `list.current` 与带 `retainedBy.mainView` 的行作为兜底，三跳都是可选的（`uiSession` 挂载晚也能解析）。换模型仍是即时的：它走的是该会话 `modelSelection` 投影的订阅，而不是轮询。
+- **菜单分组标题不再是白道** — 0.1.7 把菜单面拆成了两个 token：共享的 `MenuSurface` 材质画新的 `--dsw-menu-surface-fill`，其他浮层画 `--dsw-specific-menu`，而宿主把后者别名到前者。插件只重新发射了后者，于是模型选择菜单的面板还是宿主玻璃，吸顶的分组标题却变成了插件近乎不透明的调色板色。现在两个 token 由同一个表达式生成、读同一个插件变量，卡片滑块让它们一起变化，别名也不会再被打断。
+- **卡片滑块的标签改名** — 它同时管菜单与卡片，中文标签从「对话框中选项面板」改为「卡片与菜单面板」，英文从 `Cards & panels` 改为 `Cards & menus`。
+- **声明宿主抬到 `0.1.7-rc.2`** — 所有 `@deepseek-ai/dsh-*` peer 与 `engines.dsh` 现在都要求 0.1.7-rc.2 及以后。宿主的兼容性校验会用自身运行时版本比对（带 `includePrerelease`），因此更旧的宿主会按名字报出插件不兼容，而不是静默运行。代码里的版本兜底逻辑未改动。
 
 ### v0.4.0
 

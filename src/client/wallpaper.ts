@@ -23,14 +23,18 @@ function clearCustomTokens(): void {
 // Solid surface tokens grouped by which interface-opacity slider owns them.
 // Every member is re-emitted with per-part alpha so surfaces over the wallpaper
 // (composer input, elevated buttons, menu panels) can go translucent — not just
-// the layered bg/sidebar tokens. --dsw-specific-menu (dropdowns, slash-trigger
-// menu, model selector, popovers around the dialog) is owned by the card
-// slider; the Cordis panel shares that token but is re-scoped to the input
-// slider via INPUT_BLUR_RULE.
+// the layered bg/sidebar tokens. The two menu fills are owned by the card slider
+// and must always travel together: --dsw-specific-menu is what overlays paint
+// (dropdowns, slash-trigger menu, popovers around the dialog) and
+// --dsw-menu-surface-fill is what the shared MenuSurface material paints, which
+// dsh 0.1.7 aliases the former to. Re-emitting only one of them leaves a menu
+// panel on one fill and its sticky group headings on the other — the solid band
+// across the model selector's provider rows. The Cordis panel shares
+// --dsw-specific-menu but is re-scoped to the input slider via INPUT_BLUR_RULE.
 const OPACITY_TOKEN_GROUPS: Array<{ part: keyof PartOpacities; names: string[] }> = [
   { part: 'bg', names: ['--dsw-alias-bg-base'] },
   { part: 'sidebar', names: ['--dsw-specific-sidebar-fill'] },
-  { part: 'card', names: ['--dsw-alias-bg-layer-1', '--dsw-alias-bg-layer-2', '--dsw-alias-bg-layer-3', '--dsw-specific-menu'] },
+  { part: 'card', names: ['--dsw-alias-bg-layer-1', '--dsw-alias-bg-layer-2', '--dsw-alias-bg-layer-3', '--dsw-specific-menu', '--dsw-menu-surface-fill'] },
   { part: 'input', names: ['--dsw-specific-input-major'] },
 ]
 
@@ -45,7 +49,11 @@ const OPACITY_VARS: Record<string, string> = {
   '--dsw-alias-bg-layer-2': '--dsh-any-op-card-2',
   '--dsw-alias-bg-layer-3': '--dsh-any-op-card-3',
   '--dsw-specific-input-major': '--dsh-any-op-input',
+  // The MenuSurface material under a menu panel and the overlay fill its sticky
+  // headings paint are the same value on a 0.1.7 host, so they read the same
+  // plugin-owned variable — one slider, one alpha, no seam between them.
   '--dsw-specific-menu': '--dsh-any-op-menu',
+  '--dsw-menu-surface-fill': '--dsh-any-op-menu',
 }
 
 // Fingerprint of the non-alpha token base (color pick + scheme verdict).
@@ -224,25 +232,44 @@ export function applyTrajectoryOverrides(op: number): void {
 }
 
 // ── File-preview panel (right sidebar) ────────────────────────────────────
-// Clicking a file opens the host's right panel, whose whole visible surface is
-// `background: var(--dsw-alias-bg-base)` — the exact token the main-background
-// slider re-emits with its own alpha. The panel was therefore a second, unnamed
-// copy of the main background with no control of its own; this card takes it
-// over. The declaration is written from a stylesheet (not element discovery)
-// because the panel stays mounted across open/close, and the selector carries a
-// `div` prefix so it outranks the host's hashed class rule. `!important` covers
-// a later host rule that is at least as specific (such as an
-// `[data-sidebar-right-open]` variant). The `var()` fallback keeps the host's own
-// value until a rule with a color supplies one, so a color-less rule changes
-// nothing here.
+// Clicking a file opens the host's right panel, whose visible surface is painted
+// from `background: var(--dsw-alias-bg-base)` — the exact token the
+// main-background slider re-emits with its own alpha. The panel was therefore a
+// second, unnamed copy of the main background with no control of its own; this
+// card takes it over, on whichever element the host paints that surface.
 //
-// backdrop-filter goes directly on the panel: the settings dialog and the
-// composer already take theirs that way, and the panel holds no fixed-position
-// descendant whose containing block could be trapped (the float layer is
-// portaled out to <body>).
+// dsh 0.1.7 moved the paint off the panel: the container lost its background and
+// became the slide / fullscreen viewport, and it stays mounted at its full width
+// for the whole session — collapsing it only slides the dock out (`transform` +
+// `visibility`, never `display`). A surface (plus a backdrop-filter) written on
+// that container therefore covers the empty right half of the frame even with
+// the panel closed, which is the permanent frosted plate 0.1.7 shows. The dock's
+// own tab hosts are what the host paints now, so the card follows them:
+//
+//   0.1.7+  the dock's tab hosts — `[data-dockkit-content]` (and the
+//           `[data-dockkit-empty]` seat of an empty pane), painted by the host
+//           from the same token and hidden with `visibility`, so the card rides
+//           the host's own open/close and slide transitions for free. Floating
+//           panes are excluded exactly as the host excludes them.
+//   older   the panel itself, which used to carry that background on its hashed
+//           class. `:has()` keeps the two apart, so the alpha is never painted
+//           twice over on a 0.1.7 host.
+//
+// The selectors use data attributes (not the hashed CSS-module classes) and
+// `!important` outranks the host's class rule. The `var()` fallback keeps the
+// host's own value until a rule with a color supplies one, so a color-less rule
+// changes nothing here.
+//
+// backdrop-filter stays on the container — that is where this card has always
+// put it, and it keeps the panel to a single filter pass — but only while the
+// panel is open: an always-on filter is what turned the collapsed panel into a
+// plate.
 export const RIGHTBAR_STYLE_RULE =
-  'div[data-sidebar-right-panel]{' +
-  'background:var(--dsh-any-bg-rightbar,var(--dsw-alias-bg-base))!important;' +
+  'div[data-sidebar-right-panel]:not(:has([data-dockkit-content],[data-dockkit-empty]))[data-sidebar-right-open],' +
+  'div[data-sidebar-right-panel] [data-dockkit-content]:not([data-dockkit-float]),' +
+  'div[data-sidebar-right-panel] [data-dockkit-empty]{' +
+  'background:var(--dsh-any-bg-rightbar,var(--dsw-alias-bg-base))!important}' +
+  'div[data-sidebar-right-panel][data-sidebar-right-open]{' +
   '-webkit-backdrop-filter:var(--dsh-any-blur-rightbar,none);' +
   'backdrop-filter:var(--dsh-any-blur-rightbar,none)}'
 

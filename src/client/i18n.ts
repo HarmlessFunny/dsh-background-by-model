@@ -9,7 +9,7 @@ export const zh: Record<string, string> = {
 
   uiTitle: '主界面',
   uiOpacity: '透明度', uiBlur: '模糊度',
-  uiOpacityBg: '主背景', uiOpacitySide: '左侧栏', uiOpacityCard: '对话框中选项面板', uiOpacityInput: '输入框与控件',
+  uiOpacityBg: '主背景', uiOpacitySide: '左侧栏', uiOpacityCard: '卡片与菜单面板', uiOpacityInput: '输入框与控件',
   uiSop: '设置界面透明度', uiChatRegion: '对话文本框', uiTrajectory: '轨迹页',
   uiPreview: '右侧栏',
 
@@ -99,7 +99,7 @@ export const en: Record<string, string> = {
 
   uiTitle: 'Interface',
   uiOpacity: 'Opacity', uiBlur: 'Blur',
-  uiOpacityBg: 'Main background', uiOpacitySide: 'Left panel', uiOpacityCard: 'Cards & panels', uiOpacityInput: 'Input & controls',
+  uiOpacityBg: 'Main background', uiOpacitySide: 'Left panel', uiOpacityCard: 'Cards & menus', uiOpacityInput: 'Input & controls',
   uiSop: 'Settings interface opacity', uiChatRegion: 'Conversation text frame', uiTrajectory: 'Trajectory view',
   uiPreview: 'Right panel',
 
