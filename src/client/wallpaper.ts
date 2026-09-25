@@ -1,6 +1,7 @@
 import { rWp, rBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity } from './state'
 import type { PartOpacities, PartBlurs } from './types'
 import { genTokens, toRgba } from './utils/color'
+import { markOwnSheet } from './components/ui.css'
 
 let wpEl: HTMLDivElement | null = null
 let appliedTokenNames: string[] = []
@@ -10,6 +11,7 @@ function ensureTokenStyle(): HTMLStyleElement {
   if (tokenStyleEl?.isConnected) return tokenStyleEl
   tokenStyleEl = document.createElement('style')
   tokenStyleEl.dataset.plugin = 'dsh-background-by-model-tokens'
+  markOwnSheet(tokenStyleEl)
   document.head.appendChild(tokenStyleEl)
   return tokenStyleEl
 }
@@ -317,6 +319,7 @@ function ensurePartBlurStyle(): void {
   if (partBlurStyleEl?.isConnected) return
   partBlurStyleEl = document.createElement('style')
   partBlurStyleEl.dataset.plugin = 'dsh-background-by-model-parts'
+  markOwnSheet(partBlurStyleEl)
   partBlurStyleEl.textContent = PART_BLUR_RULE
   document.head.appendChild(partBlurStyleEl)
 }
@@ -599,6 +602,7 @@ function syncTableFix(): void {
   if (tableFixStyleEl === null) {
     tableFixStyleEl = document.createElement('style')
     tableFixStyleEl.dataset.plugin = 'dsh-background-by-model-table-fix'
+    markOwnSheet(tableFixStyleEl)
     tableFixStyleEl.textContent = TABLE_FIX_RULE
   }
   if (!tableFixStyleEl.isConnected) document.head.appendChild(tableFixStyleEl)

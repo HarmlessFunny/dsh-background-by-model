@@ -68,7 +68,23 @@ export type ContractCheck =
   /** A custom property resolves to a non-empty computed value. */
   | { kind: 'computed'; token: string; on?: string }
   /** A style rule mentioning the token/attribute exists in a host stylesheet. */
-  | { kind: 'rule'; match: string; hint?: string }
+  | {
+    kind: 'rule'
+    match: string
+    /**
+     * Which side the rule must live on. `host` (the default) reads only the
+     * host's stylesheets; `own` reads only this plugin's.
+     *
+     * This distinction is load-bearing, not cosmetic: the host's own CSS modules
+     * mark their `<style>` elements with `data-plugin` too, and this plugin
+     * re-emits the host's tokens. A check that cannot tell the two apart either
+     * skips the entire host theme (every token reads as renamed) or accepts this
+     * plugin's own re-emission as proof that the host still declares the token —
+     * the exact blindness that let the 0.1.7 white band ship.
+     */
+    side?: 'host' | 'own'
+    hint?: string
+  }
 
 /** A literal string plus the host file that must still contain it. */
 export interface ContractSource {
@@ -310,7 +326,11 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '弹窗内选项卡的模糊没有附着对象',
     },
     target: '.dab-card',
-    checks: [{ kind: 'rule', match: '.dab-card', hint: 'settings dialog card class' }],
+    // `own`: this class is declared by THIS plugin's stylesheet, not the host's.
+    // It is the one entry in the table whose other half is a sheet of ours, and
+    // the check exists to notice that sheet going missing (the option-card blur
+    // then has nothing to attach to).
+    checks: [{ kind: 'rule', match: '.dab-card', side: 'own', hint: 'settings dialog card class' }],
     sources: [{ path: 'src/client/components/ui.css.ts', literal: '.dab-card' }],
     usedBy: 'src/client/wallpaper.ts',
   },
@@ -521,7 +541,10 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '主背景透明度与右侧栏卡片失去表面色',
     },
     target: '--dsw-alias-bg-base',
-    checks: [{ kind: 'computed', token: '--dsw-alias-bg-base' }],
+    checks: [
+      { kind: 'rule', match: '--dsw-alias-bg-base', hint: 'platform palette' },
+      { kind: 'computed', token: '--dsw-alias-bg-base' },
+    ],
     sources: [{ path: 'dsh-client-ui-theme/lib/client.js', literal: '--dsw-alias-bg-base' }],
     usedBy: 'src/client/wallpaper.ts',
   },
@@ -538,6 +561,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
     },
     target: '--dsw-alias-bg-layer-1/2/3',
     checks: [
+      { kind: 'rule', match: '--dsw-alias-bg-layer-1', hint: 'platform palette' },
       { kind: 'computed', token: '--dsw-alias-bg-layer-1' },
       { kind: 'computed', token: '--dsw-alias-bg-layer-2' },
       { kind: 'computed', token: '--dsw-alias-bg-layer-3' },
@@ -601,7 +625,10 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '左侧栏透明度滑块失效',
     },
     target: '--dsw-specific-sidebar-fill',
-    checks: [{ kind: 'computed', token: '--dsw-specific-sidebar-fill' }],
+    checks: [
+      { kind: 'rule', match: '--dsw-specific-sidebar-fill', hint: 'sidebar fill' },
+      { kind: 'computed', token: '--dsw-specific-sidebar-fill' },
+    ],
     sources: [{ path: 'dsh-client-ui-theme/lib/client.js', literal: '--dsw-specific-sidebar-fill' }],
     usedBy: 'src/client/utils/color.ts, src/client/wallpaper.ts',
   },
@@ -617,7 +644,10 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '输入区透明度滑块失效',
     },
     target: '--dsw-specific-input-major',
-    checks: [{ kind: 'computed', token: '--dsw-specific-input-major' }],
+    checks: [
+      { kind: 'rule', match: '--dsw-specific-input-major', hint: 'input/control fill' },
+      { kind: 'computed', token: '--dsw-specific-input-major' },
+    ],
     sources: [{ path: 'dsh-client-ui-theme/lib/client.js', literal: '--dsw-specific-input-major' }],
     usedBy: 'src/client/utils/color.ts, src/client/wallpaper.ts',
   },
@@ -655,7 +685,10 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       zh: '占位文字退回固定灰色，不再跟随主题的弱化色',
     },
     target: '--dsw-alias-label-caption',
-    checks: [{ kind: 'computed', token: '--dsw-alias-label-caption' }],
+    checks: [
+      { kind: 'rule', match: '--dsw-alias-label-caption', hint: 'label palette' },
+      { kind: 'computed', token: '--dsw-alias-label-caption' },
+    ],
     sources: [{ path: 'dsh-client-ui-theme/lib/client.js', literal: '--dsw-alias-label-caption' }],
     usedBy: 'src/client/wallpaper.ts',
   },

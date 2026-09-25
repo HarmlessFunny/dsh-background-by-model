@@ -271,6 +271,24 @@ export const UI_CSS = `
 
 const CSS_ID = 'dab-ui-css'
 
+/**
+ * The attribute that marks a `<style>` element as OURS.
+ *
+ * The host's own CSS modules also set `data-plugin` on their `<style>` elements
+ * (every one of them), so `data-plugin` cannot distinguish this plugin's sheets
+ * from the host's — and the host-contract probe has to make exactly that
+ * distinction: a token this plugin re-emits must never be allowed to make a
+ * *host* check pass. This attribute is the honest marker, and it is set on every
+ * stylesheet this plugin injects.
+ */
+export const OWN_SHEET_ATTR = 'data-dab-side'
+
+/** Mark a stylesheet this plugin injected, so the host probe can tell it apart. */
+export function markOwnSheet(el: HTMLStyleElement): HTMLStyleElement {
+  el.setAttribute(OWN_SHEET_ATTR, 'own')
+  return el
+}
+
 /** Inject the design-system stylesheet once per document (HMR-safe). */
 export function ensureUiCss(): void {
   if (typeof document === 'undefined') return
@@ -278,6 +296,7 @@ export function ensureUiCss(): void {
   if (!el) {
     el = document.createElement('style')
     el.id = CSS_ID
+    markOwnSheet(el)
     document.head.appendChild(el)
   }
   if (el.textContent !== UI_CSS) el.textContent = UI_CSS

@@ -28,6 +28,7 @@ import { matchRule, watchModel } from './modelbg'
 import { buildClientReport } from './judge'
 import { PLUGIN_VERSION, DSH_FLOOR } from './build-info'
 import { ThemeSection } from './components/ThemeSection'
+import { markOwnSheet } from './components/ui.css'
 import { SUN_PATHS } from './components/icons'
 
 export const name = 'dsh-background-by-model'
@@ -82,6 +83,7 @@ export function apply(ctx: Ctx): void {
   // ── 2. Gradient CSS (for custom dark themes) + static rules ────────────────
   const styleEl = document.createElement('style')
   styleEl.dataset.plugin = 'dsh-background-by-model'
+  markOwnSheet(styleEl)
   // The gradient only applies while applyCustomTokens marks the body with the
   // plugin's own dark-mode value, avoiding matches against the host's attribute.
   styleEl.textContent = `body[data-ds-dark-theme="dsh-background-by-model"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${RIGHTBAR_STYLE_RULE}${INPUT_BLUR_RULE}` + PLACEHOLDER_RULE
