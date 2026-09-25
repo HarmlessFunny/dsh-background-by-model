@@ -5,7 +5,7 @@
  * directory is fully copy-pasteable out of the monorepo.
  */
 import type { UserConfig } from 'tsdown'
-import { readFileSync, readdirSync, rmSync } from 'node:fs'
+import { readdirSync, rmSync } from 'node:fs'
 
 const ID = 'dsh-background-by-model'
 
@@ -13,10 +13,11 @@ const ID = 'dsh-background-by-model'
  * Drop the shared-chunk files of the PREVIOUS build before this one runs.
  *
  * `clean: false` is deliberate — the node and client configs build into the same
- * `lib/` and must not delete each other — but rolldown names the shared chunk
- * after its content hash (`host-scan-<hash>.js`), so every build that touches the
- * contract table leaves the old one behind. Without this, `lib/` accumulates dead
- * chunks and the published tarball ships them all.
+ * `lib/` and must not delete each other — but rolldown names a shared chunk after
+ * its content hash (`<entry>-<hash>.js`), so any build that introduces one leaves
+ * the old name behind and `lib/` accumulates dead chunks that the published
+ * tarball would then ship. (`host-scan-<hash>.js` is the historical case: that
+ * entry is gone, and this sweeps the chunks a build of it left in `lib/`.)
  */
 function dropStaleChunks(): void {
   const dir = new URL('./lib/', import.meta.url)
@@ -34,24 +35,6 @@ function dropStaleChunks(): void {
 }
 
 dropStaleChunks()
-
-/**
- * This package's own manifest, read at build time.
- *
- * The client bundle cannot import `package.json` (it is served as a standalone
- * module), and the "Host check" page must be able to name the running plugin and
- * the dsh floor it was built against in a bug report. Baking the two strings in
- * at build time keeps the report honest with no runtime lookup.
- */
-const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
-  version?: string
-  engines?: { dsh?: string }
-  peerDependencies?: Record<string, string>
-}
-const VERSION = manifest.version ?? '0.0.0'
-/** The declared floor, from engines first so one number describes the whole package. */
-const DSH_FLOOR = (manifest.engines?.dsh ?? manifest.peerDependencies?.['@deepseek-ai/dsh-client-store'] ?? '')
-  .replace(/^>=\s*/, '')
 
 /** Externals resolved from the loader module table at runtime. */
 const EXTERNALS = [
@@ -72,16 +55,11 @@ const EXTERNALS = [
 
 const configs: UserConfig[] = [
   // Node half: lib/index.js + lib/invariant.js
-  // `host-scan` is a third node entry rather than part of index: it is the
-  // contract scan the `pnpm scan` script drives, so it must be runnable on its own
-  // (and it is what a user runs after upgrading dsh — see scripts/).
   {
     name: ID,
     entry: {
       index: 'src/index.ts',
       invariant: 'src/invariant.ts',
-      'host-scan': 'src/host-scan.ts',
-      testing: 'src/testing.ts',
     },
     outDir: 'lib',
     format: ['esm'],
@@ -108,8 +86,6 @@ const configs: UserConfig[] = [
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
-      __DAB_VERSION__: JSON.stringify(VERSION),
-      __DAB_DSH_FLOOR__: JSON.stringify(DSH_FLOOR),
     },
     outputOptions: {
       entryFileNames: 'client.js',

@@ -11,13 +11,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ThemeSectionProps } from '../types'
 import { ensureUiCss, NAV_ITEM_H, NAV_GAP } from './ui.css'
-import { SunIcon, LayersIcon, PhotoIcon, SlidersIcon, AlertIcon, CheckIcon, GearIcon } from './icons'
+import { SunIcon, LayersIcon, PhotoIcon, SlidersIcon, AlertIcon, CheckIcon } from './icons'
 import { ErrorBoundary } from './ErrorBoundary'
 import { Portal } from './Portal'
 import { InterfacePage } from './pages/InterfacePage'
 import { ModelBgPage } from './pages/ModelBgPage'
 import { ProfilePage } from './pages/ProfilePage'
-import { HostPage } from './pages/HostPage'
 
 export function ThemeSection(props: ThemeSectionProps) {
   ensureUiCss()
@@ -38,7 +37,6 @@ export function ThemeSection(props: ThemeSectionProps) {
     { label: t('pageInterface'), Icon: LayersIcon, node: <InterfacePage p={props} /> },
     { label: t('pageModelBg'), Icon: PhotoIcon, node: <ModelBgPage p={props} notify={notify} /> },
     { label: t('pageProfile'), Icon: SlidersIcon, node: <ProfilePage p={props} notify={notify} /> },
-    { label: t('pageHostCheck'), Icon: GearIcon, node: <HostPage p={props} notify={notify} /> },
   ]
 
   return (

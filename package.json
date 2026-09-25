@@ -1,6 +1,6 @@
 {
   "name": "dsh-background-by-model",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "description": "Appearance plugin for DeepSeek Harness: an ordered list of model rules, each carrying its own wallpaper, theme color, layout mode, opacity and blur 鈥?the background follows the model you switch to.",
   "keywords": [
     "deepseek-harness",
@@ -46,19 +46,14 @@
     "lib/invariant.js",
     "lib/client.js",
     "lib/client.js.map",
-    "lib/host-scan.js",
-    "lib/host-scan-*.js",
-    "lib/testing.js",
-    "scripts/host-contract-scan.mjs",
-    "test/host-check.test.mjs",
     "cordis.patch.yml",
     "example_img"
-  ],  "scripts": {
+  ],
+  "scripts": {
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc -p tsconfig.json",
-    "scan": "node scripts/host-contract-scan.mjs",
-    "test": "tsdown && node --test test/host-check.test.mjs"
+    "test": "tsdown && tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6",
