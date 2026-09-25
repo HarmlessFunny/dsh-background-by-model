@@ -14,10 +14,16 @@
  * to rule 1 on first read.
  */
 import { access, mkdir, readFile, writeFile, rm, rename, readdir } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
 import { SLOT_RE, normalizeConfig } from './schema'
 import type { BgState, ThemeConfig } from './schema'
+// The installed-host scan behind the settings page's "Host check" tab. It shares
+// the contract table with the browser probe, so the two halves can never disagree
+// about what this plugin depends on.
+import { checkHostOnDisk } from './host-scan'
+import type { HostReport } from './host-contracts'
 
 export const name = 'dsh-background-by-model'
 export const inject = ['connection', 'webServer']
@@ -286,6 +292,26 @@ function defaultModel(ctx: any): { provider: string; model: string } | null {
   return null
 }
 
+/**
+ * The installed-host half of the self-check.
+ *
+ * The browser probe behind the "Host check" tab already answers "does this host
+ * still provide what I use"; this adds the two facts only the node half can know:
+ * the host's own version, and whether the packages on disk still contain the
+ * literals the plugin depends on. Reading it costs a handful of file reads, and
+ * it is only ever called while that tab is open.
+ */
+let pluginDir: string | null = null
+function thisPluginDir(): string {
+  if (pluginDir === null) pluginDir = fileURLToPath(new URL('..', import.meta.url))
+  return pluginDir
+}
+
+async function hostCheck(payload: unknown): Promise<HostReport> {
+  const lang = (payload as { lang?: unknown } | null)?.lang === 'en' ? 'en' : 'zh'
+  return await checkHostOnDisk(thisPluginDir(), lang)
+}
+
 const NS = 'dshBackgroundByModel'
 const RPC_CHANNEL = '/dsh-background-by-model'
 const RPC_BODY_MAX = 300 * 1024 * 1024
@@ -320,6 +346,8 @@ async function handleRpcMethod(
         return { ok: true, value: await fetchImageUrl(slot, ((payload as { url?: unknown } | null)?.url ?? null) as string | null) }
       case 'defaultModel':
         return { ok: true, value: defaultModel(ctx) }
+      case 'hostCheck':
+        return { ok: true, value: await hostCheck(payload) }
       default:
         return { ok: false, error: { code: 'dsh-background-by-model/bad-request', message: `unknown endpoint ${endpoint}`, details: { issues: [] } } }
     }

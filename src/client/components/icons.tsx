@@ -89,6 +89,10 @@ export const AlertIcon = ({ size, className }: { size?: number; className?: stri
   <Glyph size={size} className={className}><path d="M8 2.6l5.4 9.8H2.6L8 2.6z" /><path d="M8 6.8v2.4M8 11.4v.01" /></Glyph>
 )
 
+export const CopyIcon = ({ size, className }: { size?: number; className?: string }) => (
+  <Glyph size={size} className={className}><rect x="5.4" y="5.4" width="7.6" height="7.6" rx="1.6" /><path d="M10.6 5.4V4.2a1.6 1.6 0 0 0-1.6-1.6H4.2a1.6 1.6 0 0 0-1.6 1.6v4.8a1.6 1.6 0 0 0 1.6 1.6h1.2" /></Glyph>
+)
+
 export const CanvasIcon = ({ size, className }: { size?: number; className?: string }) => (
   <Glyph size={size} className={className}><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2" /></Glyph>
 )
