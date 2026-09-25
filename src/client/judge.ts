@@ -90,6 +90,20 @@ export interface ProbeEnv {
   tokenRoot(): { style?: unknown } | null
   /** Computed value of one custom property, already trimmed by the caller. */
   computedValue(token: string, on: { style?: unknown } | null): string
+  /**
+   * Whether an element the probe found is actually on screen.
+   *
+   * `visibility: hidden` is worth asking about, and not as pedantry: the host
+   * renders the dock's empty seat permanently — parked one panel-width to the
+   * right and hidden — and flips it hidden/visible as tabs come and go. "It is in
+   * the DOM" and "it is what the user is looking at" are different questions, and
+   * a contract about a visible surface asks the second one.
+   *
+   * `true` when there is nothing to read a computed style from (the DOM stand-in
+   * the tests drive the probe with): an unanswerable question must never be the
+   * reason a check fails.
+   */
+  visible(el: { style?: unknown } | null): boolean
   /** Every stylesheet the probe may read (cross-origin ones throw on access). */
   styleSheets(): Iterable<StyleSheetLike>
   ctx: Ctx
@@ -115,6 +129,15 @@ export function browserEnv(ctx: Ctx): ProbeEnv {
       if (host === null) return ''
       return getComputedStyle(host).getPropertyValue(token).trim()
     },
+    visible: el => {
+      if (el === null || typeof getComputedStyle !== 'function') return true
+      try {
+        return getComputedStyle(el as unknown as Element).visibility !== 'hidden'
+      } catch {
+        // A detached node, or a cross-origin frame: unknowable, so not a failure.
+        return true
+      }
+    },
     styleSheets: () => (typeof document === 'undefined'
       ? []
       : Array.from(document.styleSheets) as unknown as StyleSheetLike[]),
@@ -123,34 +146,83 @@ export function browserEnv(ctx: Ctx): ProbeEnv {
 }
 
 // ── presence anchors ─────────────────────────────────────────────────────────
-// A check marked `optionalWhen: X` is only a failure while X's mount anchor is in
-// the DOM. Every anchor below is a data attribute the host itself uses to build
-// the surface we are checking, so they move together: if the anchor is gone, the
-// feature is not on screen and there is nothing to fail.
+// A check marked `optionalWhen: X` runs only while X's anchor is in the DOM.
+// Every anchor below is a data attribute the host itself uses to build the
+// surface we are checking, so they move together: while the anchor is gone, the
+// check reads `n/a` — the feature is not on screen and there is nothing to fail.
+//
+// READ THE NAMES AS POSITIVE PREDICATES ("this IS so"), never as the state that
+// makes a check inapplicable. `optionalWhen` means "the feature is observable
+// while this is true", so an anchor named for an absence reads as its own
+// opposite and inverts the check silently. That is not hypothetical: the dock
+// contract below was anchored on `noDockTab` — "there is no tab" — while the
+// predicate actually evaluated to "a tab is mounted", so the empty seat was
+// tested in the one state where the host does not render it, and the panel showed
+// the user a red line for a healthy dock.
+//
+// Getting an anchor wrong is the worst bug this probe can have, because it puts a
+// RED LINE ON A HEALTHY HOST — worse than no probe at all, since it tells the user
+// to file an issue against a host that did nothing wrong. The subtlety is always
+// the same, and it has now bitten three times:
+//
+//   The surface is mounted, the host is behaving correctly, and it renders
+//   NOTHING for this attribute to sit on — an empty chat has no message column, a
+//   dock with no tab has no tab host. "The attribute is not in the DOM" then means
+//   "there is nothing to observe", never "the host renamed it".
 
 const ANCHORS: Record<string, string> = {
-  settingsClosed: 'div[role="dialog"][aria-modal="true"][aria-labelledby]',
-  chatNotMounted: '[data-chat-flow],[data-conversation-scroll]',
-  trajectoryNotMounted: '[data-conversation-composer-overlay]',
-  noRightPanel: 'div[data-sidebar-right-panel],[data-dockkit-strip],[data-dockkit-pane]',
-  cordisClosed: '[data-cordis-panel]',
-  // The dock holds either a populated tab host (which is where
-  // `data-dockkit-content` lands) or the empty seat. `[data-dockkit-tab]` is the
-  // host's own mark on a tab chip, so it answers the question directly and needs
-  // no combinator — a plain attribute selector also survives a DOM stand-in.
-  noDockTab: '[data-dockkit-tab]',
-  // True whenever no floating pane is on screen, which is the normal state: the
-  // host only sets `data-dockkit-float` on a pane the user has actually floated.
-  noFloatPane: '[data-dockkit-float],[data-sidebar-right-mode="float"]',
+  // The chat view has content, and therefore has a message column.
+  //
+  // This is the one anchor that cannot name the surface it guards, because the
+  // surface it guards IS the thing being asked about. What it names instead is the
+  // host's own proof that the column should exist: `data-chat-turn` is set on every
+  // message row, so a single row means "there are messages on screen, and a card
+  // for them has to have somewhere to go".
+  //
+  // Measured, and the reason the previous two attempts were wrong:
+  //   a brand-new session    `data-content-phase="hero"`, 0 `[data-chat-flow]`
+  //   after one message      `data-content-phase="active"`, 1 `[data-chat-flow]`, 4 `[data-chat-turn]`
+  //   on the trajectory tab  0 `[data-chat-flow]`, 0 `[data-chat-turn]`
+  // The host only renders the column when the session HAS messages, so its absence
+  // is the normal state of a new session; and the shared scrollport
+  // (`[data-conversation-scroll]`) stays mounted through all three, so it can never
+  // answer this question.
+  chatHasMessages: '[data-chat-turn]',
+  trajectoryMounted: '[data-conversation-composer-overlay]',
+  rightPanelMounted: 'div[data-sidebar-right-panel],[data-dockkit-strip],[data-dockkit-pane]',
+  cordisMounted: '[data-cordis-panel]',
+  // A tab is open, so the dock's tab host (where `data-dockkit-content` lands) is
+  // the thing on screen. `[data-dockkit-tab]` is the host's own mark on a tab chip
+  // and answers that directly, with no combinator — a plain attribute selector also
+  // survives a DOM stand-in.
+  dockHasTab: '[data-dockkit-tab]',
+  // No tab is open, so the dock's empty seat is what the user is looking at — the
+  // state in which `data-dockkit-empty` exists at all.
+  dockHasNoTab: '[data-dockkit-empty],[data-dockkit-add-tab]',
+  // A pane has been floated. The host only sets `data-dockkit-float` on a pane the
+  // user has actually floated, which is the normal state never.
+  paneFloated: '[data-dockkit-float],[data-sidebar-right-mode="float"]',
+  // The settings dialog is open (the anchor for the dialog's own contract).
+  settingsOpen: 'div[role="dialog"][aria-modal="true"][aria-labelledby]',
 }
 
-function mounted(env: ProbeEnv, anchorId: string): boolean {
+/**
+ * Whether an anchor's surface is on screen.
+ *
+ * `optionalWhen: X` skips the check while this is FALSE — "the feature is not
+ * observable right now", which is what the field name promises. Every anchor is
+ * therefore written as a POSITIVE predicate (`dockHasTab`, `chatHasMessages`), and
+ * an anchor whose name reads as an absence would silently invert its check.
+ */
+function anchorMounted(env: ProbeEnv, anchorId: string): boolean {
   const sel = ANCHORS[anchorId]
+  // An unknown anchor id is a typo in the contract table, not a verdict: treat it
+  // as "on screen" so the check still runs, and never let a typo hide a failure.
   if (sel === undefined) return true
   try {
     return env.querySelector(sel) !== null
   } catch {
-    return false
+    return true
   }
 }
 
@@ -243,7 +315,9 @@ function ruleMentioned(env: ProbeEnv, literal: string, side: 'host' | 'own'): bo
   return false
 }
 
-/** Which sides of stylesheet the probe can actually read (a blind check must not fail). */
+/**
+ * Which sides of stylesheet the probe can actually read (a blind check must not fail).
+ */
 function readability(env: ProbeEnv): { host: boolean; own: boolean } {
   const out = { host: false, own: false }
   for (const sheet of env.styleSheets()) {
@@ -291,22 +365,31 @@ function evaluate(env: ProbeEnv, check: ContractCheck): CheckOutcome {
         : { status: 'pass', name, detail: typeof value }
     }
     case 'selector': {
-      const present = env.querySelector(check.selector) !== null
+      const el = env.querySelector(check.selector)
       const name = `querySelector(${JSON.stringify(check.selector)})`
-      if (present) return { status: 'pass', name, detail: 'element found' }
-      if (check.optionalWhen !== undefined && !mounted(env, check.optionalWhen)) {
+      // A contract that names a surface the user is supposed to SEE is only
+      // satisfied by an element that is on screen. Without this, an element
+      // parked off to the side with `visibility:hidden` (the dock's empty seat
+      // whenever a tab is open) would count as present — true, and useless.
+      const wanted = el !== null && (check.visible !== true || env.visible(el))
+      if (wanted) return { status: 'pass', name, detail: 'element found' }
+      if (check.optionalWhen !== undefined && !anchorMounted(env, check.optionalWhen)) {
         return { status: 'skip', name, detail: 'not on screen right now' }
       }
       return {
-        status: 'fail', name, detail: 'no element matches',
-        reason: `no element matches ${check.selector} while its surface is on screen`,
+        status: 'fail',
+        name,
+        detail: el === null ? 'no element matches' : 'the element is hidden',
+        reason: el === null
+          ? `no element matches ${check.selector} while its surface is on screen`
+          : `${check.selector} is in the DOM but hidden while its surface is on screen`,
       }
     }
     case 'attr': {
       const present = env.querySelector(`[${check.attr}]`) !== null
       const name = `querySelector([${check.attr}])`
       if (present) return { status: 'pass', name, detail: 'attribute found' }
-      if (check.optionalWhen !== undefined && !mounted(env, check.optionalWhen)) {
+      if (check.optionalWhen !== undefined && !anchorMounted(env, check.optionalWhen)) {
         return { status: 'skip', name, detail: 'not on screen right now' }
       }
       return {
