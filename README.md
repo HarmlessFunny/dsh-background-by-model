@@ -86,7 +86,7 @@ One interface, one config — only the current model differs:
 ### Per-rule settings
 
 - **Wallpaper** — Upload any image as this rule's wallpaper; each rule keeps its own file.
-- **Theme Color** — HSL wheel plus numeric input and an inspiration palette, with **Extract from this image** and an **eyedropper**. When a rule sets no theme color, the system theme is used. Generates the full CSS design-token set in real time.
+- **Theme Color** — HSL wheel plus numeric input and an inspiration palette, with **Extract from this image** and an **eyedropper**. When a rule sets no theme color, the system theme is used. Generates the full CSS design-token set in real time. Following the system theme hands the palette back to the host while the wallpaper and the Interface-tab opacity/blur sliders keep working — the surface colors are read back from the host's own tokens and re-emitted with your alpha, so the wallpaper is never buried under an opaque plate.
 - **Layout Mode** — Fit / Fill / Stretch / Tile / Center.
 - **Framing** — Drag to pan and scroll to zoom inside a viewport-proportional editor; **only editable in Fit mode**, and the committed framing stays consistent across window resizes and cross-monitor moves.
 - **Background Opacity** — `0–100%` for the rule's wallpaper layer.
@@ -94,7 +94,7 @@ One interface, one config — only the current model differs:
 
 ### Global settings (Interface tab)
 
-- **Per-part Interface Opacity** — Independent sliders for the main background, left panel, right panel, cards & panels (including the dropdowns and menus around the dialog), the input & controls (composer box, Cordis panel), plus the settings panel and the conversation text box.
+- **Per-part Interface Opacity** — Independent sliders for the main background, left panel, right panel, cards & panels (including the dropdowns and menus around the dialog), the input & controls (composer box, Cordis panel), plus the settings panel and the conversation text box. Independent of the theme color: a rule with no color keeps every one of these sliders live.
 - **Per-part Interface Blur** — Frosted-glass `backdrop-filter` blur (`0–60 px`) for each interface part, including a real backdrop on the composer and Cordis panel via stable host selectors.
 - **Conversation & Trajectory** — The message list is wrapped in a translucent card automatically, and the trajectory page gets whole-page opacity & blur controls, letting the wallpaper shine through the content.
 - **Right Panel** — The column that slides in from the right when you open a file now has a card of its own: its opacity follows **Main background** until you drag it (then this card owns it), and its blur stacks on top of the main-background blur. While closed it takes no space and costs nothing.
@@ -205,12 +205,30 @@ Yes — export it from the **Config** tab; the JSON inlines every rule's image.
 **Are video or generated backgrounds supported?**
 No. Both were removed in 0.3.0; each rule uses a static image.
 
+**After switching a rule back to "System theme", why is the settings dialog a different palette from the rest of the interface?**
+That was a bug, and it is fixed: clearing the color only dropped the `body` token set, while the three **no-host-fallback** redirects inside the dialog (`--dsw-alias-bg-layer-*` → plugin-owned variables), the trajectory view and the AppFrame columns' inline backgrounds all kept the previous color — a dark interface with a light dialog and white-on-white text. Every surface is now driven by a single palette source: the rule's own tokens while it has a color, and the host's own tokens (read back and re-emitted with your alpha) while it follows the system theme, handed back to the host on the way out.
+
+**Why does "Custom color" produce a color the moment I press it?**
+Pressing it means leaving the system-theme state, so it has to hand out a starting color. It runs the same **Extract from this image** pass first and only falls back to a default swatch when the image has nothing vivid, so a press no longer jumps from a light interface straight to a dark blue that has nothing to do with the wallpaper.
+
+**After switching back to "System theme" the interface stays light until I drag a slider — why?**
+The other half of the same hole: while it owns a color the plugin **forces** `body[data-ds-dark-theme]` (setting its marker for a dark palette, removing the attribute for a light one), and the host only rewrites that flag when it projects a **theme snapshot** — it does not watch the attribute. A flag dropped by a light skin therefore sticks, so the readback captured the host's light palette at the moment the color was cleared and nothing ever re-read it until an unrelated apply ran. Now the switch hands the flag back synchronously in the host's own boolean form, the scheme the host resolved (`ctx.theme`'s `active.colorScheme`, falling back to `html[data-ds-theme-source]` plus `prefers-color-scheme`) is pushed into the render layer, and the one-second watchdog re-reads the host palette while a rule has no color, repainting when it moved.
+
 ## Recent Optimizations
+
+### v0.5.3
+
+- **One palette at a time: clearing the theme color no longer leaves the previous skin behind** — The three redirects inside the settings dialog (`--dsw-alias-bg-layer-*` → plugin-owned variables) have **no host fallback**, and neither do the trajectory view's scope or the AppFrame columns' inline backgrounds; all of them were only ever cleaned up at teardown. Switching a rule back to **System theme** therefore left a dark interface with a light dialog and white-on-white text. Every surface is now driven by one palette source: the rule's own tokens while it has a color, and the host's own tokens read back out of the cascade and re-emitted with your alpha when it has none, handed back on the way out. The no-fallback redirects are gated on `html[data-dab-themed]`, so they are only live while the variables they read are actually written.
+- **Following the system theme keeps the wallpaper and the Interface sliders** — Clearing the color used to drop the whole token set, and the host's opaque `--dsw-alias-bg-base` then buried the wallpaper while every opacity/blur slider (main background, sidebar, cards, input, settings panel, trajectory view, right panel) silently stopped working. The surfaces are now the host's own colors times your opacity, so the wallpaper keeps showing through.
+- **Following the system theme hands the host's dark flag back** — While it owns a color the plugin forces `body[data-ds-dark-theme]` (removing it outright for a light palette), and the host only rewrites that flag when it projects a **theme snapshot** — it does not watch the attribute. A flag dropped by a light skin therefore sticks: the readback captures the host's light palette the moment the color is cleared, and the interface only turned dark once an unrelated slider drag re-ran an apply. The switch now hands the flag back synchronously in the host's own boolean form, using the scheme the host resolved (`ctx.theme`'s `active.colorScheme`, falling back to `html[data-ds-theme-source]` plus `prefers-color-scheme`); the one-second watchdog re-reads the host palette while a rule has no color, and the handback side no longer sits behind the 60 ms skin debounce (which made it read the plugin's own skin on its way out).
+- **The no-color button no longer does the opposite of its label** — It read **System theme** while its action was to install a hard-coded dark blue `#1D3463` (the same label means "clear → follow the system theme" one state over). It is now **Custom color**, and it runs the *Extract from this image* pass first, falling back to the seed swatch only when the image has nothing vivid.
+- **The token fingerprint is only recorded after the stylesheet write succeeds**, so a failed write is retried instead of pinning the interface to the old palette until another key happens to change.
+- **Fixed the mojibake dash in the `package.json` description**, which is what the npm page shows.
 
 ### v0.5.0
 
 - **The host self-check is gone.** Removed together with everything that fed it: the settings page's **Host check** tab, the contract table (`src/host-contracts.ts`), the browser probe (`src/client/judge.ts`), the installed-file scan (`src/host-scan.ts`), the `hostCheck` RPC, the `pnpm scan` script and its test suite. The plugin keeps only what it does: rules, wallpapers and interface opacity/blur.
-- **`0.5.0` is implemented identically in `0.5.1` and `0.5.2`.** Those two are publisher-side noise: the first `npm publish` returned HTTP 202 and the version took a few minutes to appear on the registry, which was mistaken for a failure and re-published twice before the async publish landed. All three are live, byte-identical (12 files, same code), and `latest` points at `0.5.2`. Install any of them — pin `0.5.2` if you want the tag's target by name.
+- **`0.5.0` is implemented identically in `0.5.1` and `0.5.2`.** Those two are publisher-side noise: the first `npm publish` returned HTTP 202 and the version took a few minutes to appear on the registry, which was mistaken for a failure and re-published twice before the async publish landed. All three are live, byte-identical (12 files, same code), and `latest` pointed at `0.5.2` at that point. Install any of them — pin `0.5.2` if you want that tag's target by name.
 
 ### v0.4.5
 
