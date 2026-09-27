@@ -48,7 +48,11 @@ export const zh: Record<string, string> = {
   ruleEmptyHint: '这条规则还没有图片，不会被匹配到，也不会作为兜底',
   ruleColor: '主题色',
   ruleColorNone: '系统主题',
-  ruleColorNoneHint: '未设颜色时跟随系统主题',
+  ruleColorNoneHint: '未设颜色时跟随系统主题：界面用宿主的配色，壁纸与各部位的透明度、模糊照旧生效',
+  // Shown where a rule has NO color yet: pressing it picks a color, which is the
+  // opposite of what the button above does, so it must not borrow that label.
+  ruleColorPick: '自定义颜色',
+  ruleColorPickHint: '优先从本图取色，取不到就用默认色',
   ruleColorExtract: '从本图提取',
   ruleLayout: '布局模式',
   ruleFraming: '取景',
@@ -138,7 +142,11 @@ export const en: Record<string, string> = {
   ruleEmptyHint: 'This rule has no image — it can neither match nor serve as the fallback',
   ruleColor: 'Theme color',
   ruleColorNone: 'System theme',
-  ruleColorNoneHint: 'Without a color this rule follows the system theme',
+  ruleColorNoneHint: 'Without a color this rule follows the system theme: the host palette paints the interface while the wallpaper and every opacity/blur slider keep working',
+  // Shown where a rule has NO color yet: pressing it picks a color, which is the
+  // opposite of what the button above does, so it must not borrow that label.
+  ruleColorPick: 'Custom color',
+  ruleColorPickHint: 'Extracts from this image when it can, otherwise uses a default color',
   ruleColorExtract: 'Extract from image',
   ruleLayout: 'Layout mode',
   ruleFraming: 'Framing',
