@@ -200,7 +200,13 @@ The other half of the same hole: while it owns a color the plugin **forces** `bo
 
 ## Recent Optimizations
 
-> Only the two most recent releases are listed here; older ones (v0.4.5 and earlier) live in [CHANGELOG.md](./CHANGELOG.md).
+> Only the two most recent releases are listed here; older ones (v0.5.0 and earlier) live in [CHANGELOG.md](./CHANGELOG.md).
+
+### v0.5.4
+
+- **A brand-filled control takes its label from the host's on-brand ink, not from `brand-text`** — Following the system theme painted the active layout chip, the **+ Add rule** button and the settings brand tile from the host's own `--dsw-alias-brand-primary`, which is a **contrast ink rather than a hue**: near-black (`#0f1115`) in the host's light scheme, near-white (`#f9fafb`) in its dark one. Their labels read `--dsw-alias-brand-text`, which the host defines as that very same color in both schemes and never uses in its own CSS. On a dark system that made them filled boxes with invisible labels — white primary button, white active chip, white icon tile (measured at exactly `#f9fafb`) — and they were only ever readable while the plugin owned the palette and generated its own brand pair. All four now read `--dsw-alias-label-primary-inverted`, the host's own ink for a brand/contrast fill: `#fff` on the light scheme's black fill, `#353638` on the dark scheme's white one.
+- **The toggle's on-state knob was the same bug one size smaller** — a hard-coded `#fff` on a `--dsw-alias-brand-primary` track, i.e. a white knob on the white track the dark scheme paints there.
+- **The plugin's own dark palette had the mirror of it** — that branch deliberately keeps its brand fill at 50%+ lightness, while `--dsw-alias-label-primary-foreground` — the token the **host's** own primary buttons label themselves with over `--dsw-alias-button-primary-fill` — was hard-coded white. It now flips with the fill (one shared verdict with `brand-text`), and the light branch re-emits `label-primary-inverted` so the plugin's palette owns the pair instead of inheriting it from whichever scheme the host happens to be in.
 
 ### v0.5.3
 
@@ -210,11 +216,6 @@ The other half of the same hole: while it owns a color the plugin **forces** `bo
 - **The no-color button no longer does the opposite of its label** — It read **System theme** while its action was to install a hard-coded dark blue `#1D3463` (the same label means "clear → follow the system theme" one state over). It is now **Custom color**, and it runs the *Extract from this image* pass first, falling back to the seed swatch only when the image has nothing vivid.
 - **The token fingerprint is only recorded after the stylesheet write succeeds**, so a failed write is retried instead of pinning the interface to the old palette until another key happens to change.
 - **Fixed the mojibake dash in the `package.json` description**, which is what the npm page shows.
-
-### v0.5.0
-
-- **The host self-check is gone.** Removed together with everything that fed it: the settings page's **Host check** tab, the contract table (`src/host-contracts.ts`), the browser probe (`src/client/judge.ts`), the installed-file scan (`src/host-scan.ts`), the `hostCheck` RPC, the `pnpm scan` script and its test suite. The plugin keeps only what it does: rules, wallpapers and interface opacity/blur.
-- **`0.5.0` is implemented identically in `0.5.1` and `0.5.2`.** Those two are publisher-side noise: the first `npm publish` returned HTTP 202 and the version took a few minutes to appear on the registry, which was mistaken for a failure and re-published twice before the async publish landed. All three are live, byte-identical (12 files, same code), and `latest` pointed at `0.5.2` at that point. Install any of them — pin `0.5.2` if you want that tag's target by name.
 
 ## Star History
 

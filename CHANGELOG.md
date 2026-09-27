@@ -1,6 +1,12 @@
 # Changelog
 
-> The full release history lives here; the two most recent releases (v0.5.3 / v0.5.0) are also listed in [README.md](./README.md#recent-optimizations).
+> The full release history lives here; the two most recent releases (v0.5.4 / v0.5.3) are also listed in [README.md](./README.md#recent-optimizations).
+
+## v0.5.4
+
+- **A brand-filled control takes its label from the host's on-brand ink, not from `brand-text`** — Following the system theme painted the active layout chip, the **+ Add rule** button and the settings brand tile from the host's own `--dsw-alias-brand-primary`, which is a **contrast ink rather than a hue**: near-black (`#0f1115`) in the host's light scheme, near-white (`#f9fafb`) in its dark one. Their labels read `--dsw-alias-brand-text`, which the host defines as that very same color in both schemes and never uses in its own CSS. On a dark system that made them filled boxes with invisible labels — white primary button, white active chip, white icon tile (measured at exactly `#f9fafb`) — and they were only ever readable while the plugin owned the palette and generated its own brand pair. All four now read `--dsw-alias-label-primary-inverted`, the host's own ink for a brand/contrast fill: `#fff` on the light scheme's black fill, `#353638` on the dark scheme's white one.
+- **The toggle's on-state knob was the same bug one size smaller** — a hard-coded `#fff` on a `--dsw-alias-brand-primary` track, i.e. a white knob on the white track the dark scheme paints there.
+- **The plugin's own dark palette had the mirror of it** — that branch deliberately keeps its brand fill at 50%+ lightness, while `--dsw-alias-label-primary-foreground` — the token the **host's** own primary buttons label themselves with over `--dsw-alias-button-primary-fill` — was hard-coded white. It now flips with the fill (one shared verdict with `brand-text`), and the light branch re-emits `label-primary-inverted` so the plugin's palette owns the pair instead of inheriting it from whichever scheme the host happens to be in.
 
 ## v0.5.3
 
