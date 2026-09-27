@@ -41,6 +41,15 @@ function buildTokens(hue: number, sat: number, lit: number): { colorScheme: 'lig
   const hsl = (hh: number, ss: number, ll: number) => `hsl(${Math.round(hh)},${Math.round(ss * 100)}%,${Math.round(ll * 100)}%)`
   const rgba = (hh: number, ss: number, ll: number, a: number) =>
     `hsla(${Math.round(hh)},${Math.round(ss * 100)}%,${Math.round(ll * 100)}%,${a})`
+  // Ink for anything painted ON the brand fill. One verdict feeds both
+  // spellings of it: brand-text (which the host defines but never uses) and
+  // label-primary-foreground, which the HOST's own primary buttons label
+  // themselves with on --dsw-alias-button-primary-fill — the same color as
+  // --dsw-alias-brand-primary below. It has to flip with the fill: the dark
+  // branch deliberately keeps that fill at 50%+ lightness, so a hard-coded white
+  // label is white on white. The host's own dark scheme is only readable because
+  // it flips brand-primary AND label-primary-foreground together.
+  const onBrand = l(0.2) > 0.6 ? '#000' : '#fff'
 
   if (dark) {
     // dsh 0.1.7 splits the menu surface in two: the shared MenuSurface material
@@ -75,13 +84,13 @@ function buildTokens(hue: number, sat: number, lit: number): { colorScheme: 'lig
         '--dsw-alias-label-dimmed': 'rgba(255,255,255,0.35)',
         '--dsw-alias-label-quaternary': 'rgba(255,255,255,0.25)',
         '--dsw-alias-label-primary-dimmed': 'rgba(255,255,255,0.92)',
-        '--dsw-alias-label-primary-foreground': hsl(0, 0, 1),
+        '--dsw-alias-label-primary-foreground': onBrand,
         // Inverted label sits on a light brand/contrast/badge surface in dark
         // mode, so it must be dark ink, not white.
         '--dsw-alias-label-primary-inverted': hsl(h(0), s(0.08), Math.min(l(0.06), 0.16)),
         '--dsw-alias-label-primary-bluish': hsl(0, 0, 1),
         '--dsw-alias-brand-primary': hsl(h(0), s(0.1), Math.max(l(0.2), 0.5)),
-        '--dsw-alias-brand-text': l(0.2) > 0.6 ? '#000' : '#fff',
+        '--dsw-alias-brand-text': onBrand,
         '--dsw-alias-button-primary-fill': hsl(h(0), s(0.1), Math.max(l(0.2), 0.5)),
         '--dsw-alias-button-primary-hover': hsl(h(0), s(0.1), Math.max(l(0.28), 0.58)),
         '--dsw-alias-button-primary-dimmed': hsl(h(0), s(0), l(0.07)),
@@ -164,6 +173,11 @@ function buildTokens(hue: number, sat: number, lit: number): { colorScheme: 'lig
       '--dsw-alias-label-caption': 'rgba(0,0,0,0.5)',
       '--dsw-alias-label-dimmed': 'rgba(0,0,0,0.35)',
       '--dsw-alias-label-quaternary': 'rgba(0,0,0,0.25)',
+      // Mirror of the dark branch: this branch always paints its brand fill dark
+      // (45% lightness or less), so the ink ON it is white. Re-emitted rather
+      // than inherited so the plugin's own palette owns the pair — the plugin's
+      // settings UI paints every primary button/chip/tile label from this token.
+      '--dsw-alias-label-primary-inverted': '#fff',
       '--dsw-alias-brand-primary': hsl(h(0), s(0.05), Math.min(l(-0.18), 0.45)),
       '--dsw-alias-brand-text': '#fff',
       '--dsw-alias-button-primary-hover': hsl(h(0), s(0.05), Math.min(l(-0.12), 0.5)),

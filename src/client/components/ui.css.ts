@@ -25,7 +25,7 @@ export const UI_CSS = `
 .dab-shell{display:grid;grid-template-columns:158px minmax(0,1fr);gap:26px;align-items:start;padding-bottom:8px;width:100%;max-width:980px;margin:0 auto}
 .dab-nav{position:sticky;top:0;display:flex;flex-direction:column;gap:18px}
 .dab-brand{display:flex;align-items:center;gap:10px;padding:2px 6px}
-.dab-brand-tile{width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;color:var(--dsw-alias-brand-text);background:var(--dsw-alias-brand-primary);box-shadow:0 4px 14px -4px var(--dsw-alias-brand-primary)}
+.dab-brand-tile{width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;color:var(--dsw-alias-label-primary-inverted);background:var(--dsw-alias-brand-primary);box-shadow:0 4px 14px -4px var(--dsw-alias-brand-primary)}
 .dab-brand-name{font-size:13px;font-weight:650;letter-spacing:.01em;line-height:1.25}
 .dab-brand-tag{font-size:9px;letter-spacing:.16em;font-weight:600;color:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-tertiary));text-transform:uppercase}
 .dab-nav-list{position:relative;display:flex;flex-direction:column;gap:${NAV_GAP}px}
@@ -85,11 +85,23 @@ export const UI_CSS = `
 .dab-swatch-lg:hover{transform:scale(1.02)}
 
 /* ── buttons & chips ─────────────────────────────────────────────────────── */
+/* Text/icon painted ON --dsw-alias-brand-primary reads
+ * --dsw-alias-label-primary-inverted, never --dsw-alias-brand-text. The host's
+ * brand-primary is a CONTRAST ink, not a hue: black in its light scheme and
+ * near-white (#f9fafb) in its dark one, with brand-text equal to it in BOTH
+ * (and unused by the host's own CSS). Following the system theme therefore made
+ * every brand-filled control a filled box with an invisible label — a white
+ * primary button and a white active chip on a dark dialog. It was only ever
+ * readable while the plugin owned the palette and generated its own brand pair.
+ * label-primary-inverted is the host's answer for ink on a brand/contrast fill
+ * (its sidebar build badge paints exactly this pair) and it flips with the
+ * scheme: #fff on the light scheme's black fill, #353638 on the dark scheme's
+ * white one. */
 .dab-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 14px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-button-elevated-fill);color:var(--dsw-alias-label-primary);font-size:12.5px;font-weight:550;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease,opacity .18s ease,background .18s ease}
 .dab-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 14px -6px rgba(0,0,0,.32)}
 .dab-btn:active:not(:disabled){transform:translateY(0) scale(.97);box-shadow:none}
 .dab-btn:disabled{opacity:.5;cursor:not-allowed}
-.dab-btn-primary{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-text);border-color:transparent}
+.dab-btn-primary{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-inverted);border-color:transparent}
 .dab-btn-danger{color:var(--dsw-alias-state-error-primary)}
 .dab-btn-ghost{background:transparent;border-color:transparent;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
 .dab-btn-ghost:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);box-shadow:none}
@@ -97,7 +109,7 @@ export const UI_CSS = `
 .dab-chip-row{display:flex;flex-wrap:wrap;gap:8px}
 .dab-chip{height:30px;padding:0 14px;border-radius:99px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary));font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .22s ease}
 .dab-chip:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}
-.dab-chip.is-active{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-text);border-color:transparent}
+.dab-chip.is-active{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-inverted);border-color:transparent}
 
 /* ── sliders ─────────────────────────────────────────────────────────────── */
 .dab-slider-block{display:flex;flex-direction:column;gap:6px}
@@ -128,7 +140,7 @@ export const UI_CSS = `
 .dab-toggle{position:relative;width:42px;height:24px;flex:none;border-radius:99px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);cursor:pointer;padding:0;transition:background .28s ease,border-color .28s ease}
 .dab-toggle-knob{position:absolute;top:2.5px;left:2.5px;width:17px;height:17px;border-radius:50%;background:var(--dsw-alias-label-secondary,#999);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .28s cubic-bezier(.22,1,.36,1),background .28s ease}
 .dab-toggle.is-on{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
-.dab-toggle.is-on .dab-toggle-knob{transform:translateX(18px);background:#fff}
+.dab-toggle.is-on .dab-toggle-knob{transform:translateX(18px);background:var(--dsw-alias-label-primary-inverted)}
 
 /* ── background preview hero ─────────────────────────────────────────────── */
 .dab-hero{position:relative;border-radius:16px;overflow:hidden;aspect-ratio:16/9;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2)}
@@ -166,7 +178,7 @@ export const UI_CSS = `
 .dab-overlay-hint{color:rgba(255,255,255,.62);font-size:12px}
 .dab-modal-card{animation:dab-zoom-in .3s cubic-bezier(.22,1,.36,1) both;max-width:calc(100vw - 40px);max-height:calc(100vh - 120px);overflow:auto}
 .dab-overlay .dab-btn{background:rgba(255,255,255,.94);color:#14161a;border-color:transparent}
-.dab-overlay .dab-btn-primary{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-text)}
+.dab-overlay .dab-btn-primary{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-inverted)}
 .dab-crash{display:flex;flex-direction:column;gap:10px;align-items:center;padding:28px 18px;border:1px solid var(--dsw-alias-border-l2);border-radius:16px}
 .dab-crash-title{font-size:15px;font-weight:650}
 .dab-crash-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);text-align:center;line-height:1.5}
