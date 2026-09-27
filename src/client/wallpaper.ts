@@ -3,6 +3,26 @@ import type { PartOpacities, PartBlurs } from './types'
 import { genTokens, toRgba } from './utils/color'
 import { markOwnSheet } from './components/ui.css'
 
+/**
+ * `data-ds-dark-theme` value the plugin writes while it forces its own dark
+ * palette. The host treats the attribute as a boolean (`toggleAttribute`), so a
+ * plugin-specific value still matches every `body[data-ds-dark-theme]` rule
+ * while staying distinguishable from the host's own write — which is what lets
+ * `releaseOwnScheme` hand the flag back without clobbering the host's scheme.
+ */
+export const OWN_SCHEME = 'dsh-background-by-model'
+const DARK_ATTR = 'data-ds-dark-theme'
+
+/**
+ * Marker on <html> while the plugin owns a palette. The dialog/trajectory rules
+ * below redirect NO-fallback tokens (`--dsw-alias-bg-layer-*`) to plugin-owned
+ * variables, so they may only match while those variables are actually written:
+ * without the gate a palette-less state would leave them reading a
+ * guaranteed-invalid value (transparent panels) instead of handing the surface
+ * back to the host untouched.
+ */
+const THEMED_ATTR = 'data-dab-themed'
+
 let wpEl: HTMLDivElement | null = null
 let appliedTokenNames: string[] = []
 let tokenStyleEl: HTMLStyleElement | null = null
@@ -20,6 +40,21 @@ function clearCustomTokens(): void {
   if (tokenStyleEl) tokenStyleEl.textContent = ''
   for (const name of appliedTokenNames) document.body.style.removeProperty(name)
   appliedTokenNames = []
+  // Whatever follows must repaint from scratch: the fingerprints that guard the
+  // token rule and the part opacities describe a stylesheet that no longer exists.
+  baseTokenKey = ''
+  lastBgKey = ''
+}
+
+/** Drop every surface the plugin owns: the variables the scoped
+ *  dialog/trajectory rules read, and the inline backgrounds written onto the
+ *  AppFrame columns. Used when no palette is available and at teardown — without
+ *  it the last color's surfaces outlive the color that produced them. */
+function clearOwnedSurfaces(): void {
+  discoverParts()
+  const root = document.documentElement
+  for (const name of OWNED_SURFACE_VARS) root.style.removeProperty(name)
+  for (const el of [frameEl, centerEl, detailsEl]) el?.style.removeProperty('background')
 }
 
 // Solid surface tokens grouped by which interface-opacity slider owns them.
@@ -58,9 +93,174 @@ const OPACITY_VARS: Record<string, string> = {
   '--dsw-menu-surface-fill': '--dsh-any-op-menu',
 }
 
-// Fingerprint of the non-alpha token base (color pick + scheme verdict).
-// The static body rule is only rebuilt when it changes; a drag never touches it.
+// Fingerprint of the non-alpha token base (palette source + color pick +
+// scheme verdict). The static body rule is only rebuilt when it changes; a drag
+// never touches it.
 let baseTokenKey = ''
+
+// ── Palette source ────────────────────────────────────────────────────────────
+// Every surface is painted from ONE palette at a time:
+//   * a rule WITH a color    → the plugin's generated token set;
+//   * a rule WITHOUT a color → the host's own alias tokens, read back out of the
+//     live cascade, so "follow the system theme" keeps the wallpaper showing and
+//     the Interface-page sliders working instead of dropping every surface back
+//     to the host as an opaque plate.
+// Both feed the same writers (the body token rule, the per-part alpha variables,
+// the dialog/trajectory scoping), so there is never a state where one surface is
+// painted from one palette and another from the other one.
+const HOST_SURFACE_TOKENS: string[] = Object.keys(OPACITY_VARS)
+
+/** Plugin-owned variables the scoped dialog/trajectory rules read. */
+const SETTINGS_SURFACE_VARS = [
+  '--dsh-any-bg-settings-surface',
+  '--dsh-any-bg-settings-layer-1',
+  '--dsh-any-bg-settings-layer-2',
+  '--dsh-any-bg-settings-layer-3',
+]
+const TRAJECTORY_SURFACE_VARS = [
+  '--dsh-any-traj-layer-1',
+  '--dsh-any-traj-layer-2',
+  '--dsh-any-traj-layer-3',
+]
+const OWNED_SURFACE_VARS = [...SETTINGS_SURFACE_VARS, ...TRAJECTORY_SURFACE_VARS]
+
+interface Palette {
+  /** True while the palette is the plugin's own (the rule carries a color). */
+  own: boolean
+  tokens: Record<string, string>
+}
+
+let hostProbe: HTMLElement | null = null
+
+/** Resolve any color the engine understands (hex, rgb()/hsl(), a var() chain,
+ *  color-mix(), …) to its USED value: only a used color can be re-emitted with
+ *  an alpha. Returns null when the engine rejects the value. */
+function resolveCssColor(raw: string): string | null {
+  const value = raw.trim()
+  if (value === '') return null
+  if (hostProbe === null) {
+    hostProbe = document.createElement('span')
+    hostProbe.setAttribute('aria-hidden', 'true')
+    hostProbe.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none'
+  }
+  if (!hostProbe.isConnected) document.body.appendChild(hostProbe)
+  // Reset first: a rejected value must not be mistaken for the previous one.
+  hostProbe.style.color = ''
+  hostProbe.style.color = value
+  if (hostProbe.style.color === '') return null
+  return getComputedStyle(hostProbe).color || null
+}
+
+/** Read the host's own surface colors out of the live cascade. */
+function readHostPalette(): Palette | null {
+  const sheet = tokenStyleEl
+  // Our token rule re-emits the very names being asked for, so it has to be
+  // muted while reading or the readback would return the palette we are leaving.
+  // No paint can happen in between: the flag is set and cleared in one task.
+  const muted = sheet !== null && sheet.isConnected && !sheet.disabled
+  if (muted) sheet!.disabled = true
+  try {
+    const computed = getComputedStyle(document.body)
+    const tokens: Record<string, string> = {}
+    for (const name of HOST_SURFACE_TOKENS) {
+      const used = resolveCssColor(computed.getPropertyValue(name))
+      if (used !== null) tokens[name] = used
+    }
+    // Without a base surface there is no palette to paint from: the caller hands
+    // every surface back to the host instead.
+    return tokens['--dsw-alias-bg-base'] === undefined ? null : { own: false, tokens }
+  } finally {
+    if (muted) sheet!.disabled = false
+  }
+}
+
+// The readback costs a style recalculation and applyWp runs on every viewport
+// frame, so the last result is reused briefly. The theme-reset watch drops it on
+// any scheme change; the TTL covers a host palette rewritten without one.
+let hostPaletteCache: { at: number; palette: Palette | null } | null = null
+const HOST_PALETTE_TTL_MS = 1000
+
+export function invalidateHostPalette(): void { hostPaletteCache = null }
+
+function hostPalette(): Palette | null {
+  const now = Date.now()
+  if (hostPaletteCache !== null && now - hostPaletteCache.at < HOST_PALETTE_TTL_MS) return hostPaletteCache.palette
+  const read = readHostPalette()
+  hostPaletteCache = { at: now, palette: read }
+  return read
+}
+
+/** The palette every surface is currently painted from. */
+function palette(): Palette | null {
+  if (!rHasColor()) return hostPalette()
+  const [h, s, l] = rColor()
+  return { own: true, tokens: genTokens(h, s, l).tokens }
+}
+
+/** A resolved color with a new alpha. The plugin's own tokens are `hsl()` and
+ *  the host's alias tokens resolve to hex, both of which `toRgba` parses; a host
+ *  publishing an already-composited value (`color(…)`, `oklab(…)`, …) cannot be
+ *  parsed there, and emitting it unchanged would paint an OPAQUE surface — the
+ *  one outcome the transparent-surface design must never fall back to. Those go
+ *  through `color-mix` instead. */
+function withAlpha(color: string, alpha: number): string {
+  const converted = toRgba(color, alpha)
+  if (/^(rgb|hsl)a?\(/i.test(converted)) return converted
+  const pct = Math.round(Math.max(0, Math.min(1, alpha)) * 100)
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`
+}
+
+/**
+ * The color scheme the HOST's own preference resolves to, pushed in by the
+ * browser half (the theme service knows it, custom themes included). `null`
+ * means "unknown", which is the only case where the plugin falls back to the
+ * preference the host's boot script published and to the OS query itself.
+ */
+let hostSchemeDark: boolean | null = null
+
+export function setHostScheme(dark: boolean | null): void { hostSchemeDark = dark }
+
+function resolveHostDark(): boolean {
+  if (typeof hostSchemeDark === 'boolean') return hostSchemeDark
+  // The host's boot script publishes the preference it resolved
+  // (`html[data-ds-theme-source]`) before any plugin runs.
+  const source = document.documentElement.dataset.dsThemeSource
+  if (source === 'dark') return true
+  if (source === 'light') return false
+  try { return window.matchMedia('(prefers-color-scheme: dark)').matches } catch { return false }
+}
+
+/**
+ * Keep `data-ds-dark-theme` in the HOST's own form (a boolean attribute) while
+ * the plugin does not own a palette.
+ *
+ * The plugin overwrites that flag whenever it owns a palette — including
+ * REMOVING it to force a light one — and the host only re-projects the flag on a
+ * theme change. So a flag the plugin dropped can stick: the host keeps painting
+ * its light palette on a dark system, the readback then hands those light
+ * surfaces back to the plugin, and the interface stays light until some
+ * unrelated event happens to re-run an apply. Restoring the flag from the
+ * resolved scheme closes that hole, and the write is skipped when it already
+ * matches so this never churns the theme observer.
+ */
+export function adoptHostScheme(): void {
+  const dark = resolveHostDark()
+  const current = document.body.getAttribute(DARK_ATTR)
+  if (dark) {
+    if (current !== '') document.body.setAttribute(DARK_ATTR, '')
+  } else if (current !== null) {
+    document.body.removeAttribute(DARK_ATTR)
+  }
+}
+
+/** Re-read the host palette and repaint from it when it moved. Called while a
+ *  color-less rule is active (the host can re-project its palette at any time,
+ *  with no event of ours to hang a repaint on). */
+export function refreshSystemTheme(): void {
+  adoptHostScheme()
+  invalidateHostPalette()
+  applyCustomTokens(rOps())
+}
 
 // Coalesce slider-driven token updates to one rAF: a single drag fires several
 // input events per frame, and every full re-apply repaints expensive regions
@@ -85,39 +285,62 @@ export function applyCustomTokens(ops: PartOpacities): void {
 let lastBgKey = ''
 
 function applyCustomTokensNow(ops: PartOpacities): void {
+  const src = palette()
+  if (src === null) {
+    // Nothing to paint from: drop the token rule too, then hand every
+    // plugin-owned surface — and the scheme flag — back to the host rather than
+    // leaving the previous palette's values in place.
+    clearCustomTokens()
+    clearOwnedSurfaces()
+    adoptHostScheme()
+    return
+  }
+  const { own, tokens } = src
   const [h, s, l] = rColor()
-  const { tokens } = genTokens(h, s, l)
   try {
-    const forceDark = l < 0.55
-    if (`${h}|${s}|${l}` !== baseTokenKey) {
-      baseTokenKey = `${h}|${s}|${l}`
+    const forceDark = own && l < 0.55
+    // The fingerprint carries the source, so switching between the two palettes
+    // always rewrites the rule, even when the numbers happen to coincide.
+    const key = own
+      ? `own:${h}|${s}|${l}`
+      : `host:${HOST_SURFACE_TOKENS.map(n => tokens[n] ?? '').join('|')}`
+    if (key !== baseTokenKey) {
       // Drive the base-palette switch with a plugin-specific value so the
       // gradient rule never matches a host dark-mode flag; color-scheme makes
       // native controls (select popups) follow the forced palette. Both ride the
       // stylesheet (not inline styles) so the host presenter clearing body
       // inline styles on boot can't drop them, and the !important rule survives
       // that clearing too.
-      if (forceDark) document.body.setAttribute('data-ds-dark-theme', 'dsh-background-by-model')
-      else document.body.removeAttribute('data-ds-dark-theme')
-      const decls: string[] = [`color-scheme:${forceDark ? 'dark' : 'light'}`]
+      if (own) {
+        if (forceDark) document.body.setAttribute(DARK_ATTR, OWN_SCHEME)
+        else document.body.removeAttribute(DARK_ATTR)
+      } else {
+        adoptHostScheme()
+      }
+      const decls: string[] = own ? [`color-scheme:${forceDark ? 'dark' : 'light'}`] : []
       for (const [name, value] of Object.entries(tokens)) {
         const opVar = OPACITY_VARS[name]
         decls.push(`${name}:${opVar !== undefined ? `var(${opVar})` : value}!important`)
       }
       ensureTokenStyle().textContent = `body{${decls.join(';')}}`
-      // Drop inline tokens left by earlier builds so the stylesheet is the single source of truth.
-      for (const name of appliedTokenNames) document.body.style.removeProperty(name)
-      appliedTokenNames = Object.keys(tokens)
+      if (own) {
+        // Drop inline tokens left by earlier builds so the stylesheet is the single source of truth.
+        for (const name of appliedTokenNames) document.body.style.removeProperty(name)
+        appliedTokenNames = Object.keys(tokens)
+      }
+      // Recorded only once the rule is in: a write that threw must be retried by
+      // the next apply instead of being skipped by this fingerprint forever.
+      baseTokenKey = key
     }
     // Cheap per-drag update: only the surface alpha vars move on <html>.
     const root = document.documentElement
     for (const g of OPACITY_TOKEN_GROUPS) {
       for (const name of g.names) {
-        root.style.setProperty(OPACITY_VARS[name], toRgba(tokens[name] ?? '#000', ops[g.part]))
+        root.style.setProperty(OPACITY_VARS[name], withAlpha(tokens[name] ?? '#000', ops[g.part]))
       }
     }
     // The Cordis panel keeps its own input-slider alpha (see INPUT_BLUR_RULE).
-    root.style.setProperty('--dsh-any-op-menu-cordis', toRgba(tokens['--dsw-specific-menu'] ?? '#000', ops.input))
+    root.style.setProperty('--dsh-any-op-menu-cordis', withAlpha(tokens['--dsw-specific-menu'] ?? '#000', ops.input))
     const bgKey = `${baseTokenKey}|${ops.bg}`
     if (bgKey !== lastBgKey) { lastBgKey = bgKey; applyPartOpacities(ops) }
   } catch {
@@ -136,8 +359,13 @@ export const SETTINGS_STYLE_RULE =
   `${SETTINGS_PANEL_SEL}{` +
   `background:var(--dsh-any-bg-settings-surface,var(--dsw-alias-bg-layer-2));` +
   `backdrop-filter:var(--dsh-any-blur-settings,none);` +
+  `}` +
   // Re-scope the dialog's layer tokens to plugin-owned variables so every
-  // surface inside the dialog follows the settings opacity slider only.
+  // surface inside the dialog follows the settings opacity slider only. Gated on
+  // the plugin owning a palette (see THEMED_ATTR): these three declarations have
+  // no host fallback, so they may only be live while `applySettingsOverrides`
+  // writes the variables they read.
+  `html[${THEMED_ATTR}] ${SETTINGS_PANEL_SEL}{` +
   `--dsw-alias-bg-layer-1:var(--dsh-any-bg-settings-layer-1);` +
   `--dsw-alias-bg-layer-2:var(--dsh-any-bg-settings-layer-2);` +
   `--dsw-alias-bg-layer-3:var(--dsh-any-bg-settings-layer-3)}` +
@@ -180,28 +408,26 @@ export const PLACEHOLDER_RULE =
   '{color:var(--dsh-any-placeholder,var(--dsw-alias-label-caption,#8a8f98))!important;font-style:italic;opacity:.85}'
 
 export function applySettingsOverrides(op: number): void {
+  // Follows whichever palette is in force: the rule's own tokens, or the host's
+  // own surfaces while the rule follows the system theme. A token the palette
+  // does not carry has its variable REMOVED — leaving the previous color's value
+  // behind is exactly the stale surface this used to show.
+  const tokens = palette()?.tokens ?? {}
+  const root = document.documentElement
+  const write = (name: string, token: string): void => {
+    const value = tokens[token]
+    if (value === undefined) root.style.removeProperty(name)
+    else root.style.setProperty(name, withAlpha(value, op))
+  }
   // Always written explicitly (including 100%) — removing them would make
   // SETTINGS_STYLE_RULE fall back to the body layer tokens that
   // applyCustomTokens rewrites with the homepage card alpha.
-  const [h, s, l] = rColor()
-  const tokens = genTokens(h, s, l).tokens
-  const layer1 = tokens['--dsw-alias-bg-layer-1']
-  const layer2 = tokens['--dsw-alias-bg-layer-2']
-  const layer3 = tokens['--dsw-alias-bg-layer-3']
-  if (layer2 !== undefined) {
-    document.documentElement.style.setProperty('--dsh-any-bg-settings-surface', toRgba(layer2, op))
-  }
+  write('--dsh-any-bg-settings-surface', '--dsw-alias-bg-layer-2')
   // Dialog-scoped layer overrides consumed by SETTINGS_STYLE_RULE; opacity
   // follows the settings slider only (the card slider reaches panels via blur).
-  if (layer1 !== undefined) {
-    document.documentElement.style.setProperty('--dsh-any-bg-settings-layer-1', toRgba(layer1, op))
-  }
-  if (layer2 !== undefined) {
-    document.documentElement.style.setProperty('--dsh-any-bg-settings-layer-2', toRgba(layer2, op))
-  }
-  if (layer3 !== undefined) {
-    document.documentElement.style.setProperty('--dsh-any-bg-settings-layer-3', toRgba(layer3, op))
-  }
+  write('--dsh-any-bg-settings-layer-1', '--dsw-alias-bg-layer-1')
+  write('--dsh-any-bg-settings-layer-2', '--dsw-alias-bg-layer-2')
+  write('--dsh-any-bg-settings-layer-3', '--dsw-alias-bg-layer-3')
 }
 
 // ── Trajectory view opacity ──────────────────────────────────────────────
@@ -209,28 +435,26 @@ export function applySettingsOverrides(op: number): void {
 // root background is invisible. Re-scope the view root's layer tokens to
 // plugin-owned variables so every surface follows the trajectory slider.
 export const TRAJECTORY_STYLE_RULE =
-  '[data-conversation-composer-overlay]{' +
+  // Gated like the settings re-scope: see THEMED_ATTR.
+  `html[${THEMED_ATTR}] [data-conversation-composer-overlay]{` +
   // No fallback inside var(): a self-referential fallback would be a cycle.
   '--dsw-alias-bg-layer-1:var(--dsh-any-traj-layer-1);' +
   '--dsw-alias-bg-layer-2:var(--dsh-any-traj-layer-2);' +
   '--dsw-alias-bg-layer-3:var(--dsh-any-traj-layer-3)}'
 
 export function applyTrajectoryOverrides(op: number): void {
-  // Always written explicitly so the view stays owned by this slider at 100%.
-  const [h, s, l] = rColor()
-  const tokens = genTokens(h, s, l).tokens
-  const layer1 = tokens['--dsw-alias-bg-layer-1']
-  const layer2 = tokens['--dsw-alias-bg-layer-2']
-  const layer3 = tokens['--dsw-alias-bg-layer-3']
-  if (layer1 !== undefined) {
-    document.documentElement.style.setProperty('--dsh-any-traj-layer-1', toRgba(layer1, op))
+  // Always written explicitly so the view stays owned by this slider at 100%,
+  // and removed per token the palette lacks (see applySettingsOverrides).
+  const tokens = palette()?.tokens ?? {}
+  const root = document.documentElement
+  const write = (name: string, token: string): void => {
+    const value = tokens[token]
+    if (value === undefined) root.style.removeProperty(name)
+    else root.style.setProperty(name, withAlpha(value, op))
   }
-  if (layer2 !== undefined) {
-    document.documentElement.style.setProperty('--dsh-any-traj-layer-2', toRgba(layer2, op))
-  }
-  if (layer3 !== undefined) {
-    document.documentElement.style.setProperty('--dsh-any-traj-layer-3', toRgba(layer3, op))
-  }
+  write('--dsh-any-traj-layer-1', '--dsw-alias-bg-layer-1')
+  write('--dsh-any-traj-layer-2', '--dsw-alias-bg-layer-2')
+  write('--dsh-any-traj-layer-3', '--dsw-alias-bg-layer-3')
 }
 
 // ── File-preview panel (right sidebar) ────────────────────────────────────
@@ -278,12 +502,12 @@ export const RIGHTBAR_STYLE_RULE =
 /** Paint the file-preview panel's surface from its own slider. */
 export function applyRightbarOverrides(op: number): void {
   const root = document.documentElement
-  // With no rule color the plugin owns no palette at all, so the panel must fall
-  // back to the host's own --dsw-alias-bg-base rather than to ours.
-  if (!rHasColor()) { root.style.removeProperty('--dsh-any-bg-rightbar'); return }
-  const [h, s, l] = rColor()
-  const base = genTokens(h, s, l).tokens['--dsw-alias-bg-base']
-  if (base !== undefined) root.style.setProperty('--dsh-any-bg-rightbar', toRgba(base, op))
+  // The panel is painted from the palette in force like every other surface;
+  // only when there is no palette at all (a host publishing none of the tokens
+  // we re-emit) does it keep the host's own --dsw-alias-bg-base.
+  const base = palette()?.tokens['--dsw-alias-bg-base']
+  if (base === undefined) { root.style.removeProperty('--dsh-any-bg-rightbar'); return }
+  root.style.setProperty('--dsh-any-bg-rightbar', withAlpha(base, op))
 }
 
 /** Extra backdrop frost for the file-preview panel (0 = no frost of its own). */
@@ -376,14 +600,18 @@ function applySettingsBlur(px: number): void {
  *  reducing the main-bg opacity stacked a second alpha onto the sidebar; moving
  *  the alpha onto the columns keeps the sidebar owned by its own slider. */
 function applyPartOpacities(ops: PartOpacities): void {
-  if (!rHasColor()) return
   discoverParts()
   if (frameEl === null) return
-  const [h, s, l] = rColor()
-  const base = genTokens(h, s, l).tokens['--dsw-alias-bg-base']
+  const base = palette()?.tokens['--dsw-alias-bg-base']
+  if (base === undefined) {
+    // No palette to paint from: hand the columns back to the host instead of
+    // leaving the last color's inline background on them.
+    for (const el of [frameEl, centerEl, detailsEl]) el?.style.removeProperty('background')
+    return
+  }
   frameEl.style.background = 'transparent'
-  if (centerEl !== null) centerEl.style.background = base !== undefined ? toRgba(base, ops.bg) : 'transparent'
-  if (detailsEl !== null) detailsEl.style.background = base !== undefined ? toRgba(base, ops.bg) : 'transparent'
+  if (centerEl !== null) centerEl.style.background = withAlpha(base, ops.bg)
+  if (detailsEl !== null) detailsEl.style.background = withAlpha(base, ops.bg)
 }
 
 /** Blur of the option panels inside the settings dialog (.dab-card), owned by
@@ -612,8 +840,9 @@ function syncTableFix(): void {
 export function applyViewCards(): void {
   discoverParts()
   if (centerEl === null) return
-  const [h, s, l] = rColor()
-  const surface = genTokens(h, s, l).tokens['--dsw-alias-bg-layer-1']
+  // The chat card is tinted from the palette in force, so a color-less rule gets
+  // the host's own surface instead of the seed color's fallback tint.
+  const surface = palette()?.tokens['--dsw-alias-bg-layer-1']
   VIEW_CARDS.forEach((spec, i) => {
     const target = discoverViewTarget(i, spec)
     if (target === null) return
@@ -626,8 +855,8 @@ export function applyViewCards(): void {
       // padding), written inline so it wins over host stylesheets; the opacity
       // slider drives surface alpha and fades the border with it.
       const borderAlpha = opacity > 0 ? Math.min(1, opacity * 1.5) : (blurPx > 0 ? 0.35 : 0)
-      target.style.background = surface !== undefined ? toRgba(surface, opacity) : 'transparent'
-      target.style.border = surface !== undefined ? `1px solid ${toRgba(surface, borderAlpha)}` : '1px solid transparent'
+      target.style.background = surface !== undefined ? withAlpha(surface, opacity) : 'transparent'
+      target.style.border = surface !== undefined ? `1px solid ${withAlpha(surface, borderAlpha)}` : '1px solid transparent'
       target.style.borderRadius = '16px'
       target.style.padding = '18px'
     }
@@ -671,27 +900,35 @@ let themeRaf = 0
 
 function reassertScheme(): void {
   const [, , l] = rColor()
-  if (l < 0.55) document.body.setAttribute('data-ds-dark-theme', 'dsh-background-by-model')
-  else document.body.removeAttribute('data-ds-dark-theme')
+  if (l < 0.55) document.body.setAttribute(DARK_ATTR, OWN_SCHEME)
+  else document.body.removeAttribute(DARK_ATTR)
   applyCustomTokens(rOps())
 }
 
 /** Re-assert the plugin's forced scheme whenever the host strips it, so a
- *  refresh / cold-load / set-change never flashes a light frame. */
+ *  refresh / cold-load / set-change never flashes a light frame. Also the point
+ *  where a host-side scheme flip is noticed while a color-less rule runs: that
+ *  rule paints from the host palette, so the readback is dropped and the
+ *  surfaces are re-emitted from the new one. */
 export function watchThemeResets(): () => void {
   if (themeObserver !== null || typeof MutationObserver === 'undefined') return () => undefined
   themeObserver = new MutationObserver(() => {
-    if (document.body.getAttribute('data-ds-dark-theme') === 'dsh-background-by-model') return
-    if (!rHasColor()) return
+    invalidateHostPalette()
+    if (document.body.getAttribute(DARK_ATTR) === OWN_SCHEME) return
+    if (!rHasColor()) {
+      // Nothing to re-assert, but the host's own surfaces just changed under us.
+      applyCustomTokens(rOps())
+      return
+    }
     if (themeRaf !== 0) return
     themeRaf = requestAnimationFrame(() => {
       themeRaf = 0
-      if (document.body.getAttribute('data-ds-dark-theme') === 'dsh-background-by-model') return
+      if (document.body.getAttribute(DARK_ATTR) === OWN_SCHEME) return
       reassertScheme()
     })
   })
-  themeObserver.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
-  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+  themeObserver.observe(document.body, { attributes: true, attributeFilter: [DARK_ATTR] })
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: [DARK_ATTR] })
   return () => {
     themeObserver?.disconnect()
     themeObserver = null
@@ -953,20 +1190,34 @@ export function applyWp(): void {
     // No background: tear down the layer but keep tokens/blur intact.
     dropWpContainer()
   }
-  if (rHasColor()) {
-    applyCustomTokens(rOps())
-    applySettingsOverrides(rSop())
-    applyTrajectoryOverrides(rTrajectoryOpacity())
-  } else {
-    // A rule without a saved color means "use the system theme" — drop the
-    // plugin's overrides so the host palette shows through.
+  // A rule without a saved color follows the system theme: the plugin owns no
+  // color of its own, so the surfaces come from the host's palette (see
+  // `palette`) with the user's opacities applied — the wallpaper keeps showing
+  // and the Interface sliders keep doing something, which is what "follow the
+  // system theme" is expected to mean. THREE things have to be true before the
+  // readback, or it answers with the wrong palette:
+  //   1. our own body rule is out of the way (it re-emits the tokens being read);
+  //   2. the scheme flag is the host's own again (we force/remove it while we own
+  //      a palette, and the host only re-projects on a theme change);
+  //   3. the cached palette is dropped once, on the way in.
+  if (!rHasColor() && !baseTokenKey.startsWith('host:')) {
     clearCustomTokens()
-    document.body.removeAttribute('data-ds-dark-theme')
-    baseTokenKey = ''
-    lastBgKey = ''
+    invalidateHostPalette()
   }
-  // Self-guarding: writes the panel's own surface only while a color rule is
-  // active, and hands the panel back to the host token otherwise.
+  if (!rHasColor()) adoptHostScheme()
+  const src = palette()
+  // Marker for the no-fallback re-scope rules: they may only be live while the
+  // variables they read are written (see THEMED_ATTR).
+  document.documentElement.toggleAttribute(THEMED_ATTR, src !== null)
+  if (src === null) {
+    // No palette at all (a host publishing none of the surfaces we re-emit):
+    // give every surface back to the host untouched instead of leaving ours.
+    clearCustomTokens()
+    clearOwnedSurfaces()
+  }
+  applyCustomTokens(rOps())
+  applySettingsOverrides(rSop())
+  applyTrajectoryOverrides(rTrajectoryOpacity())
   applyRightbarOverrides(rRightbarOpacity())
   applyPartBlurs(rBlurs())
 }
@@ -976,30 +1227,24 @@ export function teardownWp(): void {
   clearCustomTokens()
   tokenStyleEl?.remove(); tokenStyleEl = null
   removeViewCards()
-  document.body.removeAttribute('data-ds-dark-theme')
+  document.documentElement.removeAttribute(THEMED_ATTR)
   document.body.style.removeProperty('color-scheme')
-  document.documentElement.style.removeProperty('--dsh-any-bg-settings-surface')
-  document.documentElement.style.removeProperty('--dsh-any-bg-settings-layer-1')
-  document.documentElement.style.removeProperty('--dsh-any-bg-settings-layer-2')
-  document.documentElement.style.removeProperty('--dsh-any-bg-settings-layer-3')
-  document.documentElement.style.removeProperty('--dsh-any-traj-layer-1')
-  document.documentElement.style.removeProperty('--dsh-any-traj-layer-2')
-  document.documentElement.style.removeProperty('--dsh-any-traj-layer-3')
+  // Every plugin-owned surface, including the AppFrame columns' inline
+  // backgrounds and the palette readback that described them; the scheme flag is
+  // handed back in the host's own form.
+  clearOwnedSurfaces()
+  adoptHostScheme()
+  invalidateHostPalette()
   document.documentElement.style.removeProperty('--dsh-any-blur-settings')
   document.documentElement.style.removeProperty('--dsh-any-blur-card-panels')
   document.documentElement.style.removeProperty('--dsh-any-input-blur')
   document.documentElement.style.removeProperty('--dsh-any-bg-rightbar')
   document.documentElement.style.removeProperty('--dsh-any-blur-rightbar')
   for (const v of Object.values(OPACITY_VARS)) document.documentElement.style.removeProperty(v)
-  baseTokenKey = ''
-  lastBgKey = ''
   if (tokensRaf !== null) { cancelAnimationFrame(tokensRaf); tokensRaf = null }
   pendingOps = null
   tableFixStyleEl?.remove(); tableFixStyleEl = null
   setBlur(frameEl, 0); setBlur(sidebarEl, 0); setBlur(centerEl, 0); setBlur(detailsEl, 0)
-  if (frameEl !== null) frameEl.style.removeProperty('background')
-  if (centerEl !== null) centerEl.style.removeProperty('background')
-  if (detailsEl !== null) detailsEl.style.removeProperty('background')
   stopWatchingParts()
 }
 

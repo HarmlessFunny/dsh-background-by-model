@@ -21,7 +21,8 @@ import {
 } from './rpc'
 import {
   applyWp, teardownWp, applySettingsOverrides, applyRightbarOverrides, SETTINGS_STYLE_RULE, TRAJECTORY_STYLE_RULE,
-  RIGHTBAR_STYLE_RULE, INPUT_BLUR_RULE, PLACEHOLDER_RULE, watchParts, watchThemeResets,
+  RIGHTBAR_STYLE_RULE, INPUT_BLUR_RULE, PLACEHOLDER_RULE, OWN_SCHEME, setHostScheme, refreshSystemTheme,
+  watchParts, watchThemeResets,
 } from './wallpaper'
 import { genTokens, extractWallpaperColor } from './utils/color'
 import { matchRule, watchModel } from './modelbg'
@@ -84,7 +85,7 @@ export function apply(ctx: Ctx): void {
   markOwnSheet(styleEl)
   // The gradient only applies while applyCustomTokens marks the body with the
   // plugin's own dark-mode value, avoiding matches against the host's attribute.
-  styleEl.textContent = `body[data-ds-dark-theme="dsh-background-by-model"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${RIGHTBAR_STYLE_RULE}${INPUT_BLUR_RULE}` + PLACEHOLDER_RULE
+  styleEl.textContent = `body[data-ds-dark-theme="${OWN_SCHEME}"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${RIGHTBAR_STYLE_RULE}${INPUT_BLUR_RULE}` + PLACEHOLDER_RULE
   document.head.appendChild(styleEl)
   ctx.effect(() => () => { styleEl?.parentNode?.removeChild(styleEl) }, 'dsh-background-by-model: gradient')
 
@@ -129,24 +130,55 @@ export function apply(ctx: Ctx): void {
     bound?.sync(rWp(), rev, rulesRev, modelLabel !== '' ? modelLabel : modelText, modelSource, modelNote, activeRuleId, activeMatched)
   }
 
+  /**
+   * Publish the scheme the host's own preference resolves to. The theme service
+   * is the only place that knows it (a custom active theme included); the
+   * wallpaper layer needs it to hand `data-ds-dark-theme` back in the host's own
+   * form while a color-less rule follows that theme, instead of leaving the flag
+   * off — which pins the host to its LIGHT palette on a dark system.
+   */
+  const syncHostScheme = (): void => {
+    try {
+      setHostScheme(ctx.theme.getTheme().active.colorScheme === 'dark')
+    } catch {
+      // A host build without a resolvable snapshot: let the wallpaper layer fall
+      // back to the preference the boot script published.
+      setHostScheme(null)
+    }
+  }
+
   /** Resolve the active rule for the current model and repaint everything. */
   const applyActive = (): void => {
     const { rule, matched } = matchRule(cfg.rules, modelText)
     setActive(rule === null ? null : rule.id, matched)
     const color = rule === null ? null : rule.color
-    // The skin is a host-visible switch (dispose + register + activate) and is
-    // batched; the wallpaper and tokens below land immediately either way.
     if (skinTimer !== null) window.clearTimeout(skinTimer)
-    skinTimer = window.setTimeout(() => {
+    if (color === null) {
+      // Hand the palette back BEFORE the apply below. The theme service's
+      // snapshot is what tells the wallpaper layer which scheme the host itself
+      // resolves to, and while our custom skin is still active that snapshot
+      // reports OUR scheme — the readback would then capture the host's light
+      // palette on a dark system and keep painting it (the interface only
+      // recovered when some later slider drag happened to re-run an apply).
+      // Dropping the skin is idempotent, so it needs none of the debouncing a
+      // color drag does.
       skinTimer = null
-      if (color === null) dropCustom()
-      else registerCustom(color[0], color[1], color[2])
-    }, 60)
+      dropCustom()
+    } else {
+      // The skin is a host-visible switch (dispose + register + activate) and is
+      // batched; the wallpaper and tokens below land immediately either way.
+      skinTimer = window.setTimeout(() => {
+        skinTimer = null
+        registerCustom(color[0], color[1], color[2])
+      }, 60)
+    }
+    syncHostScheme()
     applyWp()
     sync()
   }
 
   // ── 4. First paint + the AppFrame watch ───────────────────────────────────
+  syncHostScheme()
   applyWp()
   sync()
   watchParts()
@@ -213,6 +245,9 @@ export function apply(ctx: Ctx): void {
     // silently reset it; re-assert it while the active rule has a color. Guard
     // on registry presence — registerCustom disposes the old skin first, so
     // during that transient the registry lacks CUSTOM_ID.
+    // The resolved scheme is read first: an OS flip while the preference is
+    // `system` arrives exactly here, and a color-less rule has to follow it.
+    syncHostScheme()
     if (activeRuleColor() !== null) {
       const snapshot = ctx.theme.getTheme()
       if (snapshot.preference !== CUSTOM_ID && snapshot.themes.some(t => t.id === CUSTOM_ID)) {
@@ -519,6 +554,7 @@ export function apply(ctx: Ctx): void {
   // overrides. Re-running the restore a few ticks later guarantees the saved
   // records land.
   const restoreSaved = (): void => {
+    syncHostScheme()
     const color = activeRuleColor()
     if (color !== null) {
       const snapshot = ctx.theme.getTheme()
@@ -542,9 +578,20 @@ export function apply(ctx: Ctx): void {
   // host-scope adoption can silently drop the custom theme — reverting the label
   // colors and the inner surfaces to the system palette. While the active rule
   // carries a color, re-register and re-assert on a slow interval.
+  //
+  // A color-less rule needs the same slow re-check for the opposite reason: it
+  // paints from the HOST palette, which the host can re-project (or which the
+  // scheme flag can fall behind) with no event of ours to hang a repaint on.
+  // Without this, such a rule keeps whatever palette it read first — the light
+  // one, if the read happened while the plugin's own light palette was still
+  // forcing the flag off — until an unrelated apply happens to run.
   const watchdogId = window.setInterval(() => {
+    syncHostScheme()
     const color = activeRuleColor()
-    if (color === null) return
+    if (color === null) {
+      refreshSystemTheme()
+      return
+    }
     const snapshot = ctx.theme.getTheme()
     let changed = false
     if (!snapshot.themes.some(t => t.id === CUSTOM_ID)) {

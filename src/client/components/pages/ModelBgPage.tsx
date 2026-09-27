@@ -200,6 +200,26 @@ function RuleCard({ p, rule, index, total, active, notify }: {
     }
   }
 
+  /**
+   * Leaving "follow the system theme" must not hand the user a color that has
+   * nothing to do with the wallpaper they just picked, so this tries the image
+   * first and only falls back to the seed. (`extractColor` is the same pass the
+   * extract button runs and returns false when nothing vivid was found.)
+   */
+  const onPickColor = async (): Promise<void> => {
+    if (url !== null) {
+      setExtracting(true)
+      try {
+        if (await p.extractColor(rule.id)) return
+      } catch {
+        // fall through to the seed
+      } finally {
+        setExtracting(false)
+      }
+    }
+    p.setRule(rule.id, { color: SEED_COLOR })
+  }
+
   const cls = `dab-rule${active ? ' is-active' : ''}${rule.enabled ? '' : ' is-off'}`
 
   return (
@@ -312,14 +332,17 @@ function RuleCard({ p, rule, index, total, active, notify }: {
               {rule.color === null ? (
                 <>
                   <div className="dab-chip-row">
-                    <button type="button" className="dab-btn" onClick={() => p.setRule(rule.id, { color: SEED_COLOR })}>
-                      <DropletIcon size={14} />{t('ruleColorNone')}
+                    {/* This button LEAVES the system-theme state, so it says so:
+                        the "系统主题" label belongs to the clearing button below. */}
+                    <button type="button" className="dab-btn" disabled={extracting} onClick={() => void onPickColor()}>
+                      <DropletIcon size={14} />{extracting ? t('extracting') : t('ruleColorPick')}
                     </button>
                     <button type="button" className="dab-btn" disabled={url === null || extracting} onClick={() => void onExtract()}>
                       <SparkleIcon size={14} />{extracting ? t('extracting') : t('ruleColorExtract')}
                     </button>
                   </div>
                   <p className="dab-hint" style={{ marginTop: 8 }}>{t('ruleColorNoneHint')}</p>
+                  <p className="dab-hint" style={{ marginTop: 6 }}>{t('ruleColorPickHint')}</p>
                 </>
               ) : (
                 <>
