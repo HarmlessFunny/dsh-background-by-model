@@ -1,6 +1,12 @@
 # Changelog
 
-> The full release history lives here; the two most recent releases (v0.5.4 / v0.5.3) are also listed in [README.md](./README.md#recent-optimizations).
+> The full release history lives here; the two most recent releases (v0.5.5 / v0.5.4) are also listed in [README.md](./README.md#recent-optimizations).
+
+## v0.5.5
+
+- **The color preview field prints its own hex, so it stops reading as a fourth text input** — The live preview swatch sits at the bottom of the same column as the H/S/L (R/G/B) number fields, at the same width and behind the same 1px border, and it was filled with the current color but carried no text at all. On a light color — the reported case was `#BADEE8`, L 82% — a blank bordered rectangle under three editable fields reads as one more field, and there is nothing to type into it. It now prints `#RRGGBB` in monospace, centered on the color itself, with its ink picked by **Rec.709 luma**, the same brightness measure the wallpaper extractor already uses, so a light fill gets dark ink and a dark one light ink and the value never disappears into its own background. The `scale(1.02)` hover went with the old reading: it advertised an interaction the field never had, which is most of why it looked clickable.
+- **The hex caption above the HSL/RGB toggle is gone** — the preview field now prints that same value on the color itself, and printing it twice only added a second thing to explain.
+- **The clear-color button is named for its action, not for the state it lands in** — It read **System theme** while its action was to clear the rule's custom color, so it read as a label for whatever control sat beside it rather than as a control. It is now **Follow system theme** (`跟随系统主题`), carrying the host's own appearance glyph (the sun, migrated from `IconLightOutline16`). This is the same label-versus-action mismatch fixed on the other side of this state in 0.5.3, where the no-color button became **Custom color**; the pair now names the two destinations instead of the two states.
 
 ## v0.5.4
 
