@@ -10,6 +10,11 @@ function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v))
 }
 
+/** '#rrggbb' for a 0-255 RGB triple, in the caller's case. */
+function toHex(rgb: [number, number, number]): string {
+  return '#' + rgb.map(v => Math.round(v).toString(16).padStart(2, '0')).join('')
+}
+
 /**
  * A single numeric field that edits one color channel. Keeps its own text
  * while focused so typing never gets clobbered by the parent re-rendering the
@@ -50,10 +55,11 @@ function NumField({ label, value, min, max, step, onChange }: {
 
 /**
  * Precise color entry next to the wheel: a HSL/RGB segmented toggle plus three
- * numeric channel fields and a live swatch. The wheel is HSV end-to-end, so
- * this panel converts at the boundary — HSL fields map straight onto the
- * stored HSL, RGB fields round-trip through rgbToHsl — and both emit HSV via
- * the same onChange the wheel uses, keeping one canonical color.
+ * numeric channel fields and a live preview field that prints its own hex. The
+ * wheel is HSV end-to-end, so this panel converts at the boundary — HSL fields
+ * map straight onto the stored HSL, RGB fields round-trip through rgbToHsl —
+ * and both emit HSV via the same onChange the wheel uses, keeping one canonical
+ * color.
  */
 export function ColorInputs({ hue, sat, lit, onChange }: {
   hue: number; sat: number; lit: number
@@ -62,6 +68,12 @@ export function ColorInputs({ hue, sat, lit, onChange }: {
   const [mode, setMode] = useState<Mode>('hsl')
   const [h, s, l] = hsvToHsl(hue, sat, lit)
   const [r, g, b] = hslToRgb(h, s, l)
+  const hex = toHex([r, g, b]).toUpperCase()
+  // Ink for the hex printed ON the preview field. Rec.709 luma is the
+  // brightness measure the wallpaper extractor already uses, so the two agree:
+  // a light color gets dark ink and a dark one light ink, and the value never
+  // disappears into its own fill.
+  const ink = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55 ? 'rgba(0,0,0,.78)' : 'rgba(255,255,255,.92)'
 
   const setHsl = (nh: number, ns: number, nl: number) => onChange(...hslToHsv(nh, ns, nl))
   const setRgb = (nr: number, ng: number, nb: number) => {
@@ -91,7 +103,16 @@ export function ColorInputs({ hue, sat, lit, onChange }: {
           </>
         )}
       </div>
-      <div className="dab-swatch-lg" style={{ background: `hsl(${Math.round(h)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%)` }} />
+      {/* Prints its own value. An empty colored rectangle sitting in the same
+          column as the H/S/L fields reads as one more text input — and there is
+          nothing to type into it, so the value it is showing has to be visible
+          on it. Without the hex this was the one control in the panel that
+          looked editable and was not. */}
+      <div
+        className="dab-swatch-lg"
+        style={{ background: `hsl(${Math.round(h)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%)`, color: ink }}>
+        {hex}
+      </div>
     </div>
   )
 }
