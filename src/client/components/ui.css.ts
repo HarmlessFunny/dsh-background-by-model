@@ -52,7 +52,6 @@ export const UI_CSS = `
 .dab-orb-wrap{position:relative;width:118px;height:118px;flex:none}
 .dab-orb{position:absolute;inset:11px;border-radius:50%;background:radial-gradient(circle at 32% 28%,rgba(255,255,255,.5),rgba(255,255,255,0) 44%),var(--c,#888);box-shadow:0 16px 36px -10px var(--c-soft,transparent),inset 0 -10px 20px rgba(0,0,0,.16);animation:dab-orb-in .7s cubic-bezier(.22,1,.36,1) both}
 .dab-orb-ring{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 30%,var(--c,#888) 46%,transparent 62%,transparent 76%,var(--c,#888) 90%,transparent 100%);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3.5px),#000 calc(100% - 2.5px));mask:radial-gradient(farthest-side,transparent calc(100% - 3.5px),#000 calc(100% - 2.5px));animation:dab-spin 7s linear infinite;opacity:.9}
-.dab-hex-caption{font-size:11px;color:var(--dsw-alias-label-tertiary);letter-spacing:.04em}
 .dab-hex{font-family:var(--dab-mono);font-size:24px;font-weight:600;letter-spacing:.02em;line-height:1.2;margin-top:2px}
 .dab-hsl-row{display:flex;gap:16px;margin-top:7px;font-family:var(--dab-mono);font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .dab-hsl-row b{font-weight:600;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
@@ -81,8 +80,12 @@ export const UI_CSS = `
 .dab-urlinput{flex:1;min-width:180px;height:34px;padding:0 12px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12.5px;outline:none;transition:border-color .2s}
 .dab-urlinput::placeholder{color:var(--dsw-alias-label-quaternary)}
 .dab-urlinput:focus{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent)}
-.dab-swatch-lg{height:38px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);box-shadow:inset 0 0 14px rgba(0,0,0,.1);transition:transform .3s ease}
-.dab-swatch-lg:hover{transform:scale(1.02)}
+/* Prints the current hex on the color itself. Without the value this was an
+ * empty bordered rectangle sitting in the same column as the H/S/L number
+ * fields, which made it read as one more — blank — text input; nothing is ever
+ * typed here, so nothing may look typable. The hover scale went with that
+ * reading: it advertised an interaction this field does not have. */
+.dab-swatch-lg{display:flex;align-items:center;justify-content:center;height:38px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);box-shadow:inset 0 0 14px rgba(0,0,0,.1);font-family:var(--dab-mono);font-size:12.5px;font-weight:600;letter-spacing:.06em;user-select:all}
 
 /* ── buttons & chips ─────────────────────────────────────────────────────── */
 /* Text/icon painted ON --dsw-alias-brand-primary reads

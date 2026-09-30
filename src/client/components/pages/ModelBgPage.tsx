@@ -10,7 +10,7 @@ import { ColorInputs } from '../ColorInputs'
 import { ColorPicker } from '../ColorPicker'
 import { BgEditor } from '../BgEditor'
 import { LiveSlider } from '../LiveSlider'
-import { DropletIcon, EditIcon, LinkIcon, PipetteIcon, SparkleIcon, TrashIcon, UploadIcon } from '../icons'
+import { DropletIcon, EditIcon, LinkIcon, PipetteIcon, SparkleIcon, SunIcon, TrashIcon, UploadIcon } from '../icons'
 
 const BG_MODES: Array<{ mode: BgMode; key: string }> = [
   { mode: 'fit', key: 'bgModeFit' },
@@ -348,8 +348,10 @@ function RuleCard({ p, rule, index, total, active, notify }: {
                 <>
                   <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                     <ColorWheel hue={wheel[0]} sat={wheel[1]} lit={wheel[2]} onChange={onColor} />
+                    {/* No hex caption above the toggle any more: the preview
+                        field inside ColorInputs prints that same value on the
+                        color itself, where it also explains what the field is. */}
                     <div className="dab-inputs">
-                      <div className="dab-hex-caption">{toHex(hslToRgb(h, s, l)).toUpperCase()}</div>
                       <ColorInputs hue={wheel[0]} sat={wheel[1]} lit={wheel[2]} onChange={onColor} />
                     </div>
                   </div>
@@ -360,8 +362,14 @@ function RuleCard({ p, rule, index, total, active, notify }: {
                     <button type="button" className="dab-btn" disabled={url === null} onClick={() => setPickerOpen(true)}>
                       <PipetteIcon size={13} />{t('eyedropper')}
                     </button>
+                    {/* Leaves the rule's custom color and hands the interface
+                        back to the host palette. Carries the sun because that
+                        is the host's own appearance glyph, and reads as the
+                        action it performs rather than the state it lands in —
+                        as a bare "系统主题" it looked like the label of whatever
+                        control sat beside it. */}
                     <button type="button" className="dab-btn dab-btn-ghost" onClick={() => p.setRule(rule.id, { color: null })}>
-                      {t('ruleColorNone')}
+                      <SunIcon size={13} />{t('ruleColorNone')}
                     </button>
                   </div>
                   <div className="dab-swatches" style={{ marginTop: 12 }}>
