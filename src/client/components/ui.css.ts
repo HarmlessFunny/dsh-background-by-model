@@ -252,6 +252,11 @@ export const UI_CSS = `
 .dab-check-where code{font-family:var(--dab-mono);font-size:10.5px;overflow-wrap:anywhere}
 .dab-check-note{margin:12px 0 0;font-size:11.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary);position:relative;z-index:1}
 
+/* ── holiday override (Profile page) ─────────────────────────────────────── */
+/* Only a label: the whole feature is one switch, and dab-toggle already exists.
+   The per-holiday cards that used to live here are gone by design. */
+.dab-holiday-label{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+
 /* ── keyframes ───────────────────────────────────────────────────────────── */
 @keyframes dab-fade-in{from{opacity:0}to{opacity:1}}
 @keyframes dab-page-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}

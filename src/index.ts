@@ -14,7 +14,11 @@
  * to rule 1 on first read.
  */
 import { access, mkdir, readFile, writeFile, rm, rename, readdir } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+// The bundled holiday calendar: the node half only needs the fixed slot ids and
+// the asset names (the date maths belongs to the browser half).
+import { HOLIDAYS } from './holiday'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
 import { SLOT_RE, normalizeConfig } from './schema'
 import type { BgState, ThemeConfig } from './schema'
@@ -192,18 +196,61 @@ function sniffImageMime(buf: Buffer): string {
   return 'image/jpeg'
 }
 
-/** Read one rule image as a data URL, or null when the slot is empty. */
+/**
+ * Read one slot as a data URL, or null when it has nothing to serve.
+ *
+ * A holiday slot is answered from the package and from nowhere else — the data
+ * directory is never consulted for it, which is what makes the festival art
+ * impossible to swap. Everything else is the user's own bytes. Both are resolved
+ * lazily, so nothing about the bundled art is loaded — or even looked for — until
+ * a holiday actually reaches for it.
+ */
 async function readImage(slot: string): Promise<string | null> {
+  const asset = bundledAssetFor(slot)
+  if (asset !== null) {
+    const bundled = await readFileOrNull(bundledAssetPath(asset))
+    return bundled === null ? null : toDataUrl(bundled)
+  }
+  const own = await readFileOrNull(imagePath(slot))
+  return own === null ? null : toDataUrl(own)
+}
+
+async function readFileOrNull(path: string): Promise<Buffer | null> {
   try {
-    const buf = await readFile(imagePath(slot))
-    return `data:${sniffImageMime(buf)};base64,${buf.toString('base64')}`
+    return await readFile(path)
   } catch {
     return null
   }
 }
 
+function toDataUrl(buf: Buffer): string {
+  return `data:${sniffImageMime(buf)};base64,${buf.toString('base64')}`
+}
+
+/** Absolute path of one wallpaper bundled inside the package. */
+function bundledAssetPath(asset: string): string {
+  return fileURLToPath(new URL(`../holiday/${asset}`, import.meta.url))
+}
+
+/**
+ * The wallpaper bundled for one slot, or null when the slot is not a holiday's.
+ *
+ * This mapping is the ONLY thing that makes a holiday slot read-only and
+ * package-served, so both `readImage` and `writeImage` go through it rather than
+ * each testing the holiday list on their own. It reads no config: the bundled art
+ * has stopped being a fallback that a flag could disable.
+ */
+function bundledAssetFor(slot: string): string | null {
+  return HOLIDAYS.find(h => h.slot === slot)?.asset ?? null
+}
+
 /** Persist one rule image (null removes it); false keeps the previous file. */
 async function writeImage(slot: string, dataUrl: string | null): Promise<boolean> {
+  // A holiday slot is the package's, not the user's: refusing the write (rather
+  // than merely ignoring whatever a file there holds) is what keeps the festival
+  // art unswappable. This is the one funnel every write, delete and URL fetch
+  // goes through, so the invariant cannot be bypassed one entry point at a time.
+  if (bundledAssetFor(slot) !== null) return false
   await ensureDir()
   try {
     if (dataUrl === null) {
@@ -238,6 +285,9 @@ async function listSlots(): Promise<string[]> {
  * Returns { ok, dataUrl?, error? }; never throws.
  */
 async function fetchImageUrl(slot: string, url: string | null): Promise<{ ok: boolean; dataUrl?: string | null; error?: string }> {
+  // Checked BEFORE the download: a holiday slot cannot accept the bytes, so
+  // fetching them first would burn a transfer to throw it away.
+  if (bundledAssetFor(slot) !== null) return { ok: false, error: 'read-only slot' }
   if (url === null) {
     const ok = await writeImage(slot, null)
     return { ok, dataUrl: null, error: ok ? undefined : 'remove failed' }

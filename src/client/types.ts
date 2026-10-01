@@ -107,8 +107,8 @@ export interface Ctx {
 // exist on one side only (that drift is what silently dropped a setting before).
 // They are re-exported here because every client module imports them from this
 // module.
-import type { BgRule, BgState, BgMode, PartOpacities, PartBlurs, ThemeConfig } from '../schema'
-export type { BgRule, BgState, BgMode, PartOpacities, PartBlurs, ThemeConfig }
+import type { BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs, ThemeConfig } from '../schema'
+export type { BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs, ThemeConfig }
 
 // The model-resolution facts the section shows for the active rule. Declared with
 // the schema (../model-facts) because the node half names the same shape.
@@ -202,6 +202,14 @@ export interface ThemeSectionProps {
   setRightbarOpacity: (v: number | null) => void
   /** Fill a rule's theme color from its image when the rule has none yet. */
   setAutoExtract: (v: boolean) => void
+
+  // ── Holiday overrides ──────────────────────────────────────────────────────
+  // ONE switch and nothing else. The per-holiday panels that used to live here
+  // made the feature read as something the user is expected to configure, which
+  // is exactly what it is not — the art belongs to the package and cannot be
+  // swapped.
+  /** Master switch of the holiday override. */
+  setHolidaysEnabled: (v: boolean) => void
   /** Download every rule + its image as one JSON file. */
   exportTheme: () => void
   /** Import such a JSON file: replaces the whole rule set and its images. */

@@ -8,13 +8,16 @@
  */
 import { defineStore } from './runtime'
 import type {
-  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgRule, FetchResult, ModelFacts,
+  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgRule, HolidayRule,
+  FetchResult, ModelFacts,
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
   cfg, adoptConfig, imageOf, displayImageOf, setImage, newRule, nextSlot, nextRuleId, ruleById,
-  normalizeRule, setActive, setModelLabel, activeRuleId, activeMatched, modelLabel, rWp, rRightbarOpacity,
+  holidayById, normalizeRule, setActive, setModelLabel, activeRuleId, activeMatched, modelLabel,
+  rWp, rRightbarOpacity,
 } from './state'
+import { activeHoliday, pickHoliday } from '../holiday'
 import {
   RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
   readImage, writeImage, deleteImage, fetchImageUrl, readDefaultModel,
@@ -149,7 +152,12 @@ export function apply(ctx: Ctx): void {
 
   /** Resolve the active rule for the current model and repaint everything. */
   const applyActive = (): void => {
-    const { rule, matched } = matchRule(cfg.rules, modelText)
+    // The holiday override sits ABOVE the rule list: while one is in force the
+    // model is irrelevant, which is the whole point of the switch.
+    const holiday = activeHolidayRule()
+    const { rule, matched } = holiday !== null
+      ? { rule: holiday as BgRule, matched: false }
+      : matchRule(cfg.rules, modelText)
     setActive(rule === null ? null : rule.id, matched)
     const color = rule === null ? null : rule.color
     if (skinTimer !== null) window.clearTimeout(skinTimer)
@@ -176,6 +184,22 @@ export function apply(ctx: Ctx): void {
     applyWp()
     sync()
   }
+
+  /**
+   * The holiday the background must follow right now, or null.
+   *
+   * The decision itself is `pickHoliday` (pure, and covered by
+   * `scripts/holiday-check.ts`); this only supplies the two things it cannot
+   * know — today's holiday from the calendar, and whether the slot has bytes.
+   */
+  const activeHolidayRule = (): HolidayRule | null =>
+    pickHoliday(cfg.holidays.enabled, cfg.holidays.items, activeHoliday(), slot => imageOf(slot) !== null)
+
+  // ── 3b. Holiday theme color ───────────────────────────────────────────────
+  // There is nothing to compute: a holiday's color is a fixed part of its
+  // definition (see `HOLIDAYS`), forced on every read by ./schema. The extractor
+  // that used to run here decoded a full-size festival photo to re-derive a hue
+  // that was always going to be the same one.
 
   // ── 4. First paint + the AppFrame watch ───────────────────────────────────
   syncHostScheme()
@@ -217,21 +241,76 @@ export function apply(ctx: Ctx): void {
     }
   })()
 
+  // ── 5b. Holiday rollover ──────────────────────────────────────────────────
+  // The holiday answer only changes at Beijing midnight — a switch flip calls
+  // applyActive directly — so this is a slow tick that does nothing at all until
+  // the day key actually moves. 30 s is plenty for a boundary that is a whole day
+  // wide, and it costs one `Intl` format per tick.
+  //
+  // `todayHolidaySlot` / `loadSlot` are declared below, in section 6; both are
+  // initialized during this same synchronous apply, long before any tick fires.
+  let holidayKey = activeHoliday() ?? ''
+  const holidayTimer = window.setInterval(() => {
+    const next = activeHoliday() ?? ''
+    if (next === holidayKey) return
+    holidayKey = next
+    // Midnight can land ON a holiday, and that holiday's art was deliberately
+    // not fetched at boot (it was not that day yet) — fetch it, then repaint.
+    const slot = todayHolidaySlot()
+    if (slot === null) applyActive()
+    else void loadSlot(slot).then(() => applyActive())
+  }, 30_000)
+  ctx.effect(() => () => { window.clearInterval(holidayTimer) }, 'dsh-background-by-model: holiday rollover')
+
   // ── 6. Boot restore ───────────────────────────────────────────────────────
+  /** Read one slot's bytes into the cache unless they are already there. */
+  const loadSlot = async (slot: string): Promise<void> => {
+    if (imageOf(slot) !== null) return
+    const url = await readImage(slot)
+    if (url !== null) setImage(slot, url)
+  }
+  /**
+   * The slot of the holiday that could paint TODAY, or null.
+   *
+   * Gated on the CALENDAR, not merely on the switch. Now that the override is on
+   * by default and invisible, a profile that simply is not on a holiday must not
+   * pull ~730 KB of bundled art (≈970 KB of base64 over this channel) at every
+   * boot just because the feature is armed.
+   */
+  const todayHolidaySlot = (): string | null => {
+    if (!cfg.holidays.enabled) return null
+    const id = activeHoliday()
+    if (id === null) return null
+    const item = holidayById(id)
+    return item !== null && item.enabled ? item.slot : null
+  }
+  /** Every slot that can paint: the stored ones plus every slot the config names. */
+  const allSlots = (stored: readonly string[]): string[] => {
+    const holiday = todayHolidaySlot()
+    return Array.from(new Set([
+      ...stored,
+      ...cfg.rules.map(r => r.slot),
+      ...(holiday === null ? [] : [holiday]),
+    ]))
+  }
+  /**
+   * The slot that paints before anything else: the holiday in force when there
+   * is one, otherwise the slot the current model's rule uses. A holiday outranks
+   * the rule here for the same reason it outranks it when painting.
+   */
+  const prioritySlot = (): string | null =>
+    todayHolidaySlot() ?? matchRule(cfg.rules, modelText).rule?.slot ?? null
   void (async () => {
     const persisted = await loadPersisted()
     if (persisted !== null) {
       adoptConfig(persisted.config)
-      const slots = Array.from(new Set([...persisted.slots, ...cfg.rules.map(r => r.slot)]))
+      const first = prioritySlot()
       // The active rule's bytes paint first; the remaining slots stream in after
       // so a large multi-rule setup never delays the first frame.
-      const priority = matchRule(cfg.rules, modelText).rule
-      const first = priority === null ? null : priority.slot
+      const slots = allSlots(persisted.slots)
       const order = first === null ? slots : [first, ...slots.filter(s => s !== first)]
       for (const slot of order) {
-        if (imageOf(slot) !== null) continue
-        const url = await readImage(slot)
-        if (url !== null) setImage(slot, url)
+        await loadSlot(slot)
         if (slot === first) applyActive()
       }
     }
@@ -434,12 +513,30 @@ export function apply(ctx: Ctx): void {
         saveConfig()
       },
       setAutoExtract: (v: boolean): void => { cfg.autoExtract = v; saveConfig(); sync() },
+
+      // ── Holiday overrides ─────────────────────────────────────────────────
+      setHolidaysEnabled: (v: boolean): void => {
+        cfg.holidays.enabled = v
+        persistConfig()
+        // Switching it back on has to be able to paint immediately, so today's
+        // holiday art is fetched if it is not in memory yet. Only TODAY's: the
+        // other one cannot paint, and nothing in the UI shows it.
+        const slot = todayHolidaySlot()
+        if (v && slot !== null) void loadSlot(slot).then(() => applyActive())
+        applyActive()
+      },
+
       // Download every rule plus its image as one JSON file.
       exportTheme: (): void => {
         const images: Record<string, string> = {}
-        for (const rule of cfg.rules) {
-          const url = imageOf(rule.slot)
-          if (url !== null) images[rule.slot] = url
+        // Rule slots only. A holiday's wallpaper belongs to the package and is
+        // served from there, so writing it into a theme file would ship ~970 KB
+        // of base64 that every install already has — and that nothing could ever
+        // restore it TO, since the slot is read-only.
+        const slots = cfg.rules.map(r => r.slot)
+        for (const slot of slots) {
+          const url = imageOf(slot)
+          if (url !== null) images[slot] = url
         }
         const payload = {
           version: 3,
@@ -465,15 +562,19 @@ export function apply(ctx: Ctx): void {
           adoptConfig(d.config)
           const incoming = (d.images ?? {}) as Record<string, unknown>
           const keep = new Set<string>()
-          for (const rule of cfg.rules) {
-            keep.add(rule.slot)
-            const raw = incoming[rule.slot]
+          // Rule slots only — the same set the export writes. A holiday slot that
+          // an older theme file still carries therefore falls outside `keep` and
+          // is swept below; the node half refuses to write such a slot either way,
+          // so it is inert from both directions.
+          for (const slot of cfg.rules.map(r => r.slot)) {
+            keep.add(slot)
+            const raw = incoming[slot]
             if (typeof raw === 'string' && /^data:image\//.test(raw)) {
-              setImage(rule.slot, raw)
-              void writeImage(rule.slot, raw)
+              setImage(slot, raw)
+              void writeImage(slot, raw)
             } else {
-              setImage(rule.slot, null)
-              void deleteImage(rule.slot)
+              setImage(slot, null)
+              void deleteImage(slot)
             }
           }
           // Slots the imported config no longer references are released.

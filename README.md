@@ -83,6 +83,19 @@ One interface, one config — only the current model differs:
 - **Bilingual** — Full Chinese / English UI with automatic locale detection.
 - **Theme Watchdog** — Re-asserts the custom theme if the host resets it.
 
+### Holiday backgrounds
+
+A small one, not a settings block: **one switch on the Config page and nothing else**. It is on out of the box, and on the day the background changes by itself and changes back the next morning.
+
+- **How it behaves** — On 中秋节 and 国庆节 the wallpaper switches to that holiday's own image, with that holiday's own fixed theme color (中秋 `#384A77`, 国庆 `#FFF6EB`). The next day, the model rules take over again.
+- **Mid-Autumn Festival** — 农历八月十五, the day itself. It moves every year (2024-09-17, 2025-10-06, 2026-09-25, 2027-09-15 …), so it is resolved from the Chinese calendar at runtime, in **Asia/Shanghai** — the lunar day turns over at Beijing midnight, not yours.
+- **National Day** — October 1–7.
+- **Mid-Autumn wins the overlap** — the two do collide (2025-10-06 was both); the single precise day is the better answer.
+- **A holiday with no image falls through** to the model rules rather than blanking the wallpaper.
+- **Built-in wallpapers** — Both holidays ship with a compressed wallpaper (228 KB and 500 KB at native resolution, against 8.37 MB of source art). Only the holiday that can paint *today* is ever fetched, so a profile that is not on a holiday transfers none of it.
+- **Neither the art nor the palette is swappable, by design** — an easter egg that asks to be configured is not an easter egg. A holiday slot is read-only: a file dropped into `modelbg-h-midautumn` / `modelbg-h-nationalday` is ignored by every read, and the plugin refuses to write, fetch into or delete those slots. The theme colors are constants in the holiday definition and are forced on every read, so a hand-edited `color` in `theme-config.json` cannot repaint a festival either. Theme exports therefore carry your rules only.
+- **Turning it off** — the switch on the Config page, or `"holidays": { "enabled": false }` in the same file.
+
 ### Per-rule settings
 
 - **Wallpaper** — Upload any image as this rule's wallpaper; each rule keeps its own file.
@@ -107,7 +120,7 @@ Settings → **Theme** now has three tabs:
 | --- | --- | --- |
 | **Interface** | Global, shared by every model | Opacity & blur for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
 | **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's wallpaper, theme color, layout mode, framing, opacity and blur |
-| **Config** | — | Import / export the whole rule set (`dsh-background-by-model-theme.json`) |
+| **Config** | — | Import / export the whole rule set (`dsh-background-by-model-theme.json`), plus the single [holiday background](#holiday-backgrounds) switch |
 
 The old **Color** tab is gone — the theme color is now a property of each rule. The old **Background** tab became **Model Background**.
 
@@ -117,8 +130,9 @@ Data directory: `~/.dsh/.dsh-background-by-model-data/` (Windows: `C:\Users\<you
 
 | File | Contents |
 | --- | --- |
-| `theme-config.json` | The rule list plus the global Interface settings |
+| `theme-config.json` | The rule list plus the global Interface settings and the holiday overrides |
 | `modelbg-<slot>` | The image of each rule, stored as raw bytes without a file extension |
+| `modelbg-h-midautumn` / `modelbg-h-nationalday` | Not used: both holiday wallpapers ship inside the package and are served straight out of it |
 
 ## Installation
 
@@ -170,7 +184,11 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
-`pnpm test` builds and typechecks (`tsdown && tsc -p tsconfig.json`).
+`pnpm test` builds, typechecks and runs three checks (`tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs`). None of them needs a dependency, a transformer or a browser, and each can be run alone with `pnpm check:holiday` / `pnpm check:ui` / `pnpm check:node`:
+
+- **`check:holiday`** — the two holiday windows against known dates, the Beijing day boundary (23:59 vs 00:01), leap eighth months across 1900–2100, and the four gates `pickHoliday` applies before a holiday is allowed to take over the background.
+- **`check:ui`** — every `t('…')` key exists in both dictionaries, both dictionaries carry the same key set, every `dab-…` class has a rule in the stylesheet, and no dictionary entry has gone unreferenced.
+- **`check:node`** — the built node half driven through its real RPC handler with `DSH_HOME` redirected to a throwaway directory: the holiday block through the shared sanitizer, the packaged wallpapers served from an empty slot (without being copied into the data directory), a holiday slot refusing writes, deletes and URL fetches while a file dropped into it is ignored, an ordinary rule slot still writing, listing and deleting, and a hand-edited config unable to redirect a holiday at another rule's image.
 
 ## FAQ
 
@@ -200,18 +218,19 @@ The other half of the same hole: while it owns a color the plugin **forces** `bo
 
 ## Recent Optimizations
 
-> Only the two most recent releases are listed here; older ones (v0.5.0 and earlier) live in [CHANGELOG.md](./CHANGELOG.md).
+> Only the two most recent releases are listed here; older ones (v0.5.4 and earlier) live in [CHANGELOG.md](./CHANGELOG.md).
+
+### v0.6.0
+
+- **Holiday backgrounds** — Settings → Config gains exactly one thing: a switch. While it is on and today is inside a holiday's window, that holiday's wallpaper replaces the rule list's answer and paints with that holiday's own fixed theme color. On by default, and there is deliberately no card per holiday, no thumbnail and no image picker — the art ships in the package and its slots are read-only, so it cannot be replaced from anywhere.
+- **中秋 is lunar, 国庆 is fixed, both read in Asia/Shanghai** — 中秋 (八月十五) moves every year, so it comes from the browser's own ICU Chinese calendar, no dependency. The zone is pinned rather than taken from the machine: the lunar day turns over at Beijing midnight. A leap eighth month is excluded by an exact `month === '8'` test — verified against every leap-eighth-month year from 1900 to 2100 (2052 fires on 2052-09-07, not on that year's `8bis` fifteenth in October). Where the two overlap (2025-10-06), 中秋 wins.
+- **The built-in wallpapers are compressed 12×: 8.37 MB → 729 KB** — native resolution WebP q80; the tarball goes 401 KB → 1.12 MB, and gzip cannot shrink already-compressed images further. That is the whole cost of the feature.
+- **An unused holiday costs nothing — and neither does an unused day** — boot fetches only the holiday that can paint *today*, and the node half looks the asset up lazily rather than loading it with the plugin.
 
 ### v0.5.5
 
 - **The color preview field prints its own hex** — it sat at the bottom of the H/S/L (R/G/B) column behind the same 1px border and carried no text, so on a light color (reported: `#BADEE8`, L 82%) it read as one more — blank — text input with nothing to type into it. It now prints `#RRGGBB` in monospace centered on the color, inked by **Rec.709 luma** (the wallpaper extractor's own brightness measure) so the value never disappears into its fill, and the hover `scale(1.02)` it never backed up is gone. The duplicate hex caption above the HSL/RGB toggle went with it.
 - **The clear-color button says what it does** — **System theme** (a state) is now **Follow system theme** (the action), with the host's own sun glyph. It is the mirror of the 0.5.3 rename that turned the no-color button into **Custom color**.
-
-### v0.5.4
-
-- **A brand-filled control takes its label from the host's on-brand ink, not from `brand-text`** — Following the system theme painted the active layout chip, the **+ Add rule** button and the settings brand tile from the host's own `--dsw-alias-brand-primary`, which is a **contrast ink rather than a hue**: near-black (`#0f1115`) in the host's light scheme, near-white (`#f9fafb`) in its dark one. Their labels read `--dsw-alias-brand-text`, which the host defines as that very same color in both schemes and never uses in its own CSS. On a dark system that made them filled boxes with invisible labels — white primary button, white active chip, white icon tile (measured at exactly `#f9fafb`) — and they were only ever readable while the plugin owned the palette and generated its own brand pair. All four now read `--dsw-alias-label-primary-inverted`, the host's own ink for a brand/contrast fill: `#fff` on the light scheme's black fill, `#353638` on the dark scheme's white one.
-- **The toggle's on-state knob was the same bug one size smaller** — a hard-coded `#fff` on a `--dsw-alias-brand-primary` track, i.e. a white knob on the white track the dark scheme paints there.
-- **The plugin's own dark palette had the mirror of it** — that branch deliberately keeps its brand fill at 50%+ lightness, while `--dsw-alias-label-primary-foreground` — the token the **host's** own primary buttons label themselves with over `--dsw-alias-button-primary-fill` — was hard-coded white. It now flips with the fill (one shared verdict with `brand-text`), and the light branch re-emits `label-primary-inverted` so the plugin's palette owns the pair instead of inheriting it from whichever scheme the host happens to be in.
 
 ## Star History
 
