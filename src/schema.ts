@@ -20,6 +20,9 @@
  * imported by the browser bundle and by the node half alike.
  */
 
+import { HOLIDAYS } from './holiday'
+import type { HolidayDef } from './holiday'
+
 /** Placement state of one background image (zoom + fractional center + intrinsic size). */
 export interface BgState { zoom: number; x: number; y: number; iw: number; ih: number }
 
@@ -96,9 +99,37 @@ export interface BgRule {
   bgState: BgState
 }
 
+/**
+ * One built-in holiday override.
+ *
+ * Deliberately the SAME shape as a rule — an alias rather than an extension: the
+ * render layer resolves whatever `ruleById` returns, so making a holiday a rule
+ * is what lets the wallpaper, the theme color, the layout mode and the framing
+ * all work without a second code path. `id` and `slot` are fixed by `HOLIDAYS` —
+ * the sanitizer overwrites them from the definition, so a hand-edited config can
+ * never point a holiday at another rule's slot.
+ *
+ * There is deliberately nothing here about the IMAGE. A holiday's wallpaper is
+ * the one bundled in the package (under `holiday/`), the node half serves it
+ * straight out of there, and a holiday slot is read-only — no entry point takes
+ * bytes for it. The feature is an easter egg, not a thing to configure.
+ */
+export type HolidayRule = BgRule
+
+/** The holiday override: one master switch plus one entry per built-in holiday. */
+export interface HolidaysConfig {
+  /**
+   * While on, a holiday whose window contains today replaces the rule the model
+   * resolved to. On unless it is explicitly turned off — the switch on the Config
+   * page is an off-ramp, not an opt-in.
+   */
+  enabled: boolean
+  /** One entry per `HOLIDAYS` definition, in that order. */
+  items: HolidayRule[]
+}
+
 /** The persisted plugin configuration. */
-export interface ThemeConfig {
-  /** Ordered rules: matching runs top→bottom, rule 1 doubles as the fallback. */
+export interface ThemeConfig {  /** Ordered rules: matching runs top→bottom, rule 1 doubles as the fallback. */
   rules: BgRule[]
   /** Global per-part opacities (Interface page). */
   opacities: PartOpacities
@@ -123,6 +154,8 @@ export interface ThemeConfig {
    * extraction produced is never overwritten, so this cannot fight the user.
    */
   autoExtract: boolean
+  /** Built-in holiday overrides (中秋 / 国庆), switched off as a whole. */
+  holidays: HolidaysConfig
 }
 
 /** 100% = untouched host surface; zero would blank the page by default. */
@@ -134,6 +167,75 @@ export const DEFAULT_TRAJECTORY_OPACITY = 1
 export const DEFAULT_RIGHTBAR_OPACITY: number | null = null
 /** Picking an image should just work; the toggle is there for people who don't want it. */
 export const DEFAULT_AUTO_EXTRACT = true
+/**
+ * Holiday overrides are ON out of the box: the point is that the background
+ * changes by itself on the day and changes back the next morning. The single
+ * switch on the Config page is the off-ramp, so only an explicit `false` turns
+ * the feature off.
+ */
+export const DEFAULT_HOLIDAYS_ENABLED = true
+
+/**
+ * `#RRGGBB` → the `[h, s, l]` triple every rule stores (`s` and `l` in 0..1), or
+ * null when the string is not a hex color.
+ *
+ * A holiday names its color as hex because that is how a color is quoted, and a
+ * hand-converted triple is a magic number nothing downstream can check. The
+ * conversion lives here rather than in ./holiday because `[h, s, l]` is this
+ * module's own rule shape.
+ */
+export function hexToHsl(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (m === null) return null
+  const n = parseInt(m[1]!, 16)
+  const r = ((n >> 16) & 0xff) / 255
+  const g = ((n >> 8) & 0xff) / 255
+  const b = (n & 0xff) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  const d = max - min
+  // Grey: no hue to name, and the saturation formula below would divide by zero.
+  if (d === 0) return [0, 0, l]
+  const s = d / (1 - Math.abs(2 * l - 1))
+  let h: number
+  if (max === r) h = 60 * (((g - b) / d) % 6)
+  else if (max === g) h = 60 * ((b - r) / d + 2)
+  else h = 60 * ((r - g) / d + 4)
+  if (h < 0) h += 360
+  // Clamped like every other color this module stores: the float arithmetic
+  // above lands a hair outside the range on a saturated input (a pure #FFF6EB
+  // gives s = 1.0000000000000008), and that would travel into the token
+  // generator as an out-of-range channel.
+  return [clamp(h, 0, 360, 0), clamp01(s, 0), clamp01(l, 0.5)]
+}
+
+/**
+ * One holiday's appearance, untouched.
+ *
+ * Holidays default to `fill` rather than a rule's `fit`: these are full-bleed
+ * festival wallpapers, and `fit` would letterbox them on every aspect ratio the
+ * art was not cut for.
+ */
+export function defaultHolidayRule(def: HolidayDef): HolidayRule {
+  return {
+    id: def.id,
+    slot: def.slot,
+    match: '',
+    enabled: true,
+    // The definition's own color, never an extracted one — see hexToHsl.
+    color: hexToHsl(def.color),
+    bgMode: 'fill',
+    wallpaperOpacity: 1,
+    blur: 0,
+    bgState: { ...DEFAULT_BG_STATE },
+  }
+}
+
+/** Every built-in holiday at its default, in `HOLIDAYS` order. */
+export function defaultHolidayRules(): HolidayRule[] {
+  return HOLIDAYS.map(defaultHolidayRule)
+}
 
 /** A default config with independent nested objects (never hand out the shared ones). */
 export function freshThemeConfig(): ThemeConfig {
@@ -146,6 +248,7 @@ export function freshThemeConfig(): ThemeConfig {
     trajectoryOpacity: DEFAULT_TRAJECTORY_OPACITY,
     rightbarOpacity: DEFAULT_RIGHTBAR_OPACITY,
     autoExtract: DEFAULT_AUTO_EXTRACT,
+    holidays: { enabled: DEFAULT_HOLIDAYS_ENABLED, items: defaultHolidayRules() },
   }
 }
 
@@ -201,6 +304,50 @@ export function normalizeRule(raw: unknown): BgRule | null {
   }
 }
 
+/**
+ * Coerce one persisted holiday entry.
+ *
+ * `id`, `slot` and `color` come from the DEFINITION, never from disk: a holiday's
+ * slot is the only thing tying it to its bytes, and its theme color is a fixed
+ * part of what that holiday looks like — so a stale or hand-edited value would
+ * either orphan the wallpaper, point the holiday at a rule's image, or paint a
+ * festival in a color it does not have. Everything else is sanitized exactly like
+ * a rule's field.
+ */
+export function normalizeHolidayRule(def: HolidayDef, raw: unknown): HolidayRule {
+  const r = (raw ?? {}) as Partial<HolidayRule>
+  const base = defaultHolidayRule(def)
+  return {
+    ...base,
+    // Only an explicit `false` disables the entry, so a config written before
+    // this feature existed starts with every holiday usable.
+    enabled: r.enabled !== false,
+    bgMode: BG_MODES.includes(r.bgMode as BgMode) ? (r.bgMode as BgMode) : base.bgMode,
+    wallpaperOpacity: clamp01(r.wallpaperOpacity, base.wallpaperOpacity),
+    blur: clamp(r.blur, 0, 60, base.blur),
+    bgState: normalizeBgState(r.bgState as Partial<BgState> | undefined),
+  }
+}
+
+/** Coerce the whole holiday block; unknown ids are dropped, missing ones defaulted. */
+export function normalizeHolidays(raw: unknown): HolidaysConfig {
+  const r = (raw ?? {}) as Partial<HolidaysConfig>
+  const stored = new Map<string, unknown>()
+  if (Array.isArray(r.items)) {
+    for (const item of r.items) {
+      const id = (item as { id?: unknown } | null | undefined)?.id
+      if (typeof id === 'string') stored.set(id, item)
+    }
+  }
+  return {
+    // Only an explicit `false` turns the feature off — the same "absent means
+    // on" rule the per-item switch uses, so a config predating the feature (or
+    // one whose hidden panel was never opened) keeps working.
+    enabled: r.enabled !== false,
+    items: HOLIDAYS.map(def => normalizeHolidayRule(def, stored.get(def.id))),
+  }
+}
+
 /** Coerce an unknown persisted value into a valid ThemeConfig, falling back per-field. */
 export function normalizeConfig(raw: unknown): ThemeConfig {
   const r = (raw ?? {}) as Partial<ThemeConfig>
@@ -232,5 +379,6 @@ export function normalizeConfig(raw: unknown): ThemeConfig {
     // Only an explicit `false` turns it off, so a config written before this
     // option existed starts with the helpful default.
     autoExtract: r.autoExtract !== false,
+    holidays: normalizeHolidays(r.holidays),
   }
 }

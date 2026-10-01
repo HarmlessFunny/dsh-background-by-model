@@ -1,7 +1,7 @@
 export const NS = 'settings.anyBg'
 
 export const zh: Record<string, string> = {
-  nav: '模型背景', brandTag: '按模型换背景', close: '关闭',
+  nav: '模型背景', brandTag: '按模型换背景',
   pageInterface: '界面', pageModelBg: '模型背景', pageProfile: '配置',
   descInterface: '为主界面的各个区域单独调节透明度与模糊，营造空间层次感。这里的设置对所有模型生效',
   descModelBg: '每条规则 = 一个匹配串 + 一套背景外观。切换模型时，从上往下找第一条匹配串出现在模型名里的规则；都没中就使用第 1 条',
@@ -35,7 +35,6 @@ export const zh: Record<string, string> = {
   autoExtractHint: '只在规则还没有颜色时自动取色，绝不覆盖你手动选的颜色',
   ruleAdd: '新增规则',
   ruleFallbackBadge: '兜底',
-  ruleMatchLabel: '匹配串',
   ruleMatchPlaceholder: '如 flash / glm（忽略大小写，留空则不参与匹配）',
   ruleEnabled: '启用',
   ruleUp: '上移', ruleDown: '下移', ruleRemove: '删除规则',
@@ -55,23 +54,17 @@ export const zh: Record<string, string> = {
   ruleColorPickHint: '优先从本图取色，取不到就用默认色',
   ruleColorExtract: '从本图提取',
   ruleLayout: '布局模式',
-  ruleFraming: '取景',
   ruleFramingEdit: '编辑位置',
-  ruleFramingLocked: '仅「适应」模式可编辑位置',
   ruleOpacity: '背景透明度',
   ruleBlur: '背景模糊',
   ruleBlurHint: '背景模糊作用于壁纸层；界面页里的模糊作用于界面各区域，两者互不影响',
 
-  colorHint: '在色轮外圈选择色相，在内部方形中调整饱和度和明度；双击滑块可恢复默认值',
-  swatchTitle: '灵感色板',
-  hexCaption: '当前颜色',
 
   bgModeFit: '适应', bgModeFill: '填充', bgModeStretch: '拉伸', bgModeTile: '平铺', bgModeCenter: '居中',
   editorTitle: '背景编辑器', editorHint: '拖动移动画面，滚轮缩放大小',
   editorCommit: '确认', editorCancel: '取消', editorReset: '重置',
 
-  extractColor: '从图片提取主题色', extracting: '取色中…',
-  extractNoWp: '请先为该规则选择图片',
+  extracting: '取色中…',
   extractDone: '已应用图片配色',
   extractFail: '未在这张图里找到鲜明的颜色，请换一张',
   eyedropper: '从图片取色',
@@ -92,10 +85,14 @@ export const zh: Record<string, string> = {
   importDone: '已导入配置',
   importFail: '导入失败，文件格式不正确',
   footerTag: '按模型换背景插件',
+
+  // ── 节日特殊背景（默认开启；界面上只有一行开关）───────────────────────────
+  holidayTitle: '节日特殊背景',
+  holidayEnable: '启用节日特殊背景（中秋当天、国庆 10 月 1–7 日）',
 }
 
 export const en: Record<string, string> = {
-  nav: 'Model background', brandTag: 'Per-model wallpaper', close: 'Close',
+  nav: 'Model background', brandTag: 'Per-model wallpaper',
   pageInterface: 'Interface', pageModelBg: 'Model background', pageProfile: 'Profile',
   descInterface: 'Tune opacity and blur per surface to build depth. These settings are global and apply to every model',
   descModelBg: 'Each rule is a match string plus one look. On a model switch the list is scanned top-down for the first match string contained in the model name; if nothing hits, rule 1 is used',
@@ -129,7 +126,6 @@ export const en: Record<string, string> = {
   autoExtractHint: 'Only fills a rule that has no color yet — a color you picked is never overwritten',
   ruleAdd: 'Add rule',
   ruleFallbackBadge: 'fallback',
-  ruleMatchLabel: 'Match',
   ruleMatchPlaceholder: 'e.g. flash / glm (case-insensitive, empty never matches)',
   ruleEnabled: 'Enabled',
   ruleUp: 'Move up', ruleDown: 'Move down', ruleRemove: 'Remove rule',
@@ -149,23 +145,17 @@ export const en: Record<string, string> = {
   ruleColorPickHint: 'Extracts from this image when it can, otherwise uses a default color',
   ruleColorExtract: 'Extract from image',
   ruleLayout: 'Layout mode',
-  ruleFraming: 'Framing',
   ruleFramingEdit: 'Edit position',
-  ruleFramingLocked: 'Position editing is only available in Fit mode',
   ruleOpacity: 'Background opacity',
   ruleBlur: 'Background blur',
   ruleBlurHint: 'Background blur affects the wallpaper layer; the blur on the Interface page affects interface surfaces — they are independent',
 
-  colorHint: 'Pick hue on the outer ring, adjust saturation & lightness in the square; double-click a slider to reset',
-  swatchTitle: 'Quick swatches',
-  hexCaption: 'Current color',
 
   bgModeFit: 'Fit', bgModeFill: 'Fill', bgModeStretch: 'Stretch', bgModeTile: 'Tile', bgModeCenter: 'Center',
   editorTitle: 'Background editor', editorHint: 'Drag to move, scroll to zoom',
   editorCommit: 'Confirm', editorCancel: 'Cancel', editorReset: 'Reset',
 
-  extractColor: 'Extract from image', extracting: 'Extracting…',
-  extractNoWp: 'Choose an image for this rule first',
+  extracting: 'Extracting…',
   extractDone: 'Image colors applied',
   extractFail: 'No vivid color found in this image, try another',
   eyedropper: 'Eyedropper',
@@ -186,4 +176,8 @@ export const en: Record<string, string> = {
   importDone: 'Profile imported',
   importFail: 'Import failed — invalid file',
   footerTag: 'Per-model wallpaper plugin',
+
+  // ── Holiday overrides (on by default; one switch, no cards) ───────────────
+  holidayTitle: 'Holiday backgrounds',
+  holidayEnable: 'Enable holiday backgrounds (Mid-Autumn day, Oct 1–7)',
 }

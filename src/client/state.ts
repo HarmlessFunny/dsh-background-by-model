@@ -1,4 +1,4 @@
-import type { BgRule, BgState, BgMode, ThemeConfig, PartOpacities, PartBlurs } from './types'
+import type { BgRule, BgState, BgMode, HolidayRule, ThemeConfig, PartOpacities, PartBlurs } from './types'
 // The persisted shape, its key lists, its defaults and its sanitizers all live in
 // ../schema, shared verbatim with the node half — a field declared on one side
 // only used to be silently dropped by the other side's sanitizer.
@@ -102,11 +102,26 @@ export function setActive(ruleId: string | null, matched: boolean): void {
 }
 export function setModelLabel(label: string): void { modelLabel = label }
 
+/**
+ * One rule by id — from the USER's list first, then from the holiday overrides.
+ *
+ * Every render accessor (`rWp` / `rColor` / `rBgMode` / `rBgState` …) resolves
+ * through here, so teaching this one function about holidays is what makes an
+ * active holiday paint through the entire existing pipeline instead of needing a
+ * parallel one.
+ */
 export function ruleById(id: string): BgRule | null {
-  return cfg.rules.find(r => r.id === id) ?? null
+  return cfg.rules.find(r => r.id === id)
+    ?? cfg.holidays.items.find(r => r.id === id)
+    ?? null
 }
 export function activeRule(): BgRule | null {
   return activeRuleId === null ? null : ruleById(activeRuleId)
+}
+
+/** One holiday override entry, or null for an unknown id. */
+export function holidayById(id: string): HolidayRule | null {
+  return cfg.holidays.items.find(r => r.id === id) ?? null
 }
 
 // ── Rule factories / allocation ────────────────────────────────────────────
@@ -183,8 +198,10 @@ export function rRightbarOpacity(): number {
 /** Move a possibly-absent partial config into the shape the UI reads. */
 export function adoptConfig(raw: unknown): void {
   cfg = normalizeConfig(raw)
-  // A rule that vanished (import/removal) must not stay active.
-  if (activeRuleId !== null && !cfg.rules.some(r => r.id === activeRuleId)) {
+  // A rule that vanished (import/removal) must not stay active — and a holiday
+  // that is still in `cfg.holidays.items` legitimately stays active, which is
+  // why this asks `ruleById` instead of scanning `cfg.rules` directly.
+  if (activeRuleId !== null && ruleById(activeRuleId) === null) {
     activeRuleId = null
     activeMatched = false
   }
