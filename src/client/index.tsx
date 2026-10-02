@@ -621,6 +621,24 @@ export function apply(ctx: Ctx): void {
     repaintIfMoved(id, winner)
   }
 
+  /**
+   * The batch form, for one upload that carried several pictures.
+   *
+   * EVERY picture that arrived is themed from its own bytes, the first ones
+   * included. The single-slot reading of an upload ("the last image added is the
+   * one being looked at") is true of the CARD's selection and false of the
+   * palette: since a theme color belongs to an image, a batch that themed only
+   * its last file left the rest of a fresh rotation on the system theme, with
+   * nothing in the interface to say why.
+   *
+   * Sequential on purpose: a batch is a handful of full-size photos, and ten
+   * parallel decodes buy nothing the user can see, while landing the colors in
+   * list order does (the card fills in from its first picture).
+   */
+  const maybeAutoExtractEach = async (id: string, slots: readonly string[]): Promise<void> => {
+    for (const slot of slots) await maybeAutoExtract(id, slot)
+  }
+
   // ── 8. Section injection ──────────────────────────────────────────────────
   // The section's props are built ONCE by the slot host, so anything that changes
   // at runtime rides the store; the two exceptions are the context (needed by the
@@ -718,6 +736,8 @@ export function apply(ctx: Ctx): void {
         // came out of "+ 新增规则" has no picture, so it is not the active rule —
         // and the picture it is being given now is exactly what makes it one.
         const winner = winnerId()
+        /** Slots of THIS batch, in list order — the extraction below is per slot. */
+        const added: string[] = []
         for (const dataUrl of dataUrls) {
           const slot = nextSlot()
           // `color: null` (not absent): this image has no color of its own YET, and
@@ -726,6 +746,7 @@ export function apply(ctx: Ctx): void {
           // on the next read — which is the opposite of what a new picture wants.
           const image = { slot, bgState: { ...DEFAULT_BG_STATE }, color: null }
           rule.images.push(image)
+          added.push(slot)
           setImage(slot, dataUrl)
           // One write per image, immediately: adding a picture is a structural
           // edit, and losing the batch to a page close would leave the config
@@ -737,8 +758,11 @@ export function apply(ctx: Ctx): void {
         repaintIfMoved(id, winner)
         // A rule that has never been themed should simply come out themed; an
         // explicit color (or a cleared one the user set on purpose) is left be.
-        // The LAST image added is the one being looked at.
-        void maybeAutoExtract(id, rule.images[rule.images.length - 1]?.slot)
+        // Addressed by SLOT and over the whole batch: a rotation is built by
+        // picking several files at once and every one of them carries a palette of
+        // its own, so the batch is what gets themed — not just the last file, and
+        // not just the one the card happens to select.
+        void maybeAutoExtractEach(id, added)
       },
       removeRuleImage: (id: string, slot: string): void => {
         const rule = ruleById(id)
