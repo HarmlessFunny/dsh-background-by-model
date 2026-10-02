@@ -95,8 +95,8 @@ export const zh: Record<string, string> = {
   // Replacing keeps the image's position in the rotation, so it is a different
   // action from adding and must not borrow that label.
   rotReplaceImage: '替换',
-  rotImageEarlier: '前移一张', rotImageLater: '后移一张',
-  rotMakeFirst: '设为第一张',
+  rotDragHint: '拖动排序',
+  rotDblHint: '双击切换',
   rotEvery10s: '10 秒', rotEvery30s: '30 秒', rotEvery1m: '1 分钟',
   rotEvery5m: '5 分钟', rotEvery30m: '30 分钟', rotEvery1h: '1 小时',
 
@@ -224,8 +224,8 @@ export const en: Record<string, string> = {
   // Replacing keeps the image's position in the rotation, so it is a different
   // action from adding and must not borrow that label.
   rotReplaceImage: 'Replace',
-  rotImageEarlier: 'Move earlier', rotImageLater: 'Move later',
-  rotMakeFirst: 'Make first',
+  rotDragHint: 'drag to reorder',
+  rotDblHint: 'double-click to show',
   rotEvery10s: '10 s', rotEvery30s: '30 s', rotEvery1m: '1 min',
   rotEvery5m: '5 min', rotEvery30m: '30 min', rotEvery1h: '1 h',
 

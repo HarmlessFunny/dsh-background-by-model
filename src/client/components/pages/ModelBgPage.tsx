@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { BgMode, BgRule, ThemeSectionProps, ThemeStoreState } from '../../types'
 import { cfg, PALETTE } from '../../state'
 import { matchRule } from '../../modelbg'
@@ -154,6 +154,18 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
   // The active rule opens by default so the panel shows the live one first.
   const [open, setOpen] = useState(active)
   const [dragOver, setDragOver] = useState(false)
+  // ── Dragging a TILE to reorder the row ─────────────────────────────────────
+  // Pointer events with capture rather than HTML5 drag-and-drop: the strip already
+  // spends that channel on dropped FILES, and a drag we run ourselves is also the
+  // only one that can put the insertion bar where the tile will actually land.
+  // A pointerdown is merely a CANDIDATE — a tile is a button and clicking it
+  // selects it — so the drag only begins once the pointer has travelled a little.
+  const pendingDrag = useRef<{ x: number; y: number; from: number; slot: string; id: number } | null>(null)
+  /** Insertion slot of the drag in flight (index of the tile it goes BEFORE). */
+  const dragAt = useRef<{ from: number; at: number } | null>(null)
+  const [drop, setDrop] = useState<{ from: number; at: number } | null>(null)
+  /** Set while a drag is real, so the click that ends it is not also a selection. */
+  const draggedRef = useRef(false)
   const [urlOpen, setUrlOpen] = useState(false)
   const [urlVal, setUrlVal] = useState('')
   const [urlBusy, setUrlBusy] = useState(false)
@@ -311,7 +323,63 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
   const rotatable = rule.images.length >= 2
   const preset = ROTATE_PRESETS.find(x => x.ms === rule.rotate.intervalMs)
   const selSlot = image?.slot ?? null
-  const moveSel = (dir: -1 | 1): void => { if (selSlot !== null) p.moveRuleImage(rule.id, selSlot, dir) }
+
+  // ── Reordering by dragging a tile ──────────────────────────────────────────
+  /** How far the pointer must travel before a click turns into a drag. */
+  const DRAG_SLOP = 5
+
+  const tileDown = (i: number, slot: string) => (e: ReactPointerEvent<HTMLButtonElement>): void => {
+    // Mouse and pen only: on a touch screen this same gesture is how the row is
+    // scrolled, and taking it over would leave the strip unscrollable by finger.
+    if (e.button !== 0 || e.pointerType === 'touch') return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    pendingDrag.current = { x: e.clientX, y: e.clientY, from: i, slot, id: e.pointerId }
+    draggedRef.current = false
+  }
+
+  const tileMove = (e: ReactPointerEvent<HTMLButtonElement>): void => {
+    const pen = pendingDrag.current
+    if (pen === null || pen.id !== e.pointerId) return
+    const cur = dragAt.current
+    if (cur === null) {
+      if (Math.abs(e.clientX - pen.x) + Math.abs(e.clientY - pen.y) < DRAG_SLOP) return
+      draggedRef.current = true
+    }
+    // Where the tile would land, read off the live rectangles: the insertion slot
+    // is the first tile whose midpoint is to the RIGHT of the pointer, so the left
+    // half of a tile means "before it" and the right half "after it".
+    const strip = e.currentTarget.parentElement
+    const list = strip === null ? [] : [...strip.querySelectorAll('.dab-strip-item')]
+    let at = list.length
+    for (let i = 0; i < list.length; i++) {
+      const box = list[i]!.getBoundingClientRect()
+      if (e.clientX < box.left + box.width / 2) { at = i; break }
+    }
+    if (cur !== null && cur.at === at) return
+    dragAt.current = { from: pen.from, at }
+    setDrop({ from: pen.from, at })
+  }
+
+  /** End a drag: commit the new order, or just forget it on a cancel. */
+  const tileUp = (commit: boolean) => (e: ReactPointerEvent<HTMLButtonElement>): void => {
+    const pen = pendingDrag.current
+    pendingDrag.current = null
+    if (pen !== null && e.currentTarget.hasPointerCapture(pen.id)) e.currentTarget.releasePointerCapture(pen.id)
+    const end = dragAt.current
+    dragAt.current = null
+    setDrop(null)
+    if (!commit || pen === null || end === null) return
+    // `at` counts tiles whose midpoint is left of the pointer, which is an index in
+    // the list AS IT IS. The image is lifted out before it is put back, so a drop
+    // to the right of its own slot has to lose one — the difference between a drop
+    // that feels right and one that lands a slot short.
+    const to = end.at > pen.from ? end.at - 1 : end.at
+    if (to === pen.from) return
+    p.moveRuleImageTo(rule.id, pen.slot, to)
+    // Keep the preview on the picture the user just moved, which is where the drag
+    // left their attention — the selection is an index, so it has to follow.
+    setSel(to)
+  }
   const removeSel = (): void => {
     if (selSlot === null) return
     // Removing the LAST image is allowed: the rule simply becomes empty and paints
@@ -415,9 +483,11 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
               )}
 
               {/* The strip. One item per image, in the order the rotation walks
-                  them; the edited one is ringed, the PAINTED one is marked while
-                  this rule is the live rule. Dropping files anywhere on it adds
-                  them (several at once — a rotation is built in batches).
+                  them; the edited one is ringed, the PAINTED one carries the dot
+                  while this rule is the live rule — and only the dot, so the
+                  strip never shows two rings at once. Dropping files anywhere on
+                  it adds them (several at once — a rotation is built in batches),
+                  and dragging a TILE along it reorders the rotation.
 
                   Hidden while the rule has no picture: a strip holding nothing but
                   its own add tile said the same thing as the upload target right
@@ -434,13 +504,43 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                     return (
                       <button
                         key={img.slot} type="button"
-                        className={`dab-strip-item${i === selIdx ? ' is-sel' : ''}${liveIndex === i ? ' is-live' : ''}`}
-                        title={`${i + 1} / ${rule.images.length}`}
-                        onClick={() => setSel(i)}>
+                        // No `is-live` modifier: being on screen is the dot
+                        // below and nothing more. Ringing this tile as well put
+                        // two rings in the strip at once — this one and the
+                        // previewed one — and read as "two images selected".
+                        className={`dab-strip-item${i === selIdx ? ' is-sel' : ''}${drop !== null && drop.from === i ? ' is-dragging' : ''}`}
+                        title={`${i + 1} / ${rule.images.length} · ${t('rotDragHint')} · ${t('rotDblHint')}`}
+                        onPointerDown={tileDown(i, img.slot)}
+                        onPointerMove={tileMove}
+                        onPointerUp={tileUp(true)}
+                        onPointerCancel={tileUp(false)}
+                        onClick={() => {
+                          // A drag ends with a click on the tile it started from,
+                          // and that click is not a selection.
+                          if (draggedRef.current) { draggedRef.current = false; return }
+                          setSel(i)
+                        }}
+                        // Double-click shows this picture: it is the one gesture that
+                        // says "THIS one on screen", which reordering deliberately
+                        // does not do. It changes no order and saves nothing — the
+                        // image being shown is runtime state, not a setting.
+                        onDoubleClick={() => {
+                          // Only the rule that is painting has a screen to change, and
+                          // the store no-ops for any other — so say why instead of
+                          // leaving a double-click that looks broken.
+                          if (!active) { notify(t('rotNextInactive')); return }
+                          p.showRuleImage(rule.id, img.slot)
+                        }}>
                         {thumb !== null
                           ? <img src={thumb} alt="" draggable={false} />
                           : <span className="dab-strip-wait" />}
                         <span className="dab-strip-num">{i + 1}</span>
+                        {/* Where the tile in hand will land: a bar at this tile's
+                            LEFT edge, or at the last tile's right edge for a drop
+                            past the end of the row. */}
+                        {drop !== null && drop.at === i ? <span className="dab-strip-bar" /> : null}
+                        {drop !== null && drop.at === rule.images.length && i === rule.images.length - 1
+                          ? <span className="dab-strip-bar is-end" /> : null}
                         {/* This image's own theme color, when it has one. The whole
                             point of per-image colors is that they differ, and
                             without this the only way to find out which pictures
@@ -487,20 +587,11 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                     <UploadIcon size={13} />{t('rotReplaceImage')}
                   </button>
                 ) : null}
-                {rule.images.length >= 2 ? (
-                  <>
-                    <button type="button" className="dab-icon-btn" disabled={selIdx === 0}
-                      title={t('rotImageEarlier')} onClick={() => moveSel(-1)}>↑</button>
-                    <button type="button" className="dab-icon-btn" disabled={selIdx === rule.images.length - 1}
-                      title={t('rotImageLater')} onClick={() => moveSel(1)}>↓</button>
-                    {selIdx !== 0 ? (
-                      <button type="button" className="dab-btn dab-btn-ghost"
-                        onClick={() => { if (selSlot !== null) p.setCurrentImage(rule.id, selSlot) }}>
-                        {t('rotMakeFirst')}
-                      </button>
-                    ) : null}
-                  </>
-                ) : null}
+                {/* No step/first buttons any more: the strip IS the control for
+                    order. Dragging a tile is the same operation those two arrows
+                    and "make first" were, and a row of five tiles is a list you
+                    can see — a pair of arrows that nudges the selected one along
+                    it was a second, worse way to say "put this one there". */}
                 {/* Always offered, including on the LAST image: the rule is then
                     simply empty, and the empty strip above is the honest picture
                     of that. Hiding this — the first cut of the feature did —

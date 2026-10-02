@@ -792,34 +792,37 @@ export function apply(ctx: Ctx): void {
         }
         repaintIfMoved(id, winner)
       },
-      moveRuleImage: (id: string, slot: string, dir: -1 | 1): void => {
-        const rule = ruleById(id)
-        if (rule === null) return
-        const idx = rule.images.findIndex(i => i.slot === slot)
-        const to = idx + dir
-        if (idx < 0 || to < 0 || to >= rule.images.length) return
-        const winner = winnerId()
-        const [image] = rule.images.splice(idx, 1)
-        rule.images.splice(to, 0, image!)
-        rulesRev++
-        // Rotation walks the list, so reordering it is a change the timer's
-        // signature cannot see (the count is the same) — re-arm explicitly.
-        if (id === activeRuleId) { setRotIndex(Math.max(0, to)); scheduleRotation(true) }
-        persistConfig()
-        repaintIfMoved(id, winner)
-      },
-      setCurrentImage: (id: string, slot: string): void => {
+      moveRuleImageTo: (id: string, slot: string, to: number): void => {
         const rule = ruleById(id)
         if (rule === null) return
         const idx = rule.images.findIndex(i => i.slot === slot)
         if (idx < 0) return
+        // `to` is an index of the list this move PRODUCES, which is what a drop
+        // target is expressed in — so it is clamped against the same length the
+        // splice below restores the image into.
+        const at = Math.max(0, Math.min(rule.images.length - 1, Math.trunc(to)))
+        if (at === idx) return
         const winner = winnerId()
-        // "First" is what the rule paints when nothing rotates, so promoting an
-        // image is a real change of the default look, not just of the order.
+        // What is on screen is a PICTURE, not a position in a list. Reordering is
+        // the user tidying the rotation, not a request to change the wallpaper, so
+        // the painted slot is remembered here and the index is put back on it
+        // after the splice — a reorder can never swap the picture out from under
+        // them. (The one-step arrows and "make first" used to move the index onto
+        // the image they moved, which is exactly the surprise this avoids.)
+        const painted = id === activeRuleId ? rule.images[imageIndexOf(rule)]?.slot ?? null : null
         const [image] = rule.images.splice(idx, 1)
-        rule.images.unshift(image!)
+        rule.images.splice(at, 0, image!)
         rulesRev++
-        if (id === activeRuleId) { setRotIndex(0); scheduleRotation(true) }
+        // The count is unchanged, so the timer's signature cannot see a reorder —
+        // re-arm explicitly, both to pick up the new cycle order and to make sure
+        // the index below is what the next step starts from.
+        if (id === activeRuleId) {
+          // Reordering never removes a picture, so the painted one is always still
+          // in the list; the fallback is only there to keep the index in range.
+          const keep = painted === null ? -1 : rule.images.findIndex(i => i.slot === painted)
+          setRotIndex(keep < 0 ? Math.min(at, rule.images.length - 1) : keep)
+          scheduleRotation(true)
+        }
         persistConfig()
         repaintIfMoved(id, winner)
       },
@@ -861,6 +864,26 @@ export function apply(ctx: Ctx): void {
         // A manual step restarts the dwell, so the tick that was already on its
         // way does not follow the user's click a second later.
         scheduleRotation(true)
+      },
+      showRuleImage: (id: string, slot: string): void => {
+        const rule = ruleById(id)
+        // Same rule as `rotateNow` above, and for the same reason: the image index
+        // describes what is ON SCREEN, so a rule that is not painting has nothing
+        // on screen to change. Pointing it at one of its pictures would be a
+        // promise nothing keeps — the index is reset the moment it takes over.
+        if (rule === null || id !== activeRuleId) return
+        const idx = rule.images.findIndex(i => i.slot === slot)
+        if (idx < 0) return
+        setRotIndex(idx)
+        // Not `applyActive`: this paints the one image the user asked for, and
+        // `paintImage` is also what waits for cold bytes before showing them.
+        paintImage(rule, idx)
+        // A jump is a manual step, so it restarts the dwell as well — otherwise the
+        // tick already on its way would carry the picture off a moment later.
+        scheduleRotation(true)
+        // NOTE: no `persistConfig` and no config field changes here. Which image is
+        // being shown is runtime state, not a setting: it is not saved, and it is
+        // not restored on the next boot (which starts at the rule's first image).
       },
       loadRuleImages: async (id: string): Promise<void> => {
         const rule = ruleById(id)
