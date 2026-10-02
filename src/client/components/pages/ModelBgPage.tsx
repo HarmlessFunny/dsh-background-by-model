@@ -106,9 +106,9 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
       </section>
 
       <section className="dab-rise" style={{ '--d': 2 } as CSSProperties}>
-        <div className="dab-swatch-title">{t('rulesTitle')}</div>
-        <p className="dab-hint" style={{ marginBottom: 11 }}>{t('rulesHint')}</p>
-
+        {/* No "rules" heading and no priority sentence above the list: the panel's
+            own title already introduces the rules, and the two lines only pushed
+            the first card further down. */}
         {/* Picking an image should just theme the rule; this is the off switch
             for people who want the color to be their own choice every time. */}
         <div className="dab-chip-row" style={{ marginBottom: 12, alignItems: 'center' }}>
@@ -119,7 +119,6 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
           </button>
           <span className="dab-hint">{t('autoExtract')}</span>
         </div>
-        <p className="dab-hint" style={{ marginBottom: 11 }}>{t('autoExtractHint')}</p>
 
         <div className="dab-rules">
           {rules.map((rule, i) => (
@@ -488,11 +487,6 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                     <UploadIcon size={13} />{t('rotReplaceImage')}
                   </button>
                 ) : null}
-                {url !== null && rule.bgMode === 'fit' ? (
-                  <button type="button" className="dab-btn" onClick={() => setEditorOpen(true)}>
-                    <EditIcon size={13} />{t('ruleFramingEdit')}
-                  </button>
-                ) : null}
                 {rule.images.length >= 2 ? (
                   <>
                     <button type="button" className="dab-icon-btn" disabled={selIdx === 0}
@@ -641,6 +635,19 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                       {t(m.key)}
                     </button>
                   ))}
+                  {/* The framing editor sits at the END of this row, not among the
+                      modes: it is not a sixth mode, and dropping it between two
+                      chips would read as one (the modes are mutually exclusive,
+                      this is an action). It belongs here rather than next to the
+                      upload buttons because what it edits is how the picture fills
+                      the area — the row it now shares with 适应/填充/…. It stays
+                      conditional on `fit`: dragging the framing is what "适应"
+                      means, and the other four modes have nothing to drag. */}
+                  {url !== null && rule.bgMode === 'fit' ? (
+                    <button type="button" className="dab-btn" onClick={() => setEditorOpen(true)}>
+                      <EditIcon size={13} />{t('ruleFramingEdit')}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>
