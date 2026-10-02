@@ -137,6 +137,32 @@ export function activeImage(): BgImage | null {
 export function activeSlot(): string { return activeImage()?.slot ?? '' }
 
 /**
+ * The theme color in force right now, or null for "follow the system theme".
+ *
+ * Two rungs, in this order and no others:
+ *   1. the color of the IMAGE that is on screen, when the rule has one;
+ *   2. the rule's own color, which is all an image-less rule has to paint with.
+ *
+ * There is deliberately no third rung where an image INHERITS its rule's color:
+ * a rule's color is not a default for its pictures (see `BgRule.color`). If it
+ * were, a rotation through a green picture, a red one and a system-themed one
+ * could not be expressed at all — clearing a picture's color would only hand it
+ * back to the rule's, and the clear button would look broken. Images that predate
+ * per-image colors get the rule's color LIFTED onto them at read time instead
+ * (`normalizeImage`), so nothing loses its theme on upgrade.
+ *
+ * The image is the one being PAINTED (`imageIndexOf`), not the one the panel has
+ * selected — the panel's selection is an editing cursor and must not repaint the
+ * interface while the user is fixing another picture's framing.
+ */
+export function activeColor(): [number, number, number] | null {
+  const rule = activeRule()
+  if (rule === null) return null
+  if (rule.images.length === 0) return rule.color
+  return activeImage()?.color ?? null
+}
+
+/**
  * One rule by id — from the USER's list first, then from the holiday overrides.
  *
  * Every render accessor (`rWp` / `rColor` / `rBgMode` / `rBgState` …) resolves
@@ -227,8 +253,8 @@ export function normalizeRuleInPlace(rule: BgRule): void {
 }
 
 // ── Accessors used by the render layer (they follow the ACTIVE rule) ───────
-export function rHasColor(): boolean { return activeRule()?.color !== null && activeRule() !== null }
-export function rColor(): [number, number, number] { return activeRule()?.color ?? [220, 0.55, 0.25] }
+export function rHasColor(): boolean { return activeColor() !== null }
+export function rColor(): [number, number, number] { return activeColor() ?? [220, 0.55, 0.25] }
 export function rBgMode(): BgMode { return activeRule()?.bgMode ?? 'fit' }
 export function rWop(): number { return clamp01(activeRule()?.wallpaperOpacity, 1) }
 export function rBl(): number { return clamp(activeRule()?.blur, 0, 60, 0) }

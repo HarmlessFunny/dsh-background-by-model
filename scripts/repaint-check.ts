@@ -68,6 +68,7 @@ const ACTIONS = [
   'moveRuleImage',
   'setCurrentImage',
   'setImageFraming',
+  'setImageColor',
   'setRuleImage',
   'addRuleImageFromUrl',
   'extractColor',
@@ -93,6 +94,36 @@ if (autoAt >= 0) {
   const body = source.slice(autoAt, source.indexOf('\n  }\n', autoAt))
   check('maybeAutoExtract samples the winner on arrival', /const winner = winnerId\(\)/.test(body), true)
   check('maybeAutoExtract closes with repaintIfMoved', /repaintIfMoved\(id, winner\)/.test(body), true)
+}
+
+console.log('\n--- a rotation step re-emits the palette too ---')
+// The 0.7.1 half of the same failure, one step further out: a theme color belongs
+// to an IMAGE, so moving the rotation from picture 1 to picture 2 changes the
+// interface palette exactly as much as a model switch does. Without this the
+// color would arrive only when something else re-ran an apply — dragging the
+// color wheel, switching models — which is the reported symptom verbatim.
+// `paintImage` is the single funnel every step goes through (`rotateTick`, and
+// the manual "next" button), so it is the one place that must ask.
+const paintAt = source.indexOf('const paintImage = (')
+check('paintImage is still the one place a step paints', paintAt >= 0, true)
+if (paintAt >= 0) {
+  const body = source.slice(paintAt, source.indexOf('\n  }\n', paintAt))
+  check('paintImage re-emits the palette', /applyPalette\(\)/.test(body), true)
+}
+const paletteAt = source.indexOf('const applyPalette = ')
+check('applyPalette exists', paletteAt >= 0, true)
+if (paletteAt >= 0) {
+  const body = source.slice(paletteAt, source.indexOf('\n  }\n', paletteAt))
+  // The color in force is `activeColor()` (the painted image's, else the rule's)
+  // and never the rule's alone — reading `rule.color` here is the per-image
+  // feature silently not working on the active rule.
+  check('applyPalette reads the color in force', /const color = activeColor\(\)/.test(body), true)
+}
+const activeAt = source.indexOf('const applyActive = ')
+check('applyActive still exists', activeAt >= 0, true)
+if (activeAt >= 0) {
+  const body = source.slice(activeAt, source.indexOf('\n  }\n', activeAt))
+  check('applyActive goes through the same palette apply', /applyPalette\(\)/.test(body), true)
 }
 
 console.log('\n--- and the old idiom is gone ---')

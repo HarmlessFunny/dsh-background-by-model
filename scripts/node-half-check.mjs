@@ -82,6 +82,15 @@ check('bgMode defaults to fill, not a rule default', h.items.every(i => i.bgMode
 check('each entry is switched on by default', h.items.every(i => i.enabled === true))
 check('color starts filled in — it is a constant, not derived from the art',
   h.items.every(i => Array.isArray(i.color) && i.color.length === 3))
+// …and so is every IMAGE's: a festival's palette belongs to the picture, so an
+// entry that only themed the rule would paint the system theme the moment the
+// render layer read the image's own color (which is where a theme color lives
+// since 0.7.1).
+check('and every holiday IMAGE carries that same color',
+  h.items.every(i => Array.isArray(i.images[0].color) && i.images[0].color.length === 3),
+  JSON.stringify(h.items.map(i => i.images[0].color)))
+check('the rule color and the image color agree to the digit',
+  h.items.every(i => JSON.stringify(i.color) === JSON.stringify(i.images[0].color)))
 check('nothing in the shape offers to swap the image',
   h.items.every(i => !('useBundled' in i) && !('image' in i) && !('asset' in i)),
   JSON.stringify(Object.keys(h.items[0])))
@@ -155,12 +164,24 @@ check('national-day is #FFF6EB -> hsl(33, 1, 0.9607843137254902)',
   && near(colors[1][1], 1) && near(colors[1][2], 0.9607843137254902),
   JSON.stringify(colors[1]))
 
-// A color is a fact about the holiday, not about the config that mentions it.
-await call('writeConfig', { config: withHolidays(items => items.map(i => ({ ...i, color: [1, 0.5, 0.5] }))) })
-const forced = (await readConfig()).holidays.items.map(i => i.color)
+// A color is a fact about the holiday, not about the config that mentions it —
+// and there are two places a config can now mention one, so both are forced.
+await call('writeConfig', {
+  config: withHolidays(items => items.map(i => ({
+    ...i,
+    color: [1, 0.5, 0.5],
+    images: i.images.map(im => ({ ...im, color: [1, 0.5, 0.5] })),
+  }))),
+})
+const afterEdit = (await readConfig()).holidays.items
+const forced = afterEdit.map(i => i.color)
 check('a hand-edited holiday color is replaced by the definition\'s',
   near(forced[0]?.[0], 222.85714285714286) && near(forced[1]?.[2], 0.9607843137254902),
   JSON.stringify(forced))
+check('and so is a hand-edited color on its IMAGE',
+  near(afterEdit[0]?.images[0].color?.[0], 222.85714285714286)
+  && near(afterEdit[1]?.images[0].color?.[2], 0.9607843137254902),
+  JSON.stringify(afterEdit.map(i => i.images[0].color)))
 
 console.log('\n--- a hand-edited config cannot redirect a holiday ---')
 await call('writeConfig', {
@@ -228,6 +249,29 @@ check('a legacy rule gets the shipped rotation defaults',
   lifted.rotate.enabled === false && lifted.rotate.intervalMs === 60_000
   && lifted.rotate.order === 'order' && lifted.rotate.advanceOnSwitch === false && lifted.rotate.fadeMs === 320,
   JSON.stringify(lifted.rotate))
+// 0.7.1 moved the theme color onto the image, and this is the ONE piece of it that
+// touches configs written by every earlier release: an image entry with no
+// `color` KEY at all is a picture that never had a color of its own, so the
+// rule's color becomes its color. Without the lift every themed wallpaper would
+// quietly revert to the system palette on upgrade. (`legacyRule` has no color
+// either, so the lift has to invent nothing here.)
+check('a colorless legacy rule lifts to a colorless image',
+  lifted.images[0].color === null, JSON.stringify(lifted.images[0].color))
+
+const themedLegacy = { ...legacyRule, id: 'r-themed', match: 'themed', color: [210, 0.5, 0.4] }
+const clearedLegacy = {
+  ...legacyRule, id: 'r-cleared', match: 'cleared', color: [210, 0.5, 0.4],
+  // The 0.7.1 shape, hand-written: this image was explicitly cleared to "follow the
+  // system theme". The key is what tells that apart from the entry above.
+  images: [{ slot: 'm8', bgState: {}, color: null }],
+}
+await call('writeConfig', { config: { ...first, rules: [themedLegacy, clearedLegacy] } })
+const liftedTwice = (await readConfig()).rules
+check('the lift reaches the pre-0.7 single-slot shape too',
+  Array.isArray(liftedTwice[0].images[0].color) && liftedTwice[0].images[0].color[0] === 210,
+  JSON.stringify(liftedTwice[0].images[0].color))
+check('an image explicitly set to the system theme does NOT inherit the rule color',
+  liftedTwice[1].images[0].color === null, JSON.stringify(liftedTwice[1].images[0].color))
 
 // The list itself: order, dedupe, and what an unusable entry does.
 const multiRule = {
@@ -254,6 +298,32 @@ check('each image keeps its OWN framing',
 check('the rotation block survives as written',
   JSON.stringify(rules[1].rotate) === JSON.stringify(multiRule.rotate), JSON.stringify(rules[1].rotate))
 
+// The same lift the legacy block above covers, for the 0.7 LIST shape — the one
+// actually in the wild, where a rule could already hold several pictures but had
+// exactly one color between them. Every entry inherits it, so a two-picture rule
+// that looked themed before the upgrade still does.
+const themedList = { ...multiRule, id: 'r-themed-list', color: [210, 0.5, 0.4] }
+await call('writeConfig', { config: { ...first, rules: [themedList] } })
+const themedImages = (await readConfig()).rules[0].images
+check('a 0.7 image list inherits the rule\'s color, image by image',
+  themedImages.length === 3 && themedImages.every(i => Array.isArray(i.color) && i.color[0] === 210),
+  JSON.stringify(themedImages.map(i => i.color)))
+// The list shape, written in the NEW shape: each entry keeps its own value, and a
+// null stays null (that is the state the clear button puts one entry in).
+const tintedList = {
+  ...multiRule, id: 'r-tinted-list',
+  images: [
+    { slot: 'm2', bgState: {}, color: [10, 0.5, 0.5] },
+    { slot: 'm3', bgState: {}, color: null },
+    { slot: 'm4', bgState: {}, color: [200, 0.6, 0.5] },
+  ],
+}
+await call('writeConfig', { config: { ...first, rules: [tintedList] } })
+const tintedImages = (await readConfig()).rules[0].images
+check('per-image colors survive independently, in order, null included',
+  JSON.stringify(tintedImages.map(i => i.color)) === JSON.stringify([[10, 0.5, 0.5], null, [200, 0.6, 0.5]]),
+  JSON.stringify(tintedImages.map(i => i.color)))
+
 // An EMPTY image list is a legitimate rule, and it has to survive the round trip
 // as an empty list: forcing an entry back in is what produced a phantom blank
 // image at position 1 that could never be deleted, so a rule that uploaded a
@@ -278,9 +348,10 @@ check('a rule that names no image anywhere is still dropped',
 // The shape the host announces is what the browser half gates its writes on: it
 // holds EVERY write against a host that reports less than it writes (see
 // SCHEMA_VERSION in ./src/schema), because that host's sanitizer would drop the
-// rules it cannot read. 3 = a rule may keep an empty image list.
+// rules it cannot read. 3 = a rule may keep an empty image list (0.7), 4 = a
+// theme color belongs to an image (`images[].color`, 0.7.1).
 const announced = (await call('read')).value.schema
-check('the host announces the shape it sanitizes with', announced === 3, String(announced))
+check('the host announces the shape it sanitizes with', announced === 4, String(announced))
 // An emptied rule keeps the color it had: that color is what it paints while it
 // has no wallpaper, so it is not a field to clean up.
 await call('writeConfig', {
@@ -349,6 +420,36 @@ check('the rule list lands on disk as image lists',
   Array.isArray(onDisk.rules?.[0]?.images) && onDisk.rules[0].images.length === 3
   && !('slot' in onDisk.rules[0]) && !('bgState' in onDisk.rules[0]),
   JSON.stringify(onDisk.rules?.[0]))
+// The per-image color is written with its KEY present even when it is null. That
+// is not cosmetic: an absent key is what the read-time lift treats as "written
+// before 0.7.1", so writing `null` as "absent" would re-inherit the rule's color
+// over an image the user cleared, on every single load.
+check('every image entry carries its own color on disk',
+  onDisk.rules[0].images.every(i => 'color' in i && i.color === null),
+  JSON.stringify(onDisk.rules[0].images.map(i => i.color)))
+
+// …and a real per-image color round-trips through the file, next to a sibling
+// that was explicitly cleared.
+await call('writeConfig', {
+  config: {
+    ...first,
+    rules: [{
+      ...multiRule, id: 'r-tinted-disk',
+      images: [
+        { slot: 'm2', bgState: {}, color: [10, 0.5, 0.5] },
+        { slot: 'm3', bgState: {}, color: null },
+        { slot: 'm4', bgState: {}, color: [200, 0.6, 0.5] },
+      ],
+    }],
+  },
+})
+const tintedOnDisk = JSON.parse(readFileSync(join(DATA, 'theme-config.json'), 'utf8')).rules[0]
+check('each image color lands on disk as that image\'s own field',
+  JSON.stringify(tintedOnDisk.images.map(i => i.color)) === JSON.stringify([[10, 0.5, 0.5], null, [200, 0.6, 0.5]]),
+  JSON.stringify(tintedOnDisk.images.map(i => i.color)))
+check('a cleared image is an explicit null, not an absent key',
+  'color' in tintedOnDisk.images[1] && tintedOnDisk.images[1].color === null,
+  JSON.stringify(Object.keys(tintedOnDisk.images[1])))
 
 rmSync(HOME, { recursive: true, force: true })
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)

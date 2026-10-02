@@ -207,7 +207,12 @@ export interface ThemeSectionProps {
   removeRule: (id: string) => void
   /** Move a rule one position up (-1) or down (+1). */
   moveRule: (id: string, dir: -1 | 1) => void
-  /** Patch one rule; when it is the active rule the live background follows. */
+  /**
+   * Patch one rule; when it is the active rule the live background follows.
+   *
+   * Its `color` is the RULE's own color — what an image-less rule paints. The
+   * color of a picture goes through `setImageColor`.
+   */
   setRule: (id: string, patch: Partial<BgRule>) => void
   /**
    * Append images to a rule (data URLs, in order). The first image of an empty
@@ -220,6 +225,15 @@ export interface ThemeSectionProps {
   moveRuleImage: (id: string, slot: string, dir: -1 | 1) => void
   /** Store one image's framing (the background editor's commit). */
   setImageFraming: (id: string, slot: string, bgState: BgState) => void
+  /**
+   * Store one image's theme color; null = that image follows the system theme.
+   *
+   * Separate from `setRule` because the color belongs to the IMAGE: a rule with
+   * several pictures keeps their palettes apart, and the rule's own `color` is
+   * only what an image-less rule paints. Editing it is the panel's own branch for
+   * a rule that has no image to address.
+   */
+  setImageColor: (id: string, slot: string, color: [number, number, number] | null) => void
   /** Make one image the rule's first, i.e. the one painted when nothing rotates. */
   setCurrentImage: (id: string, slot: string) => void
   /** Patch a rule's rotation (interval, order, switch behaviour, fade). */
@@ -239,7 +253,7 @@ export interface ThemeSectionProps {
   setRuleImage: (id: string, slot: string, dataUrl: string | null) => void
   /** Download an image from a network URL and append it to a rule's images. */
   addRuleImageFromUrl: (id: string, url: string) => Promise<FetchResult>
-  /** Derive a rule's theme color from one of its images (default: the first). */
+  /** Derive ONE image's theme color from its own bytes (default: the first image). */
   extractColor: (id: string, slot?: string) => Promise<boolean>
   setOps: (ops: PartOpacities) => void
   setBlurs: (blurs: PartBlurs) => void

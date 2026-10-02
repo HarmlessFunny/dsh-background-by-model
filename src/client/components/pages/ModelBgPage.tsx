@@ -175,7 +175,23 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
   const selIdx = rule.images.length === 0 ? 0 : Math.min(sel, rule.images.length - 1)
   const image = rule.images[selIdx]
   const url = image === undefined ? null : p.imageOf(image.slot)
-  const [h, s, l] = rule.color ?? SEED_COLOR
+
+  // ── What the theme-color section edits ─────────────────────────────────────
+  // The color belongs to an IMAGE, so the wheel, the swatches, the extractor and
+  // the eyedropper all address the image selected in the strip. A rule with no
+  // image has only its own color left to offer, and that is not a special case
+  // bolted on here: it is the one thing such a rule paints (see `ruleCanPaint`),
+  // so the same controls edit it without a second code path.
+  //
+  // The two targets never mix: an image's color is never inherited from the
+  // rule's, which is what makes a rotation through a green, a red and a
+  // system-themed picture expressible.
+  const ownColor = image === undefined ? rule.color : image.color
+  const setColor = (color: [number, number, number] | null): void => {
+    if (image === undefined) p.setRule(rule.id, { color })
+    else p.setImageColor(rule.id, image.slot, color)
+  }
+  const [h, s, l] = ownColor ?? SEED_COLOR
   const wheel = hslToHsv(h, s, l)
 
   // Boot only reads a rule's FIRST image, so an expanded card pulls the rest in.
@@ -187,7 +203,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
 
   const onColor = (nh: number, ns: number, nl: number): void => {
     const [sh, ss, sl] = hsvToHsl(nh, ns, nl)
-    p.setRule(rule.id, { color: [sh, ss, sl] })
+    setColor([sh, ss, sl])
   }
 
   const onFiles = (files: readonly File[]): void => {
@@ -260,10 +276,10 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
   }
 
   const onExtract = async (): Promise<void> => {
-    if (url === null || extracting) return
+    if (url === null || extracting || image === undefined) return
     setExtracting(true)
     try {
-      const ok = await p.extractColor(rule.id, image?.slot)
+      const ok = await p.extractColor(rule.id, image.slot)
       notify(ok ? t('extractDone') : t('extractFail'), ok)
     } catch {
       notify(t('extractFail'), false)
@@ -279,17 +295,17 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
    * extract button runs and returns false when nothing vivid was found.)
    */
   const onPickColor = async (): Promise<void> => {
-    if (url !== null) {
+    if (url !== null && image !== undefined) {
       setExtracting(true)
       try {
-        if (await p.extractColor(rule.id, image?.slot)) return
+        if (await p.extractColor(rule.id, image.slot)) return
       } catch {
         // fall through to the seed
       } finally {
         setExtracting(false)
       }
     }
-    p.setRule(rule.id, { color: SEED_COLOR })
+    setColor(SEED_COLOR)
   }
 
   const cls = `dab-rule${active ? ' is-active' : ''}${rule.enabled ? '' : ' is-off'}`
@@ -357,52 +373,101 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                   while "replace" stays an explicit action on the labelled
                   button, and a preview that quietly swallowed a click was the
                   one thing this card's users could not predict. */}
-              <div className="dab-rule-thumb">
-                {url !== null
-                  ? <img src={url} alt="" draggable={false} />
-                  : (
-                    <div className="dab-rule-thumb-empty">
-                      <UploadIcon size={18} />
-                      <span>{t('ruleNoImage')}</span>
-                    </div>
-                  )}
-              </div>
+              {/* Big preview of the SELECTED image — and, while the rule holds no
+                  picture at all, the rule's upload target.
+
+                  With pictures present it is deliberately inert: dropping onto
+                  the strip below ADDS, while "replace" stays an explicit action on
+                  the labelled button, and a preview that quietly swallowed a click
+                  was the one thing this card's users could not predict.
+
+                  With NO picture there is nothing to replace, so the same box is
+                  the opposite: the one obvious thing to click ("点这个上传"), and
+                  the drop zone as well — the strip is hidden in that state (it
+                  would hold nothing but a second add tile), and taking drag &
+                  drop away from the state every rule starts in is not a trade this
+                  card should make. `dragOver` is shared with the strip on purpose:
+                  exactly one of the two is ever mounted. */}
+              {url !== null ? (
+                <div className="dab-rule-thumb">
+                  <img src={url} alt="" draggable={false} />
+                </div>
+              ) : rule.images.length === 0 ? (
+                <button
+                  type="button"
+                  className={`dab-rule-thumb dab-rule-thumb-add${dragOver ? ' is-over' : ''}`}
+                  title={t('rotAddImage')}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={onDrop}
+                  onClick={() => { setReplace(false); fileRef.current?.click() }}>
+                  <span className="dab-rule-thumb-empty">
+                    <UploadIcon size={18} />
+                    <span>{t('rotAddImage')}</span>
+                  </span>
+                </button>
+              ) : (
+                <div className="dab-rule-thumb">
+                  <div className="dab-rule-thumb-empty">
+                    <UploadIcon size={18} />
+                    <span>{t('ruleNoImage')}</span>
+                  </div>
+                </div>
+              )}
 
               {/* The strip. One item per image, in the order the rotation walks
                   them; the edited one is ringed, the PAINTED one is marked while
                   this rule is the live rule. Dropping files anywhere on it adds
-                  them (several at once — a rotation is built in batches). */}
-              <div
-                className={`dab-strip${dragOver ? ' is-over' : ''}`}
-                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={onDrop}>
-                {rule.images.map((img, i) => {
-                  const thumb = p.imageOf(img.slot)
-                  return (
-                    <button
-                      key={img.slot} type="button"
-                      className={`dab-strip-item${i === selIdx ? ' is-sel' : ''}${liveIndex === i ? ' is-live' : ''}`}
-                      title={`${i + 1} / ${rule.images.length}`}
-                      onClick={() => setSel(i)}>
-                      {thumb !== null
-                        ? <img src={thumb} alt="" draggable={false} />
-                        : <span className="dab-strip-wait" />}
-                      <span className="dab-strip-num">{i + 1}</span>
-                      {liveIndex === i ? <span className="dab-strip-live" title={t('rotShowing')} /> : null}
-                    </button>
-                  )
-                })}
-                <button type="button" className="dab-strip-add" title={t('rotAddImage')}
-                  onClick={() => { setReplace(false); fileRef.current?.click() }}>
-                  <UploadIcon size={16} />
-                  <span>{t('rotAddImage')}</span>
-                </button>
-              </div>
+                  them (several at once — a rotation is built in batches).
+
+                  Hidden while the rule has no picture: a strip holding nothing but
+                  its own add tile said the same thing as the upload target right
+                  above it, and a filmstrip is a list of pictures — it has no job
+                  in a state that has none. */}
+              {rule.images.length > 0 ? (
+                <div
+                  className={`dab-strip${dragOver ? ' is-over' : ''}`}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={onDrop}>
+                  {rule.images.map((img, i) => {
+                    const thumb = p.imageOf(img.slot)
+                    return (
+                      <button
+                        key={img.slot} type="button"
+                        className={`dab-strip-item${i === selIdx ? ' is-sel' : ''}${liveIndex === i ? ' is-live' : ''}`}
+                        title={`${i + 1} / ${rule.images.length}`}
+                        onClick={() => setSel(i)}>
+                        {thumb !== null
+                          ? <img src={thumb} alt="" draggable={false} />
+                          : <span className="dab-strip-wait" />}
+                        <span className="dab-strip-num">{i + 1}</span>
+                        {/* This image's own theme color, when it has one. The whole
+                            point of per-image colors is that they differ, and
+                            without this the only way to find out which pictures
+                            already carry one is to click through the strip and
+                            watch the wheel change. Hex on hover, like a swatch. */}
+                        {img.color !== null ? (
+                          <span
+                            className="dab-strip-dot"
+                            title={toHex(hslToRgb(img.color[0], img.color[1], img.color[2])).toUpperCase()}
+                            style={{ background: `hsl(${img.color[0]} ${Math.round(img.color[1] * 100)}% ${Math.round(img.color[2] * 100)}%)` }} />
+                        ) : null}
+                        {liveIndex === i ? <span className="dab-strip-live" title={t('rotShowing')} /> : null}
+                      </button>
+                    )
+                  })}
+                  <button type="button" className="dab-strip-add" title={t('rotAddImage')}
+                    onClick={() => { setReplace(false); fileRef.current?.click() }}>
+                    <UploadIcon size={16} />
+                    <span>{t('rotAddImage')}</span>
+                  </button>
+                </div>
+              ) : null}
 
               <div className="dab-chip-row" style={{ marginTop: 10 }}>
                 {/* No position readout for an empty rule: "image 0 / 0" would be a
-                    number about nothing. The strip's own add tile is the whole
+                    number about nothing — the upload target above is the whole
                     story there. */}
                 {rule.images.length > 0 ? (
                   <span className="dab-strip-pos">{t('rotPos')} {selIdx + 1} / {rule.images.length}</span>
@@ -583,7 +648,16 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
             {/* ── color + wallpaper effects ──────────────────────────────── */}
             <div>
               <div className="dab-rule-section-title">{t('ruleColor')}</div>
-              {rule.color === null ? (
+              {/* Which of the two things below the controls edit. Since a theme
+                  color belongs to an image, the same wheel means different things
+                  depending on the strip, and a section that silently retargets is
+                  exactly how "I changed the color and nothing happened" is born. */}
+              <p className="dab-hint" style={{ marginTop: 6 }}>
+                {image === undefined
+                  ? t('ruleColorTargetRule')
+                  : `${t('ruleColorTargetImage')} ${selIdx + 1} / ${rule.images.length}`}
+              </p>
+              {ownColor === null ? (
                 <>
                   <div className="dab-chip-row">
                     {/* This button LEAVES the system-theme state, so it says so:
@@ -596,12 +670,17 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                     </button>
                   </div>
                   <p className="dab-hint" style={{ marginTop: 8 }}>{t('ruleColorNoneHint')}</p>
-                  {/* The extraction promise belongs to a rule that HAS an image:
+                  {/* The extraction promise belongs to a target that HAS bytes:
                       next to a disabled "extract" button it read as a broken
-                      feature, not as a hint. */}
+                      feature, not as a hint — and for a rule with no image at all
+                      the honest sentence is a different one (it has nothing to
+                      take a color from, but a color of its own is still enough to
+                      paint the interface). */}
                   {url !== null
                     ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('ruleColorPickHint')}</p>
-                    : <p className="dab-hint" style={{ marginTop: 6 }}>{t('ruleColorNoImageHint')}</p>}
+                    : image === undefined
+                      ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('ruleColorNoImageHint')}</p>
+                      : <p className="dab-hint" style={{ marginTop: 6 }}>{t('ruleColorPendingImageHint')}</p>}
                 </>
               ) : (
                 <>
@@ -621,13 +700,15 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                     <button type="button" className="dab-btn" disabled={url === null} onClick={() => setPickerOpen(true)}>
                       <PipetteIcon size={13} />{t('eyedropper')}
                     </button>
-                    {/* Leaves the rule's custom color and hands the interface
-                        back to the host palette. Carries the sun because that
-                        is the host's own appearance glyph, and reads as the
-                        action it performs rather than the state it lands in —
-                        as a bare "系统主题" it looked like the label of whatever
-                        control sat beside it. */}
-                    <button type="button" className="dab-btn dab-btn-ghost" onClick={() => p.setRule(rule.id, { color: null })}>
+                    {/* Clears THIS image's color and hands the interface back to
+                        the host palette for as long as that image is on screen —
+                        the rule's own color (if it has one) is untouched, because
+                        it is not this image's fallback. Carries the sun because
+                        that is the host's own appearance glyph, and reads as the
+                        action it performs rather than the state it lands in — as a
+                        bare "系统主题" it looked like the label of whatever control
+                        sat beside it. */}
+                    <button type="button" className="dab-btn dab-btn-ghost" onClick={() => setColor(null)}>
                       <SunIcon size={13} />{t('ruleColorNone')}
                     </button>
                   </div>
@@ -637,7 +718,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                         key={i} type="button" className="dab-swatch"
                         style={{ background: `hsl(${sh} ${Math.round(ss * 100)}% ${Math.round(sl * 100)}%)` }}
                         title={toHex(hslToRgb(sh, ss, sl)).toUpperCase()}
-                        onClick={() => p.setRule(rule.id, { color: [sh, ss, sl] })} />
+                        onClick={() => setColor([sh, ss, sl])} />
                     ))}
                   </div>
                 </>

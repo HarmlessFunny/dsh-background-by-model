@@ -8,14 +8,14 @@
  */
 import { defineStore } from './runtime'
 import type {
-  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgRule, BgState, HolidayRule,
+  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgImage, BgRule, BgState, HolidayRule,
   FetchResult, ModelFacts,
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
   cfg, adoptConfig, imageOf, displayImageOf, setImage, newRule, nextSlot, nextRuleId, ruleById,
   holidayById, normalizeRuleInPlace, patchRotation, ruleSlots, setActive, setModelLabel,
-  activeRule, activeRuleId, activeMatched, modelLabel, imageIndexOf, setRotIndex, takenSlots,
+  activeRule, activeColor, activeRuleId, activeMatched, modelLabel, imageIndexOf, setRotIndex, takenSlots,
   rWp, rRightbarOpacity, DEFAULT_BG_STATE,
 } from './state'
 import { activeHoliday, pickHoliday } from '../holiday'
@@ -79,6 +79,48 @@ export function apply(ctx: Ctx): void {
     } catch {
       // A host build without a `system` preference keeps its own choice.
     }
+  }
+
+  /**
+   * Re-emit the interface palette for whatever is painted RIGHT NOW.
+   *
+   * Called from two places, and the second one is why this is a function: a
+   * model switch (`applyActive`) and a ROTATION STEP (`paintImage`). A theme color
+   * belongs to an image since 0.7.1, so stepping to the next picture changes the
+   * palette as much as switching models does — and a step that only repainted the
+   * wallpaper would leave the previous picture's color on the interface until
+   * something else happened to re-run an apply (dragging the wheel, switching
+   * models), which is precisely the "it only updates when I touch the color wheel"
+   * report this plugin already had once.
+   *
+   * The debounce is for the OTHER caller: a color drag runs a full apply dozens of
+   * times per second, and the host-visible skin switch (dispose + register +
+   * activate) must not happen on every pointer move. A rotation step pays the same
+   * 60 ms, which is invisible next to a dwell time of 5 s or more.
+   */
+  const applyPalette = (): void => {
+    const color = activeColor()
+    if (skinTimer !== null) window.clearTimeout(skinTimer)
+    if (color === null) {
+      // Hand the palette back BEFORE the apply that follows. The theme service's
+      // snapshot is what tells the wallpaper layer which scheme the host itself
+      // resolves to, and while our custom skin is still active that snapshot
+      // reports OUR scheme — the readback would then capture the host's light
+      // palette on a dark system and keep painting it (the interface only
+      // recovered when some later slider drag happened to re-run an apply).
+      // Dropping the skin is idempotent, so it needs none of the debouncing a
+      // color drag does.
+      skinTimer = null
+      dropCustom()
+    } else {
+      // The skin is a host-visible switch (dispose + register + activate) and is
+      // batched; the wallpaper and tokens below land immediately either way.
+      skinTimer = window.setTimeout(() => {
+        skinTimer = null
+        registerCustom(color[0], color[1], color[2])
+      }, 60)
+    }
+    syncHostScheme()
   }
   ctx.effect(() => () => {
     if (skinTimer !== null) window.clearTimeout(skinTimer)
@@ -232,28 +274,9 @@ export function apply(ctx: Ctx): void {
       if (next !== null) setRotIndex(next)
     }
     scheduleRotation()
-    const color = rule === null ? null : rule.color
-    if (skinTimer !== null) window.clearTimeout(skinTimer)
-    if (color === null) {
-      // Hand the palette back BEFORE the apply below. The theme service's
-      // snapshot is what tells the wallpaper layer which scheme the host itself
-      // resolves to, and while our custom skin is still active that snapshot
-      // reports OUR scheme — the readback would then capture the host's light
-      // palette on a dark system and keep painting it (the interface only
-      // recovered when some later slider drag happened to re-run an apply).
-      // Dropping the skin is idempotent, so it needs none of the debouncing a
-      // color drag does.
-      skinTimer = null
-      dropCustom()
-    } else {
-      // The skin is a host-visible switch (dispose + register + activate) and is
-      // batched; the wallpaper and tokens below land immediately either way.
-      skinTimer = window.setTimeout(() => {
-        skinTimer = null
-        registerCustom(color[0], color[1], color[2])
-      }, 60)
-    }
-    syncHostScheme()
+    // AFTER the index moved: the palette belongs to the image that is on screen,
+    // and `advanceOnSwitch` above may have just changed which one that is.
+    applyPalette()
     applyWp()
     sync()
   }
@@ -280,6 +303,10 @@ export function apply(ctx: Ctx): void {
   const paintImage = (rule: BgRule, idx: number): void => {
     const slot = rule.images[idx]?.slot
     if (slot === undefined) return
+    // The palette first, and always: this image may carry a theme color of its
+    // own, and it becomes the one in force the moment the index moves (see
+    // `applyPalette`). `setRotIndex` has already run in every caller.
+    applyPalette()
     if (imageOf(slot) !== null) { applyWp(); sync(); return }
     // A cold image cannot be cross-faded toward — the outgoing layer would fade
     // to an empty one and the interface would show through for a frame — so the
@@ -516,7 +543,7 @@ export function apply(ctx: Ctx): void {
     // The resolved scheme is read first: an OS flip while the preference is
     // `system` arrives exactly here, and a color-less rule has to follow it.
     syncHostScheme()
-    if (activeRuleColor() !== null) {
+    if (activeColor() !== null) {
       const snapshot = ctx.theme.getTheme()
       if (snapshot.preference !== CUSTOM_ID && snapshot.themes.some(t => t.id === CUSTOM_ID)) {
         ctx.theme.setTheme(CUSTOM_ID)
@@ -552,31 +579,38 @@ export function apply(ctx: Ctx): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }) as any, 'dsh-background-by-model: i18n')
 
   /**
-   * The automatic half of "extract from image": fill a rule's theme color from
-   * the picture it just received, but only while the rule has no color at all —
-   * a color the user picked (or a previous extraction produced) is never
-   * overwritten, so this cannot fight a deliberate choice.
+   * The automatic half of "extract from image": fill an IMAGE's theme color from
+   * its own bytes when it has none of its own, and only then — a color the user
+   * picked (or a previous extraction produced) is never overwritten, so this
+   * cannot fight a deliberate choice.
    *
-   * `slot` names the image that just arrived, because a rule's images can now
-   * disagree about their palette and the one the user just added is the one they
+   * `slot` names the image that just arrived, because a rule's images each carry
+   * their own palette since 0.7.1 and the one the user just added is the one they
    * are looking at. Omitted (or unknown) falls back to the rule's first image.
+   *
+   * The question is asked of the IMAGE, not of the rule: a rule whose pictures
+   * were all cleared and then re-filled must theme each new picture, and a rule
+   * with a color of its own still has no say over the colors of its pictures.
    *
    * The decode is asynchronous, so the "still empty?" question is asked AGAIN on
    * arrival: a color chosen while it ran must win over the one being computed.
    */
   const maybeAutoExtract = async (id: string, slot?: string): Promise<void> => {
     if (!cfg.autoExtract) return
-    const rule = ruleById(id)
-    if (rule === null || rule.color !== null) return
-    const image = rule.images.find(i => i.slot === slot) ?? rule.images[0]
-    if (image === undefined) return
+    /** The entry this extraction is about, re-resolved on every read. */
+    const target = (rule: BgRule | null): BgImage | undefined => {
+      if (rule === null) return undefined
+      return (slot === undefined ? undefined : rule.images.find(i => i.slot === slot)) ?? rule.images[0]
+    }
+    const image = target(ruleById(id))
+    if (image === undefined || image.color !== null) return
     const url = displayImageOf(image.slot)
     if (url === null) return
     let hsl: [number, number, number] | null = null
     try { hsl = await extractWallpaperColor(url, image.bgState) } catch { hsl = null }
     if (hsl === null) return
-    const current = ruleById(id)
-    if (current === null || current.color !== null) return
+    const current = target(ruleById(id))
+    if (current === undefined || current.color !== null) return
     // Same as `extractColor`: this color can be the one that makes the rule
     // paintable, and it arrives AFTER the upload's own repaint — so the winner is
     // sampled here, on arrival, and the interface follows at once.
@@ -686,7 +720,11 @@ export function apply(ctx: Ctx): void {
         const winner = winnerId()
         for (const dataUrl of dataUrls) {
           const slot = nextSlot()
-          const image = { slot, bgState: { ...DEFAULT_BG_STATE } }
+          // `color: null` (not absent): this image has no color of its own YET, and
+          // the auto-extraction below is what fills it. An absent key would mean
+          // "written before 0.7.1" instead, and would be lifted from the rule's color
+          // on the next read — which is the opposite of what a new picture wants.
+          const image = { slot, bgState: { ...DEFAULT_BG_STATE }, color: null }
           rule.images.push(image)
           setImage(slot, dataUrl)
           // One write per image, immediately: adding a picture is a structural
@@ -832,13 +870,36 @@ export function apply(ctx: Ctx): void {
         if (!res.ok) return res
         // Sampled here, not before the download: the list is only touched now.
         const winner = winnerId()
-        rule.images.push({ slot, bgState: { ...DEFAULT_BG_STATE } })
+        rule.images.push({ slot, bgState: { ...DEFAULT_BG_STATE }, color: null })
         setImage(slot, res.dataUrl ?? null)
         rulesRev++
         persistConfig()
         repaintIfMoved(id, winner)
         void maybeAutoExtract(id, slot)
         return res
+      },
+      /**
+       * Store ONE image's theme color (null = that image follows the system
+       * theme). Addressed by slot exactly like `setImageFraming`, because the
+       * color belongs to the image: editing image 3's color must not rewrite
+       * image 1's, and it must not touch the RULE's color either — that one is
+       * what the rule paints once its last picture is gone, and it is edited only
+       * while there is no image to edit (the panel's own branch).
+       */
+      setImageColor: (id: string, slot: string, color: [number, number, number] | null): void => {
+        const rule = ruleById(id)
+        const image = rule?.images.find(i => i.slot === slot)
+        if (rule === null || rule === undefined || image === undefined) return
+        // A color is what a paint is made of, so the winner is sampled first: this
+        // can be the edit that makes an unusable rule usable (see repaintIfMoved).
+        const winner = winnerId()
+        image.color = color
+        normalizeRuleInPlace(rule)
+        rulesRev++
+        // Pointer-move frequency (the wheel, the RGB inputs), so the write is
+        // coalesced — the same rule `setRule` follows for its color.
+        saveConfig()
+        repaintIfMoved(id, winner)
       },
       extractColor: async (id: string, slot?: string): Promise<boolean> => {
         const rule = ruleById(id)
@@ -849,11 +910,16 @@ export function apply(ctx: Ctx): void {
         if (url === null) return false
         const hsl = await extractWallpaperColor(url, image.bgState)
         if (hsl === null) return false
+        // Addressed by SLOT, like the framing editor: the extraction belongs to the
+        // picture the user pressed the button on, and a rule with several pictures
+        // must be able to keep their palettes apart.
+        const current = ruleById(id)?.images.find(i => i.slot === image.slot)
+        if (current === undefined) return false
         // The color is what makes a picture-less rule paintable at all, so this
         // edit can hand the interface a rule it was not showing (the "从本图提取
         // 之后色没上来" half of the report).
         const winner = winnerId()
-        rule.color = hsl
+        current.color = hsl
         rulesRev++
         saveConfig()
         repaintIfMoved(id, winner)
@@ -899,9 +965,11 @@ export function apply(ctx: Ctx): void {
           if (url !== null) images[slot] = url
         }
         const payload = {
-          // 4 = multi-image per rule. 3 (and older) still imports: the sanitizer
-          // lifts each rule's single `slot`/`bgState` into a one-image list.
-          version: 4,
+          // 5 = a theme color belongs to an image (`images[].color`). 4 and older
+          // still import: their image entries carry no `color` key at all, which is
+          // exactly the shape `normalizeImage` lifts the rule's color onto, so a
+          // theme file written before that feature restores its look unchanged.
+          version: 5,
           exportedAt: new Date().toISOString(),
           config: cfg,
           images,
@@ -1018,7 +1086,7 @@ export function apply(ctx: Ctx): void {
   // records land.
   const restoreSaved = (): void => {
     syncHostScheme()
-    const color = activeRuleColor()
+    const color = activeColor()
     if (color !== null) {
       const snapshot = ctx.theme.getTheme()
       if (!snapshot.themes.some(t => t.id === CUSTOM_ID)) {
@@ -1050,7 +1118,7 @@ export function apply(ctx: Ctx): void {
   // forcing the flag off — until an unrelated apply happens to run.
   const watchdogId = window.setInterval(() => {
     syncHostScheme()
-    const color = activeRuleColor()
+    const color = activeColor()
     if (color === null) {
       refreshSystemTheme()
       return
@@ -1076,11 +1144,4 @@ export function apply(ctx: Ctx): void {
   const onPageHide = (): void => flushSave()
   window.addEventListener('pagehide', onPageHide)
   ctx.effect(() => () => window.removeEventListener('pagehide', onPageHide), 'dsh-background-by-model: pagehide flush')
-}
-
-/** Color of the currently active rule, or null when it uses the system theme. */
-function activeRuleColor(): [number, number, number] | null {
-  if (activeRuleId === null) return null
-  const rule = ruleById(activeRuleId)
-  return rule === null ? null : rule.color
 }

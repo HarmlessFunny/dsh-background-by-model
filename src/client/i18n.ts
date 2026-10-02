@@ -35,7 +35,7 @@ export const zh: Record<string, string> = {
   tryoutNone: '没有可用规则（规则需要启用，并且有图片或主题色）',
   tryoutEmpty: '输入模型名即可试跑',
   autoExtract: '选图后自动取主题色',
-  autoExtractHint: '只在规则还没有颜色时自动取色，绝不覆盖你手动选的颜色',
+  autoExtractHint: '只在图片还没有自己的颜色时自动取色，绝不覆盖你手动选的颜色',
   ruleAdd: '新增规则',
   ruleFallbackBadge: '兜底',
   ruleMatchPlaceholder: '如 flash / glm（忽略大小写，留空则不参与匹配）',
@@ -62,7 +62,16 @@ export const zh: Record<string, string> = {
   // Same button, but there is no image to extract from: promising an extraction
   // next to a disabled "extract" button is the one thing this hint cannot say.
   ruleColorNoImageHint: '这条规则还没有图片，取不到色：选一个颜色可以只铺主题色，或先添加图片',
+  // …and its sibling: there IS an image, it just has no bytes yet. Saying "this
+  // rule has no image" here would contradict the strip right above it.
+  ruleColorPendingImageHint: '这张图片还没有取到内容，暂时取不了色：可以直接选一个颜色，或等它加载完',
   ruleColorExtract: '从本图提取',
+  // Which of the two things the color controls below edit. A theme color belongs
+  // to an image, so the same wheel means different things depending on the strip,
+  // and a section that silently retargets is how "I changed it and nothing
+  // happened" starts.
+  ruleColorTargetImage: '作用于选中的图片：',
+  ruleColorTargetRule: '作用于本规则（它还没有图片）',
   ruleLayout: '布局模式',
   ruleFramingEdit: '编辑位置',
   ruleOpacity: '背景透明度',
@@ -161,7 +170,7 @@ export const en: Record<string, string> = {
   tryoutNone: 'No usable rule (a rule needs to be enabled and carry an image or a theme color)',
   tryoutEmpty: 'Type a model name to test the list',
   autoExtract: 'Extract the theme color when an image is chosen',
-  autoExtractHint: 'Only fills a rule that has no color yet — a color you picked is never overwritten',
+  autoExtractHint: 'Only fills an image that has no color of its own yet — a color you picked is never overwritten',
   ruleAdd: 'Add rule',
   ruleFallbackBadge: 'fallback',
   ruleMatchPlaceholder: 'e.g. flash / glm (case-insensitive, empty never matches)',
@@ -188,6 +197,11 @@ export const en: Record<string, string> = {
   // Same button, but there is no image to extract from: promising an extraction
   // next to a disabled "extract" button is the one thing this hint cannot say.
   ruleColorNoImageHint: 'This rule has no image to take a color from: pick a color to tint the interface alone, or add an image first',
+  // …and its sibling: there IS an image, it just has no bytes yet. Saying "this
+  // rule has no image" here would contradict the strip right above it.
+  ruleColorPendingImageHint: 'This image has no content yet, so there is nothing to extract from: pick a color directly, or wait for it to load',
+  ruleColorTargetImage: 'Applies to the selected image:',
+  ruleColorTargetRule: 'Applies to this rule (it has no image yet)',
   ruleColorExtract: 'Extract from image',
   ruleLayout: 'Layout mode',
   ruleFramingEdit: 'Edit position',

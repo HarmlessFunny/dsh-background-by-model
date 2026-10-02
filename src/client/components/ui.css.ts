@@ -208,6 +208,15 @@ export const UI_CSS = `
 .dab-rule-thumb{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:16/9;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2)}
 .dab-rule-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .dab-rule-thumb-empty{position:absolute;inset:5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--dsw-alias-border-l2);border-radius:9px;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center;padding:0 10px}
+/* The empty tile is the upload button while the rule has no picture at all, so
+   it is a real <button> (focusable, keyboard-reachable) reset down to the box the
+   plain preview occupies — a button brings its own padding, font and border. The
+   dashed frame it looks like is .dab-rule-thumb-empty, which is why the hover and
+   the drag highlight have to reach it through a descendant selector too. */
+.dab-rule-thumb-add{display:block;width:100%;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;-webkit-appearance:none;appearance:none;transition:border-color .2s,background .2s}
+.dab-rule-thumb-add:hover,.dab-rule-thumb-add.is-over{border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 6%,var(--dsw-alias-bg-layer-2))}
+.dab-rule-thumb-add:hover .dab-rule-thumb-empty,.dab-rule-thumb-add.is-over .dab-rule-thumb-empty{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.dab-rule-thumb-add:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 .dab-rule-cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px;align-items:start}
 .dab-rule-section-title{font-size:12px;font-weight:600;margin-bottom:9px;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
 
@@ -225,6 +234,11 @@ export const UI_CSS = `
 .dab-strip-wait{position:absolute;inset:0;background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent) 4px 8px)}
 .dab-strip-num{position:absolute;left:3px;bottom:2px;font-family:var(--dab-mono);font-size:9.5px;line-height:1;padding:1px 4px;border-radius:5px;background:rgba(0,0,0,.45);color:#fff}
 .dab-strip-live{position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px rgba(0,0,0,.35);animation:dab-pulse 1.8s ease-in-out infinite}
+/* Each image's OWN theme color, when it has one. It shares the right edge with
+   the live dot but sits at the bottom, where nothing else is: the item number is
+   bottom-LEFT. Two rings (dark outside, light inside) keep the swatch readable
+   over a dark and a light thumbnail alike. */
+.dab-strip-dot{position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-radius:50%;box-shadow:0 0 0 1.5px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.35)}
 .dab-strip-add{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:62px;height:44px;border-radius:8px;border:1.5px dashed var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:1.15;cursor:pointer;transition:border-color .2s,color .2s}
 .dab-strip-add:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
 .dab-strip-pos{display:inline-flex;align-items:center;font-family:var(--dab-mono);font-size:11px;color:var(--dsw-alias-label-tertiary);padding:0 4px}
