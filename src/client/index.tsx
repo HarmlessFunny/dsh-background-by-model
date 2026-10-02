@@ -8,19 +8,22 @@
  */
 import { defineStore } from './runtime'
 import type {
-  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgRule, HolidayRule,
+  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgRule, BgState, HolidayRule,
   FetchResult, ModelFacts,
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
   cfg, adoptConfig, imageOf, displayImageOf, setImage, newRule, nextSlot, nextRuleId, ruleById,
-  holidayById, normalizeRule, setActive, setModelLabel, activeRuleId, activeMatched, modelLabel,
-  rWp, rRightbarOpacity,
+  holidayById, normalizeRuleInPlace, patchRotation, ruleSlots, setActive, setModelLabel,
+  activeRule, activeRuleId, activeMatched, modelLabel, imageIndexOf, setRotIndex, takenSlots,
+  rWp, rRightbarOpacity, DEFAULT_BG_STATE,
 } from './state'
 import { activeHoliday, pickHoliday } from '../holiday'
+import { nextIndex, isRotating } from './rotation'
+import { shouldRepaint } from './repaint'
 import {
   RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
-  readImage, writeImage, deleteImage, fetchImageUrl, readDefaultModel,
+  readImage, writeImage, deleteImage, fetchImageUrl, readDefaultModel, hostIsLegacy,
 } from './rpc'
 import {
   applyWp, teardownWp, applySettingsOverrides, applyRightbarOverrides, SETTINGS_STYLE_RULE, TRAJECTORY_STYLE_RULE,
@@ -114,9 +117,13 @@ export function apply(ctx: Ctx): void {
       modelNote: 'waiting',
       activeRuleId: null as string | null,
       matched: false,
+      rotIndex: 0,
+      rotTotal: 0,
+      rotating: false,
+      hostStale: false,
     }),
     actions: {
-      sync: (d: any, url: string | null, r: number, rr: number, model: string, source: 'session' | 'default', note: string, id: string | null, matched: boolean) => {
+      sync: (d: any, url: string | null, r: number, rr: number, model: string, source: 'session' | 'default', note: string, id: string | null, matched: boolean, rotIndex: number, rotTotal: number, rotating: boolean, hostStale: boolean) => {
         if (r > d.rev) { d.url = url; d.rev = r }
         if (rr > d.rulesRev) d.rulesRev = rr
         d.model = model
@@ -124,13 +131,31 @@ export function apply(ctx: Ctx): void {
         d.modelNote = note
         d.activeRuleId = id
         d.matched = matched
+        d.rotIndex = rotIndex
+        d.rotTotal = rotTotal
+        d.rotating = rotating
+        d.hostStale = hostStale
       },
     },
   })
   let bound: { sync: (...a: any[]) => void } | null = null
+  /** Rotation facts of whatever is painted now, for the section's readout. */
+  const rotationFacts = (): { index: number; total: number; rotating: boolean } => {
+    const rule = activeRule()
+    if (rule === null) return { index: 0, total: 0, rotating: false }
+    return {
+      index: imageIndexOf(rule),
+      total: rule.images.length,
+      // The badge and the timer read the SAME predicate, so "rotating" can never
+      // be shown while nothing is scheduled (the failure this feature would
+      // otherwise produce silently).
+      rotating: isRotating(rule.images.length, rule.rotate.enabled, rule.rotate.intervalMs) && !document.hidden,
+    }
+  }
   const sync = (): void => {
     rev++
-    bound?.sync(rWp(), rev, rulesRev, modelLabel !== '' ? modelLabel : modelText, modelSource, modelNote, activeRuleId, activeMatched)
+    const rot = rotationFacts()
+    bound?.sync(rWp(), rev, rulesRev, modelLabel !== '' ? modelLabel : modelText, modelSource, modelNote, activeRuleId, activeMatched, rot.index, rot.total, rot.rotating, hostIsLegacy())
   }
 
   /**
@@ -150,15 +175,63 @@ export function apply(ctx: Ctx): void {
     }
   }
 
-  /** Resolve the active rule for the current model and repaint everything. */
-  const applyActive = (): void => {
+  /**
+   * Which rule wins for the current model RIGHT NOW, and whether it was a
+   * substring hit (a holiday override is never a "match" of the model).
+   *
+   * Read by the repaint AND by the panel's write path, which has to know whether
+   * an edit changed the answer: `color`, `enabled` and `match` all feed the
+   * resolution (a rule with no image still paints from its own color — see
+   * `ruleCanPaint`). Without this, editing a rule that was not the active one —
+   * giving an emptied rule its first color, typing a match string that should
+   * promote it — changed nothing on screen until some unrelated event happened to
+   * re-run the resolution.
+   */
+  const resolveRule = (): { rule: BgRule | null; matched: boolean } => {
     // The holiday override sits ABOVE the rule list: while one is in force the
     // model is irrelevant, which is the whole point of the switch.
     const holiday = activeHolidayRule()
-    const { rule, matched } = holiday !== null
+    return holiday !== null
       ? { rule: holiday as BgRule, matched: false }
       : matchRule(cfg.rules, modelText)
+  }
+
+  /** Id of the rule that would paint right now; `null` = the host's own look. */
+  const winnerId = (): string | null => resolveRule().rule?.id ?? null
+
+  /**
+   * Close a rule edit: repaint when it could have moved what is on screen, and
+   * merely refresh the panel's readout when it could not.
+   *
+   * `winnerBefore` is sampled by the caller BEFORE its mutation (`winnerId()`),
+   * and the comparison itself lives in ./repaint, where it is checked on plain
+   * node. Every write path below ends here — the old per-path test
+   * (`id === activeRuleId`) missed the edit that CREATES the winner, which is the
+   * "上传图片 / 提取主题色之后界面不动，动一下调色盘或切模型才出现" report.
+   */
+  const repaintIfMoved = (id: string, winnerBefore: string | null): void => {
+    if (shouldRepaint(id, winnerBefore, winnerId())) applyActive()
+    else sync()
+  }
+
+  /**
+   * Resolve the active rule for the current model and repaint everything.
+   *
+   * @param advance - true only on a MODEL switch: the rotation of the rule that
+   *   took over may then step once (`rotate.advanceOnSwitch`), which is how a
+   *   model gets "a different picture every time" without any timer at all.
+   */
+  const applyActive = (advance = false): void => {
+    const { rule, matched } = resolveRule()
+    // Set BEFORE the index is read: `setActive` resets the image index whenever
+    // the rule itself changes, so a switch onto a fresh rule starts at its first
+    // image (and `advanceOnSwitch` then steps off it — see below).
     setActive(rule === null ? null : rule.id, matched)
+    if (advance && rule !== null && rule.rotate.advanceOnSwitch) {
+      const next = nextIndex(rule.images.length, rule.rotate.order, imageIndexOf(rule))
+      if (next !== null) setRotIndex(next)
+    }
+    scheduleRotation()
     const color = rule === null ? null : rule.color
     if (skinTimer !== null) window.clearTimeout(skinTimer)
     if (color === null) {
@@ -184,6 +257,94 @@ export function apply(ctx: Ctx): void {
     applyWp()
     sync()
   }
+
+  // ── 3a. Multi-image rotation ──────────────────────────────────────────────
+  // ONE interval for the whole plugin, always aimed at the ACTIVE rule. A timer
+  // per rule would burn wakeups on rules that are not painting anything, and
+  // since only one rule's images can be on screen at a time, one timer is all
+  // that is needed.
+  //
+  // `loadSlot` below (section 6) is only CALLED from here, never during this
+  // synchronous apply, so the order of these two declarations does not matter.
+  let rotTimer: number | null = null
+  /** Identity of the schedule currently armed; a change means "re-arm". */
+  let rotSig = ''
+
+  /** Warm one image so a later switch fades toward bytes that are already here. */
+  const warmImage = (rule: BgRule, idx: number): void => {
+    const slot = rule.images[idx]?.slot
+    if (slot !== undefined) void loadSlot(slot)
+  }
+
+  /** Show the image at `idx` at once, loading it first when it is not in memory. */
+  const paintImage = (rule: BgRule, idx: number): void => {
+    const slot = rule.images[idx]?.slot
+    if (slot === undefined) return
+    if (imageOf(slot) !== null) { applyWp(); sync(); return }
+    // A cold image cannot be cross-faded toward — the outgoing layer would fade
+    // to an empty one and the interface would show through for a frame — so the
+    // paint happens after the bytes land. Reading the slot over this channel costs
+    // one local round trip, which is the price of not shipping every image of
+    // every rule at boot.
+    void loadSlot(slot).then(() => { applyWp(); sync() })
+  }
+
+  const rotateTick = (): void => {
+    const rule = activeRule()
+    if (rule === null) return
+    const next = nextIndex(rule.images.length, rule.rotate.order, imageIndexOf(rule))
+    // Nothing to step to (the list shrank to a single image under us): stop
+    // rather than leave a timer firing forever at a rule with one picture.
+    if (next === null) { scheduleRotation(true); return }
+    setRotIndex(next)
+    paintImage(rule, next)
+    // Warm the image AFTER the one just shown, so the next tick has decoded bytes
+    // to fade toward instead of paying a read at the moment of the switch.
+    const after = nextIndex(rule.images.length, rule.rotate.order, next)
+    if (after !== null) warmImage(rule, after)
+  }
+
+  /**
+   * Arm (or re-arm) the rotation for the active rule.
+   *
+   * Idempotent by SIGNATURE rather than by "already armed": a slider drag on the
+   * active rule re-runs the whole apply dozens of times per second, and restarting
+   * the interval on each of those would mean the dwell timer never elapses while
+   * the user is dragging (and a 10 s rotation would never advance). The signature
+   * carries exactly the inputs the schedule depends on, so a real change — another
+   * rule, another interval, the tab becoming visible again — re-arms while a
+   * repaint does not.
+   */
+  const scheduleRotation = (force = false): void => {
+    const rule = activeRule()
+    // `activeRule()` also answers with a holiday entry, whose images are the
+    // package's single picture; `isRotating` turns that into "no schedule".
+    const sig = rule === null
+      ? ''
+      : [rule.id, rule.rotate.enabled, rule.rotate.intervalMs, rule.rotate.order, rule.images.length, document.hidden].join('|')
+    if (!force && sig === rotSig) return
+    rotSig = sig
+    if (rotTimer !== null) { window.clearInterval(rotTimer); rotTimer = null }
+    if (rule === null || document.hidden) return
+    if (!isRotating(rule.images.length, rule.rotate.enabled, rule.rotate.intervalMs)) return
+    // Warm the first image this schedule will ask for, so the very first tick is
+    // not the one that has to pay for the read.
+    const next = nextIndex(rule.images.length, rule.rotate.order, imageIndexOf(rule))
+    if (next !== null) warmImage(rule, next)
+    rotTimer = window.setInterval(rotateTick, rule.rotate.intervalMs)
+  }
+  ctx.effect(() => () => {
+    if (rotTimer !== null) { window.clearInterval(rotTimer); rotTimer = null }
+  }, 'dsh-background-by-model: rotation timer')
+  // A hidden tab has nothing to paint, so the rotation stops with the pixels and
+  // resumes on a fresh interval: coming back to a background that changed three
+  // times while nobody was looking is not what "every 30 seconds" means to anyone
+  // watching it. `sync()` is what moves the "rotating" readout with it — the
+  // section cannot be seen while the tab is hidden, but the badge must be right the
+  // moment it is shown again.
+  const onVisibility = (): void => { scheduleRotation(); sync() }
+  document.addEventListener('visibilitychange', onVisibility)
+  ctx.effect(() => () => document.removeEventListener('visibilitychange', onVisibility), 'dsh-background-by-model: rotation visibility')
 
   /**
    * The holiday the background must follow right now, or null.
@@ -221,7 +382,7 @@ export function apply(ctx: Ctx): void {
     setModelLabel(label !== '' ? label : text)
     // A note-only change (e.g. still waiting for the sessions service) must
     // refresh the readout without repainting the whole interface.
-    if (textChanged) applyActive()
+    if (textChanged) applyActive(true)
     else sync()
   })
   ctx.effect(() => () => offModel(), 'dsh-background-by-model: model watch')
@@ -282,24 +443,52 @@ export function apply(ctx: Ctx): void {
     const id = activeHoliday()
     if (id === null) return null
     const item = holidayById(id)
-    return item !== null && item.enabled ? item.slot : null
+    if (item === null || !item.enabled) return null
+    return ruleSlots(item)[0] ?? null
   }
-  /** Every slot that can paint: the stored ones plus every slot the config names. */
-  const allSlots = (stored: readonly string[]): string[] => {
+  /**
+   * The slots boot hydrates, in no particular order: the FIRST image of every
+   * rule, today's holiday, and the image the current model paints.
+   *
+   * That first-image set is exactly what this plugin loaded per rule before
+   * multi-image existed — a rule card draws its first image as its thumbnail, so
+   * the settings page looks the same as it always did. Everything past the first
+   * image of a rule is read ON DEMAND: by the rotation (which warms the image it
+   * is about to need as soon as its schedule is armed) and by the settings page
+   * when a card is expanded. Hydrating every image of every rule here would mean
+   * twenty full-size data URLs over this channel before the first frame on a
+   * five-rule setup with four pictures each, which is the one cost this feature
+   * must not pay.
+   *
+   * The slot list the store knows about (`readPersisted().slots`) is deliberately
+   * NOT hydrated any more: an orphaned slot that no rule references has no card to
+   * appear on, so pulling its bytes over the channel at boot is pure waste. It
+   * stays on disk — and is still reported by the node half — until a rule
+   * references it again or it is deleted with its rule.
+   */
+  const bootSlots = (): string[] => {
     const holiday = todayHolidaySlot()
+    const firsts = cfg.rules
+      .map(r => r.images[0]?.slot)
+      .filter((slot): slot is string => slot !== undefined)
+    const current = prioritySlot()
     return Array.from(new Set([
-      ...stored,
-      ...cfg.rules.map(r => r.slot),
+      ...firsts,
       ...(holiday === null ? [] : [holiday]),
+      ...(current === null ? [] : [current]),
     ]))
   }
   /**
    * The slot that paints before anything else: the holiday in force when there
-   * is one, otherwise the slot the current model's rule uses. A holiday outranks
-   * the rule here for the same reason it outranks it when painting.
+   * is one, otherwise the FIRST image of the current model's rule. A holiday
+   * outranks the rule here for the same reason it outranks it when painting.
+   *
+   * Always the first image (never the one `advanceOnSwitch` would step to): boot
+   * paints without an advance, and hydrating an image the first frame is not going
+   * to use would leave the frame blank until the real one arrived.
    */
   const prioritySlot = (): string | null =>
-    todayHolidaySlot() ?? matchRule(cfg.rules, modelText).rule?.slot ?? null
+    todayHolidaySlot() ?? matchRule(cfg.rules, modelText).rule?.images[0]?.slot ?? null
   void (async () => {
     const persisted = await loadPersisted()
     if (persisted !== null) {
@@ -307,7 +496,7 @@ export function apply(ctx: Ctx): void {
       const first = prioritySlot()
       // The active rule's bytes paint first; the remaining slots stream in after
       // so a large multi-rule setup never delays the first frame.
-      const slots = allSlots(persisted.slots)
+      const slots = bootSlots()
       const order = first === null ? slots : [first, ...slots.filter(s => s !== first)]
       for (const slot of order) {
         await loadSlot(slot)
@@ -368,25 +557,34 @@ export function apply(ctx: Ctx): void {
    * a color the user picked (or a previous extraction produced) is never
    * overwritten, so this cannot fight a deliberate choice.
    *
+   * `slot` names the image that just arrived, because a rule's images can now
+   * disagree about their palette and the one the user just added is the one they
+   * are looking at. Omitted (or unknown) falls back to the rule's first image.
+   *
    * The decode is asynchronous, so the "still empty?" question is asked AGAIN on
    * arrival: a color chosen while it ran must win over the one being computed.
    */
-  const maybeAutoExtract = async (id: string): Promise<void> => {
+  const maybeAutoExtract = async (id: string, slot?: string): Promise<void> => {
     if (!cfg.autoExtract) return
     const rule = ruleById(id)
     if (rule === null || rule.color !== null) return
-    const url = displayImageOf(rule.slot)
+    const image = rule.images.find(i => i.slot === slot) ?? rule.images[0]
+    if (image === undefined) return
+    const url = displayImageOf(image.slot)
     if (url === null) return
     let hsl: [number, number, number] | null = null
-    try { hsl = await extractWallpaperColor(url, rule.bgState) } catch { hsl = null }
+    try { hsl = await extractWallpaperColor(url, image.bgState) } catch { hsl = null }
     if (hsl === null) return
     const current = ruleById(id)
     if (current === null || current.color !== null) return
+    // Same as `extractColor`: this color can be the one that makes the rule
+    // paintable, and it arrives AFTER the upload's own repaint — so the winner is
+    // sampled here, on arrival, and the interface follows at once.
+    const winner = winnerId()
     current.color = hsl
     rulesRev++
     saveConfig()
-    if (id === activeRuleId) applyActive()
-    else sync()
+    repaintIfMoved(id, winner)
   }
 
   // ── 8. Section injection ──────────────────────────────────────────────────
@@ -423,7 +621,9 @@ export function apply(ctx: Ctx): void {
       readModelFacts,
       imageOf: (slot: string) => displayImageOf(slot),
       addRule: (): string => {
-        const rule = newRule(nextRuleId(), nextSlot())
+        // No slot is allocated here: a new rule holds no image, so the first free
+        // slot is taken when the first picture arrives (see newRule).
+        const rule = newRule(nextRuleId())
         cfg.rules.push(rule)
         rulesRev++
         persistConfig()
@@ -434,9 +634,18 @@ export function apply(ctx: Ctx): void {
         const idx = cfg.rules.findIndex(r => r.id === id)
         if (idx < 0) return
         const [rule] = cfg.rules.splice(idx, 1)
-        if (rule !== undefined && !cfg.rules.some(r => r.slot === rule.slot)) {
-          setImage(rule.slot, null)
-          void deleteImage(rule.slot)
+        if (rule !== undefined) {
+          // A slot is released only when NOTHING else points at it — another rule
+          // (its own images included, hence the re-scan after the splice) or a
+          // holiday entry. Multi-image made this a per-slot question instead of a
+          // whole-rule one, and a wrong answer here deletes a picture another
+          // card is still showing.
+          const stillUsed = takenSlots()
+          for (const slot of ruleSlots(rule)) {
+            if (stillUsed.has(slot)) continue
+            setImage(slot, null)
+            void deleteImage(slot)
+          }
         }
         rulesRev++
         persistConfig()
@@ -455,51 +664,199 @@ export function apply(ctx: Ctx): void {
       setRule: (id: string, patch: Partial<BgRule>): void => {
         const rule = ruleById(id)
         if (rule === null) return
+        // Text/color/match/slider edits all arrive here, and all of them can move
+        // the resolution (see `shouldRepaint`), so the winner is sampled first.
+        const winner = winnerId()
         Object.assign(rule, patch)
-        const normalized = normalizeRule(rule)
-        if (normalized !== null) Object.assign(rule, normalized)
+        // The shared sanitizer, so a live edit can never hold a value the next
+        // load would clamp differently (see ./schema).
+        normalizeRuleInPlace(rule)
         rulesRev++
         // Text/color/slider edits arrive per keystroke and per pointer move, so
         // the write is coalesced; structural edits below stay immediate.
         saveConfig()
-        if (id === activeRuleId) applyActive()
-        else sync()
+        repaintIfMoved(id, winner)
       },
-      setRuleImage: (id: string, dataUrl: string | null): void => {
+      addRuleImages: (id: string, dataUrls: readonly string[]): void => {
         const rule = ruleById(id)
-        if (rule === null) return
-        setImage(rule.slot, dataUrl)
-        void (dataUrl === null ? deleteImage(rule.slot) : writeImage(rule.slot, dataUrl))
-        if (id === activeRuleId) applyActive()
-        else sync()
+        if (rule === null || dataUrls.length === 0) return
+        // This is the edit that most often CREATES the winner: a rule that just
+        // came out of "+ 新增规则" has no picture, so it is not the active rule —
+        // and the picture it is being given now is exactly what makes it one.
+        const winner = winnerId()
+        for (const dataUrl of dataUrls) {
+          const slot = nextSlot()
+          const image = { slot, bgState: { ...DEFAULT_BG_STATE } }
+          rule.images.push(image)
+          setImage(slot, dataUrl)
+          // One write per image, immediately: adding a picture is a structural
+          // edit, and losing the batch to a page close would leave the config
+          // referencing slots the disk never received.
+          void writeImage(slot, dataUrl)
+        }
+        rulesRev++
+        persistConfig()
+        repaintIfMoved(id, winner)
         // A rule that has never been themed should simply come out themed; an
         // explicit color (or a cleared one the user set on purpose) is left be.
-        if (dataUrl !== null) void maybeAutoExtract(id)
+        // The LAST image added is the one being looked at.
+        void maybeAutoExtract(id, rule.images[rule.images.length - 1]?.slot)
       },
-      setRuleImageFromUrl: async (id: string, url: string): Promise<FetchResult> => {
+      removeRuleImage: (id: string, slot: string): void => {
+        const rule = ruleById(id)
+        if (rule === null) return
+        const idx = rule.images.findIndex(i => i.slot === slot)
+        if (idx < 0) return
+        // Removing can also move the winner — it is the mirror image of the
+        // upload above: the rule that was painting may have just lost the last
+        // thing it had to paint with.
+        const winner = winnerId()
+        // The LAST image can be removed too, and the rule is then simply empty: a
+        // rule with a color of its own still paints (the interface, no wallpaper)
+        // and one with neither is skipped by `ruleCanPaint` until something
+        // arrives. Refusing this (the first cut of the feature did) left a cleared
+        // entry behind, and that entry sat at position 1 — so the next upload
+        // became image 2 of a rule that kept painting nothing, with no way back.
+        rule.images.splice(idx, 1)
+        // The painted image may be the one that just went away, so the index has
+        // to move with it — and `applyActive` below resets it when the rule itself
+        // is the active one.
+        if (id === activeRuleId) setRotIndex(0)
+        rulesRev++
+        persistConfig()
+        if (!takenSlots().has(slot)) {
+          setImage(slot, null)
+          void deleteImage(slot)
+        }
+        repaintIfMoved(id, winner)
+      },
+      moveRuleImage: (id: string, slot: string, dir: -1 | 1): void => {
+        const rule = ruleById(id)
+        if (rule === null) return
+        const idx = rule.images.findIndex(i => i.slot === slot)
+        const to = idx + dir
+        if (idx < 0 || to < 0 || to >= rule.images.length) return
+        const winner = winnerId()
+        const [image] = rule.images.splice(idx, 1)
+        rule.images.splice(to, 0, image!)
+        rulesRev++
+        // Rotation walks the list, so reordering it is a change the timer's
+        // signature cannot see (the count is the same) — re-arm explicitly.
+        if (id === activeRuleId) { setRotIndex(Math.max(0, to)); scheduleRotation(true) }
+        persistConfig()
+        repaintIfMoved(id, winner)
+      },
+      setCurrentImage: (id: string, slot: string): void => {
+        const rule = ruleById(id)
+        if (rule === null) return
+        const idx = rule.images.findIndex(i => i.slot === slot)
+        if (idx < 0) return
+        const winner = winnerId()
+        // "First" is what the rule paints when nothing rotates, so promoting an
+        // image is a real change of the default look, not just of the order.
+        const [image] = rule.images.splice(idx, 1)
+        rule.images.unshift(image!)
+        rulesRev++
+        if (id === activeRuleId) { setRotIndex(0); scheduleRotation(true) }
+        persistConfig()
+        repaintIfMoved(id, winner)
+      },
+      setImageFraming: (id: string, slot: string, bgState: BgState): void => {
+        const rule = ruleById(id)
+        const image = rule?.images.find(i => i.slot === slot)
+        if (image === undefined) return
+        const winner = winnerId()
+        image.bgState = bgState
+        normalizeRuleInPlace(rule!)
+        rulesRev++
+        saveConfig()
+        // Framing is per image, so a repaint of the CURRENT image is what makes
+        // the editor's commit visible; `applyWp` re-reads the framing of whatever
+        // is painted, which is this image only while it is the current one.
+        repaintIfMoved(id, winner)
+      },
+      setRuleRotation: (id: string, patch: Partial<BgRule['rotate']>): void => {
+        const rule = ruleById(id)
+        if (rule === null) return
+        patchRotation(rule, patch)
+        rulesRev++
+        persistConfig()
+        // Turning the rotation on has to be able to paint at once, and turning it
+        // off has to be able to stop the timer at once: both go through the
+        // signature check in `scheduleRotation`.
+        scheduleRotation()
+        sync()
+      },
+      rotateNow: (id: string): void => {
+        const rule = ruleById(id)
+        // Only the ACTIVE rule can step: the image index describes what is on
+        // screen, and a rule that is not painting has nothing on screen to change.
+        if (rule === null || id !== activeRuleId) return
+        const next = nextIndex(rule.images.length, rule.rotate.order, imageIndexOf(rule))
+        if (next === null) return
+        setRotIndex(next)
+        paintImage(rule, next)
+        // A manual step restarts the dwell, so the tick that was already on its
+        // way does not follow the user's click a second later.
+        scheduleRotation(true)
+      },
+      loadRuleImages: async (id: string): Promise<void> => {
+        const rule = ruleById(id)
+        if (rule === null) return
+        // Sequential on purpose: an expanded card wants its thumbnails in list
+        // order, and firing ten parallel reads over one RPC channel would only
+        // race them into the cache in a random order.
+        for (const slot of ruleSlots(rule)) await loadSlot(slot)
+        sync()
+      },
+      setRuleImage: (id: string, slot: string, dataUrl: string | null): void => {
+        const rule = ruleById(id)
+        if (rule === null || !rule.images.some(i => i.slot === slot)) return
+        const winner = winnerId()
+        setImage(slot, dataUrl)
+        void (dataUrl === null ? deleteImage(slot) : writeImage(slot, dataUrl))
+        repaintIfMoved(id, winner)
+        // A rule that has never been themed should simply come out themed; an
+        // explicit color (or a cleared one the user set on purpose) is left be.
+        if (dataUrl !== null) void maybeAutoExtract(id, slot)
+      },
+      addRuleImageFromUrl: async (id: string, url: string): Promise<FetchResult> => {
         const rule = ruleById(id)
         if (rule === null) return { ok: false, error: 'unknown rule' }
-        const res = await fetchImageUrl(rule.slot, url)
-        if (res.ok) {
-          setImage(rule.slot, res.dataUrl ?? null)
-          if (id === activeRuleId) applyActive()
-          else sync()
-          void maybeAutoExtract(id)
-        }
+        // The slot is allocated before the download so the node half can write
+        // straight into it (its `fetchImageUrl` is slot-addressed); a failed
+        // download simply leaves the new entry empty, which is removed again
+        // right here rather than showing a broken thumbnail.
+        const slot = nextSlot()
+        const res = await fetchImageUrl(slot, url)
+        if (!res.ok) return res
+        // Sampled here, not before the download: the list is only touched now.
+        const winner = winnerId()
+        rule.images.push({ slot, bgState: { ...DEFAULT_BG_STATE } })
+        setImage(slot, res.dataUrl ?? null)
+        rulesRev++
+        persistConfig()
+        repaintIfMoved(id, winner)
+        void maybeAutoExtract(id, slot)
         return res
       },
-      extractColor: async (id: string): Promise<boolean> => {
+      extractColor: async (id: string, slot?: string): Promise<boolean> => {
         const rule = ruleById(id)
         if (rule === null) return false
-        const url = displayImageOf(rule.slot)
+        const image = rule.images.find(i => i.slot === slot) ?? rule.images[0]
+        if (image === undefined) return false
+        const url = displayImageOf(image.slot)
         if (url === null) return false
-        const hsl = await extractWallpaperColor(url, rule.bgState)
+        const hsl = await extractWallpaperColor(url, image.bgState)
         if (hsl === null) return false
+        // The color is what makes a picture-less rule paintable at all, so this
+        // edit can hand the interface a rule it was not showing (the "从本图提取
+        // 之后色没上来" half of the report).
+        const winner = winnerId()
         rule.color = hsl
         rulesRev++
         saveConfig()
-        if (id === activeRuleId) applyActive()
-        else sync()
+        repaintIfMoved(id, winner)
         return true
       },
       setOps: (ops: PartOpacities): void => { cfg.opacities = ops; applyWp(); sync(); saveConfig() },
@@ -526,20 +883,25 @@ export function apply(ctx: Ctx): void {
         applyActive()
       },
 
-      // Download every rule plus its image as one JSON file.
+      // Download every rule plus its images as one JSON file.
       exportTheme: (): void => {
         const images: Record<string, string> = {}
-        // Rule slots only. A holiday's wallpaper belongs to the package and is
-        // served from there, so writing it into a theme file would ship ~970 KB
-        // of base64 that every install already has — and that nothing could ever
-        // restore it TO, since the slot is read-only.
-        const slots = cfg.rules.map(r => r.slot)
+        // Rule slots only, but ALL of them: a theme file that carried just each
+        // rule's first image would silently drop the rest of a rotation on the
+        // way out, and the import below would restore a smaller rule set than the
+        // one that was exported. A holiday's wallpaper belongs to the package and
+        // is served from there, so it is still never written into a theme file —
+        // that would ship ~970 KB of base64 every install already has, to a slot
+        // nothing could restore it to (it is read-only).
+        const slots = cfg.rules.flatMap(ruleSlots)
         for (const slot of slots) {
           const url = imageOf(slot)
           if (url !== null) images[slot] = url
         }
         const payload = {
-          version: 3,
+          // 4 = multi-image per rule. 3 (and older) still imports: the sanitizer
+          // lifts each rule's single `slot`/`bgState` into a one-image list.
+          version: 4,
           exportedAt: new Date().toISOString(),
           config: cfg,
           images,
@@ -562,11 +924,11 @@ export function apply(ctx: Ctx): void {
           adoptConfig(d.config)
           const incoming = (d.images ?? {}) as Record<string, unknown>
           const keep = new Set<string>()
-          // Rule slots only — the same set the export writes. A holiday slot that
-          // an older theme file still carries therefore falls outside `keep` and
-          // is swept below; the node half refuses to write such a slot either way,
-          // so it is inert from both directions.
-          for (const slot of cfg.rules.map(r => r.slot)) {
+          // Every slot the imported config references — the same set the export
+          // writes. A holiday slot that an older theme file still carries falls
+          // outside `keep` and is swept below; the node half refuses to write such
+          // a slot either way, so it is inert from both directions.
+          for (const slot of cfg.rules.flatMap(ruleSlots)) {
             keep.add(slot)
             const raw = incoming[slot]
             if (typeof raw === 'string' && /^data:image\//.test(raw)) {

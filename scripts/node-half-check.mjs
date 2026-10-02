@@ -77,7 +77,7 @@ check('one entry per built-in holiday, in HOLIDAYS order',
   JSON.stringify(h.items.map(i => i.id)) === JSON.stringify(['mid-autumn', 'national-day']),
   JSON.stringify(h.items.map(i => i.id)))
 check('slots are the fixed holiday slots, not rule slots',
-  JSON.stringify(h.items.map(i => i.slot)) === JSON.stringify(['h-midautumn', 'h-nationalday']))
+  JSON.stringify(h.items.map(i => i.images[0].slot)) === JSON.stringify(['h-midautumn', 'h-nationalday']))
 check('bgMode defaults to fill, not a rule default', h.items.every(i => i.bgMode === 'fill'))
 check('each entry is switched on by default', h.items.every(i => i.enabled === true))
 check('color starts filled in — it is a constant, not derived from the art',
@@ -169,17 +169,19 @@ await call('writeConfig', {
     holidays: {
       enabled: true,
       items: [
-        { ...first.holidays.items[0], slot: 'm1', id: 'mid-autumn' },
-        { ...first.holidays.items[1], slot: 'm1', id: 'national-day' },
-        { id: 'not-a-real-holiday', slot: 'm2', enabled: true },
+        { ...first.holidays.items[0], images: [{ slot: 'm1' }], slot: 'm1', id: 'mid-autumn' },
+        { ...first.holidays.items[1], images: [{ slot: 'm1' }, { slot: 'm2' }], id: 'national-day' },
+        { id: 'not-a-real-holiday', images: [{ slot: 'm2' }], enabled: true },
       ],
     },
   },
 })
 const repaired = (await readConfig()).holidays
 check('a lying slot is replaced by the definition slot',
-  JSON.stringify(repaired.items.map(i => i.slot)) === JSON.stringify(['h-midautumn', 'h-nationalday']),
-  JSON.stringify(repaired.items.map(i => i.slot)))
+  JSON.stringify(repaired.items.map(i => i.images[0].slot)) === JSON.stringify(['h-midautumn', 'h-nationalday']),
+  JSON.stringify(repaired.items.map(i => i.images[0].slot)))
+check('a holiday can never end up with more than its one packaged image',
+  repaired.items.every(i => i.images.length === 1))
 check('an unknown holiday id is dropped', repaired.items.length === 2)
 
 // The switch is an off-ramp, so only an explicit `false` takes it down: this is
@@ -199,6 +201,140 @@ await call('writeConfig', { config: withoutHolidays })
 check('a config with no holiday block heals to the defaults',
   (await readConfig()).holidays.items.length === 2)
 
+console.log('\n--- a rule owns a LIST of images (0.7), and old configs still load ---')
+// A rule exactly as 0.6 wrote it: a single `slot` + `bgState` pair. The shared
+// sanitizer has to lift it into the image list, or every existing profile loses
+// its wallpaper on upgrade.
+const legacyRule = {
+  id: 'r-legacy', slot: 'm7', match: 'legacy', enabled: true, color: null,
+  bgMode: 'fit', wallpaperOpacity: 0.8, blur: 3, bgState: { zoom: 2.5, x: 0.25, y: 0.75, iw: 1920, ih: 1080 },
+}
+const legacyWarnings = []
+const realWarn = console.warn
+console.warn = (...a) => { legacyWarnings.push(a.join(' ')) }
+await call('writeConfig', { config: { ...first, rules: [legacyRule] } })
+console.warn = realWarn
+const lifted = (await readConfig()).rules[0]
+check('the legacy slot became the rule\'s only image', lifted.images.length === 1 && lifted.images[0].slot === 'm7',
+  JSON.stringify(lifted.images))
+check('and its framing came along', lifted.images[0].bgState.zoom === 2.5 && lifted.images[0].bgState.iw === 1920,
+  JSON.stringify(lifted.images[0].bgState))
+check('the legacy fields are gone from the shape', !('slot' in lifted) && !('bgState' in lifted),
+  JSON.stringify(Object.keys(lifted)))
+check('and are not reported as drift (the sanitizer lifts them on purpose)',
+  !legacyWarnings.some(w => w.includes('rules[].slot') || w.includes('rules[].bgState')),
+  JSON.stringify(legacyWarnings))
+check('a legacy rule gets the shipped rotation defaults',
+  lifted.rotate.enabled === false && lifted.rotate.intervalMs === 60_000
+  && lifted.rotate.order === 'order' && lifted.rotate.advanceOnSwitch === false && lifted.rotate.fadeMs === 320,
+  JSON.stringify(lifted.rotate))
+
+// The list itself: order, dedupe, and what an unusable entry does.
+const multiRule = {
+  id: 'r-multi', match: 'multi', enabled: true, color: null, bgMode: 'fill',
+  wallpaperOpacity: 1, blur: 0,
+  images: [
+    { slot: 'm2', bgState: { zoom: 1, x: 0, y: 0, iw: 800, ih: 600 } },
+    { slot: 'm3', bgState: { zoom: 1.5, x: 0.1, y: 0.2, iw: 1600, ih: 900 } },
+    { slot: 'm3', bgState: { zoom: 9 } },
+    { slot: 'bad slot!', bgState: {} },
+    { slot: 'm4', bgState: { zoom: 0.5 } },
+  ],
+  rotate: { enabled: true, intervalMs: 30_000, order: 'shuffle', advanceOnSwitch: true, fadeMs: 700 },
+}
+await call('writeConfig', { config: { ...first, rules: [legacyRule, multiRule] } })
+const rules = (await readConfig()).rules
+check('every image keeps its order', JSON.stringify(rules[1].images.map(i => i.slot)) === JSON.stringify(['m2', 'm3', 'm4']),
+  JSON.stringify(rules[1].images.map(i => i.slot)))
+check('a duplicated slot is dropped', rules[1].images.length === 3)
+check('an unusable slot is dropped', !rules[1].images.some(i => i.slot.startsWith('bad')))
+check('each image keeps its OWN framing',
+  rules[1].images[1].bgState.zoom === 1.5 && rules[1].images[2].bgState.zoom === 0.5,
+  JSON.stringify(rules[1].images.map(i => i.bgState.zoom)))
+check('the rotation block survives as written',
+  JSON.stringify(rules[1].rotate) === JSON.stringify(multiRule.rotate), JSON.stringify(rules[1].rotate))
+
+// An EMPTY image list is a legitimate rule, and it has to survive the round trip
+// as an empty list: forcing an entry back in is what produced a phantom blank
+// image at position 1 that could never be deleted, so a rule that uploaded a
+// picture afterwards kept painting nothing.
+const emptied = { ...multiRule, id: 'r-empty', images: [] }
+await call('writeConfig', { config: { ...first, rules: [emptied] } })
+const empty = (await readConfig()).rules
+check('a rule the user emptied stays empty (nothing is conjured back in)',
+  empty.length === 1 && Array.isArray(empty[0].images) && empty[0].images.length === 0,
+  JSON.stringify(empty[0]?.images))
+check('an emptied rule keeps its identity and settings',
+  empty[0].id === 'r-empty' && empty[0].match === 'multi' && empty[0].bgMode === 'fill')
+// A list whose entries are ALL unusable is the same state, not a broken rule.
+await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, id: 'r-junk', images: [{ slot: 'no good' }] }] } })
+const junk = (await readConfig()).rules
+check('a list of entirely unusable slots lands as an empty rule, not as a broken one',
+  junk.length === 1 && junk[0].images.length === 0, JSON.stringify(junk.map(r => r.images)))
+// The genuine pre-0.7 garbage — no list at all AND no usable slot — is still dropped.
+await call('writeConfig', { config: { ...first, rules: [{ id: 'r-noslot', match: 'x', enabled: true }] } })
+check('a rule that names no image anywhere is still dropped',
+  (await readConfig()).rules.length === 0)
+// The shape the host announces is what the browser half gates its writes on: it
+// holds EVERY write against a host that reports less than it writes (see
+// SCHEMA_VERSION in ./src/schema), because that host's sanitizer would drop the
+// rules it cannot read. 3 = a rule may keep an empty image list.
+const announced = (await call('read')).value.schema
+check('the host announces the shape it sanitizes with', announced === 3, String(announced))
+// An emptied rule keeps the color it had: that color is what it paints while it
+// has no wallpaper, so it is not a field to clean up.
+await call('writeConfig', {
+  config: { ...first, rules: [{ ...emptied, color: [210, 0.5, 0.4], match: 'deepseek' }] },
+})
+const kept = (await readConfig()).rules
+check('an emptied rule keeps its theme color (that is what it paints now)',
+  kept.length === 1 && kept[0].images.length === 0 && Array.isArray(kept[0].color) && kept[0].color[0] === 210,
+  JSON.stringify({ images: kept[0]?.images, color: kept[0]?.color }))
+
+// Hostile / stale values go through the same clamp every half shares.
+await call('writeConfig', {
+  config: {
+    ...first,
+    rules: [{ ...multiRule, rotate: { enabled: 'yes', intervalMs: 10, order: 'zigzag', advanceOnSwitch: 'yes', fadeMs: 999_999 } }],
+  },
+})
+const clamped = (await readConfig()).rules[0].rotate
+check('only an explicit true turns the rotation on', clamped.enabled === false, JSON.stringify(clamped.enabled))
+check('a too-fast dwell is clamped up', clamped.intervalMs === 5_000, String(clamped.intervalMs))
+check('an unknown order falls back to sequential', clamped.order === 'order', String(clamped.order))
+check('a truthy-but-not-true switch stays off', clamped.advanceOnSwitch === false, String(clamped.advanceOnSwitch))
+check('an absurd fade is clamped', clamped.fadeMs === 3_000, String(clamped.fadeMs))
+// 0 fade is a legal value (a hard cut), so it must not be read as "absent".
+await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, rotate: { ...multiRule.rotate, fadeMs: 0 } }] } })
+check('a zero fade is kept, not defaulted', (await readConfig()).rules[0].rotate.fadeMs === 0)
+
+// A field only the (newer) client knows about, one level down inside a rule.
+const nestedWarnings = []
+console.warn = (...a) => { nestedWarnings.push(a.join(' ')) }
+await call('writeConfig', {
+  config: { ...first, rules: [{ ...multiRule, rotate: { ...multiRule.rotate, bogus: 1 } }] },
+})
+console.warn = realWarn
+check('nested drift inside rules[].rotate is reported',
+  nestedWarnings.some(w => w.includes('rules[].rotate.bogus')), JSON.stringify(nestedWarnings))
+check('and the unknown key is not persisted', !('bogus' in (await readConfig()).rules[0].rotate))
+
+// Every image of one rule is independent bytes on disk — that is what makes a
+// per-image delete safe and a rotation possible at all.
+const pngA = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+await call('writeConfig', { config: { ...first, rules: [multiRule] } })
+check('image 1 of a rule writes', (await call('writeImage', { slot: 'm2', dataUrl: pngUrl })).value === true)
+check('image 2 of the same rule writes independently',
+  (await call('writeImage', { slot: 'm3', dataUrl: `data:image/png;base64,${pngA.toString('base64')}` })).value === true)
+const stored = (await call('read')).value.slots
+check('both appear in the stored-slot list',
+  ['m2', 'm3'].every(s => stored.includes(s)) === true)
+check('deleting one leaves the other', await (async () => {
+  await call('deleteImage', { slot: 'm2' })
+  return (await dataUrl('m2')) === null && (await dataUrl('m3')) !== null
+})())
+await call('deleteImage', { slot: 'm3' })
+
 console.log('\n--- the config on disk round-trips ---')
 const onDisk = JSON.parse(readFileSync(join(DATA, 'theme-config.json'), 'utf8'))
 check('holidays are persisted', Array.isArray(onDisk.holidays?.items) && onDisk.holidays.items.length === 2)
@@ -207,6 +343,12 @@ check('and the fixed colors are what landed on disk',
   near(onDisk.holidays.items[0]?.color?.[0], 222.85714285714286)
   && near(onDisk.holidays.items[1]?.color?.[2], 0.9607843137254902),
   JSON.stringify(onDisk.holidays.items.map(i => i.color)))
+// The multi-image rule is written in the NEW shape only — no `slot`/`bgState`
+// leftovers that a future reader could mistake for the current fields.
+check('the rule list lands on disk as image lists',
+  Array.isArray(onDisk.rules?.[0]?.images) && onDisk.rules[0].images.length === 3
+  && !('slot' in onDisk.rules[0]) && !('bgState' in onDisk.rules[0]),
+  JSON.stringify(onDisk.rules?.[0]))
 
 rmSync(HOME, { recursive: true, force: true })
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)

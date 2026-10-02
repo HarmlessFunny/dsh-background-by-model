@@ -214,11 +214,17 @@ function inMidAutumnRange(civil: { m: number; d: number }): boolean {
  * The bits of a holiday entry the picker needs. Structural on purpose: the
  * persisted shape lives in ./schema, and this module importing THAT would close a
  * cycle, since ./schema imports `HOLIDAYS` from here.
+ *
+ * The image LIST (rather than one slot) is what a rule owns since 0.7, and this
+ * mirrors just enough of it to ask the picker's only question: "is there anything
+ * to paint?". A holiday's own list is always the single packaged image (see
+ * `defaultHolidayRule`), so the shape stays a formality for it — and a rule that
+ * happens to be passed in answers through the same field.
  */
 export interface HolidayCandidate {
   id: string
-  slot: string
   enabled: boolean
+  images: readonly { slot: string }[]
 }
 
 /**
@@ -249,5 +255,5 @@ export function pickHoliday<T extends HolidayCandidate>(
   if (!master || todayId === null) return null
   const item = items.find(i => i.id === todayId)
   if (item === undefined || !item.enabled) return null
-  return hasImage(item.slot) ? item : null
+  return item.images.some(image => hasImage(image.slot)) ? item : null
 }

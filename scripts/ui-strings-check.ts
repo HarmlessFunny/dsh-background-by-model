@@ -71,6 +71,9 @@ const TABLE_KEYS: Array<[string, RegExp, string]> = [
   ['components/pages/ModelBgPage.tsx', /'(statusNote[A-Za-z]+)'/g, 'MODEL_NOTE_KEYS'],
   ['components/pages/ModelBgPage.tsx', /key:\s*'(bgMode[A-Za-z]+)'/g, 'BG_MODES'],
   ['components/pages/InterfacePage.tsx', /labelKey:\s*'(ui[A-Za-z]+)'/g, 'PARTS'],
+  // The dwell-time presets are rendered from ROTATE_PRESETS, so their labels are
+  // reached through a table just like the two above.
+  ['rotation.ts', /key:\s*'(rot[A-Za-z0-9]+)'/g, 'ROTATE_PRESETS'],
 ]
 for (const [rel, re, table] of TABLE_KEYS) {
   const src = sources.get(join(CLIENT, rel))

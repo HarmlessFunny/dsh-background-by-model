@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import type { BgMode, BgRule, ThemeSectionProps, ThemeStoreState } from '../../types'
 import { cfg, PALETTE } from '../../state'
 import { matchRule } from '../../modelbg'
+import { ROTATE_PRESETS } from '../../rotation'
 import { readImg } from '../../utils/image'
 import { hslToHsv, hsvToHsl, hslToRgb } from '../../utils/color'
 import { ColorWheel } from '../ColorWheel'
@@ -70,6 +71,13 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
       </header>
 
       <section className="dab-card dab-rise" style={{ '--d': 1 } as CSSProperties}>
+        {/* A host process from before multi-image cannot read this bundle's config
+            shape, so writes are held (see canWriteConfig in ../../rpc). Saying it
+            out loud is the whole point: edits that silently do not persist are
+            worse than a line telling the user to restart DSH. */}
+        {store.hostStale ? (
+          <p className="dab-hint dab-stale" style={{ marginBottom: 10 }}>{t('hostStaleHint')}</p>
+        ) : null}
         <div className="dab-swatch-title">{t('tryoutTitle')}</div>
         <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <input
@@ -117,6 +125,10 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
           {rules.map((rule, i) => (
             <RuleCard
               key={rule.id} p={p} rule={rule} index={i} total={rules.length}
+              // Which of THIS rule's images is on screen right now; -1 for every
+              // rule that is not the one painting, so a card can never claim to be
+              // showing something it is not.
+              liveIndex={rule.id === store.activeRuleId ? store.rotIndex : -1}
               active={rule.id === store.activeRuleId} notify={notify} />
           ))}
         </div>
@@ -129,12 +141,14 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
   )
 }
 
-function RuleCard({ p, rule, index, total, active, notify }: {
+function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
   p: ThemeSectionProps
   rule: BgRule
   index: number
   total: number
   active: boolean
+  /** Index of the image on screen (only meaningful while `active`); -1 = none. */
+  liveIndex: number
   notify: (msg: string, ok?: boolean) => void
 }) {
   const { t } = p
@@ -148,50 +162,108 @@ function RuleCard({ p, rule, index, total, active, notify }: {
   const [editorOpen, setEditorOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [extracting, setExtracting] = useState(false)
+  const [secDraft, setSecDraft] = useState<string | null>(null)
+  /** Whether the next file picked replaces the selected image or is added. */
+  const [replace, setReplace] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const url = p.imageOf(rule.slot)
+  // Which image this card is EDITING — deliberately independent of which image
+  // the rule is PAINTING: picking image 3 in the strip to fix its framing must not
+  // change the background under the dialog. Clamped on read, because removing an
+  // image can leave the selection past the end.
+  const [sel, setSel] = useState(0)
+  const selIdx = rule.images.length === 0 ? 0 : Math.min(sel, rule.images.length - 1)
+  const image = rule.images[selIdx]
+  const url = image === undefined ? null : p.imageOf(image.slot)
   const [h, s, l] = rule.color ?? SEED_COLOR
   const wheel = hslToHsv(h, s, l)
+
+  // Boot only reads a rule's FIRST image, so an expanded card pulls the rest in.
+  useEffect(() => {
+    if (open) void p.loadRuleImages(rule.id)
+    // The count is in the deps on purpose: adding an image to an open card has to
+    // hydrate it too (the bytes are already in memory then, so this is a no-op).
+  }, [open, rule.id, rule.images.length, p])
 
   const onColor = (nh: number, ns: number, nl: number): void => {
     const [sh, ss, sl] = hsvToHsl(nh, ns, nl)
     p.setRule(rule.id, { color: [sh, ss, sl] })
   }
 
-  const onFile = (f: File): void => {
-    readImg(f, d => { if (d !== null) p.setRuleImage(rule.id, d) })
+  const onFiles = (files: readonly File[]): void => {
+    const list = files.filter(f => f.type.startsWith('image/'))
+    if (list.length === 0) return
+    // "Replace" swaps the SELECTED image's bytes in place, which is what keeps its
+    // position in the rotation; "add" appends. One input serves both, and the mode
+    // is decided by the button that opened it.
+    if (replace) {
+      const slot = rule.images[selIdx]?.slot
+      if (slot !== undefined) readImg(list[0]!, d => { if (d !== null) p.setRuleImage(rule.id, slot, d) })
+      return
+    }
+    // Read every file, then hand them over in one batch: adding N images one at a
+    // time would persist a config that references slots whose bytes are still
+    // being decoded, and each add repaints the whole interface.
+    const out: string[] = []
+    // What the card will EDIT once the batch lands: the first picture of it. Adding
+    // pictures without moving the selection is what made an upload look like it had
+    // gone nowhere — the preview stayed on whatever was selected before, and for a
+    // rule that had just been emptied that was nothing at all.
+    const first = rule.images.length
+    let pending = list.length
+    list.forEach((f, i) => {
+      readImg(f, d => {
+        if (d !== null) out[i] = d
+        pending--
+        if (pending === 0) {
+          p.addRuleImages(rule.id, out.filter((x): x is string => typeof x === 'string'))
+          setSel(first)
+        }
+      })
+    })
   }
 
   const onDrop = (e: React.DragEvent): void => {
     e.preventDefault()
     setDragOver(false)
-    const f = e.dataTransfer.files?.[0]
-    if (f && f.type.startsWith('image/')) onFile(f)
+    const files = Array.from(e.dataTransfer.files ?? [])
+    if (files.length > 0) onFiles(files)
   }
 
   const applyUrl = async (): Promise<void> => {
-    const u = urlVal.trim()
-    if (!/^https?:\/\//i.test(u)) { setUrlErr(t('ruleUrlBadHttp')); return }
+    // One URL per line: pasting a list is how people actually collect wallpapers,
+    // and making them repeat the dialog once per picture is the kind of friction
+    // that keeps a rotation at two images.
+    const urls = urlVal.split(/\s+/).map(u => u.trim()).filter(u => u !== '')
+    if (urls.length === 0) { setUrlErr(t('ruleUrlBadHttp')); return }
+    if (urls.some(u => !/^https?:\/\//i.test(u))) { setUrlErr(t('ruleUrlBadHttp')); return }
     setUrlBusy(true)
     setUrlErr(null)
-    const res = await p.setRuleImageFromUrl(rule.id, u)
-    setUrlBusy(false)
-    if (res.ok) {
-      setUrlOpen(false)
-      setUrlVal('')
-    } else {
-      setUrlErr(res.error === 'invalid url' || res.error === 'unsupported scheme'
-        ? t('ruleUrlBadHttp')
-        : (res.error ?? t('ruleUrlFail')))
+    // Sequential: the node half downloads each one, and firing them all at once
+    // would interleave N downloads with no useful progress to show.
+    const first = rule.images.length
+    for (const u of urls) {
+      const res = await p.addRuleImageFromUrl(rule.id, u)
+      if (!res.ok) {
+        setUrlBusy(false)
+        setUrlErr(res.error === 'invalid url' || res.error === 'unsupported scheme'
+          ? t('ruleUrlBadHttp')
+          : (res.error ?? t('ruleUrlFail')))
+        return
+      }
     }
+    setUrlBusy(false)
+    setUrlOpen(false)
+    setUrlVal('')
+    // Same rule as the file picker: show the user what they just added.
+    setSel(first)
   }
 
   const onExtract = async (): Promise<void> => {
     if (url === null || extracting) return
     setExtracting(true)
     try {
-      const ok = await p.extractColor(rule.id)
+      const ok = await p.extractColor(rule.id, image?.slot)
       notify(ok ? t('extractDone') : t('extractFail'), ok)
     } catch {
       notify(t('extractFail'), false)
@@ -210,7 +282,7 @@ function RuleCard({ p, rule, index, total, active, notify }: {
     if (url !== null) {
       setExtracting(true)
       try {
-        if (await p.extractColor(rule.id)) return
+        if (await p.extractColor(rule.id, image?.slot)) return
       } catch {
         // fall through to the seed
       } finally {
@@ -221,6 +293,30 @@ function RuleCard({ p, rule, index, total, active, notify }: {
   }
 
   const cls = `dab-rule${active ? ' is-active' : ''}${rule.enabled ? '' : ' is-off'}`
+  const rotatable = rule.images.length >= 2
+  const preset = ROTATE_PRESETS.find(x => x.ms === rule.rotate.intervalMs)
+  const selSlot = image?.slot ?? null
+  const moveSel = (dir: -1 | 1): void => { if (selSlot !== null) p.moveRuleImage(rule.id, selSlot, dir) }
+  const removeSel = (): void => {
+    if (selSlot === null) return
+    // Removing the LAST image is allowed: the rule simply becomes empty and paints
+    // nothing until a picture arrives, which is what the hint under the preview
+    // has always said. (Refusing it left a cleared entry behind — see
+    // removeRuleImage in ../../index.)
+    const at = selIdx
+    p.removeRuleImage(rule.id, selSlot)
+    setSel(Math.max(0, Math.min(at, rule.images.length - 2)))
+  }
+  /** Commit the custom dwell time the moment it is typed (seconds → ms). */
+  const commitSeconds = (): void => {
+    if (secDraft === null) return
+    const secs = Number(secDraft.trim())
+    setSecDraft(null)
+    if (!Number.isFinite(secs) || secs <= 0) return
+    // The shared sanitizer clamps to ROTATE_MIN_MS..ROTATE_MAX_MS, so this cannot
+    // store a value the next load would rewrite.
+    p.setRuleRotation(rule.id, { intervalMs: Math.round(secs * 1000) })
+  }
 
   return (
     <section className={cls}>
@@ -253,14 +349,15 @@ function RuleCard({ p, rule, index, total, active, notify }: {
       {open ? (
         <div className="dab-rule-body">
           <div className="dab-rule-cols">
-            {/* ── image + layout ─────────────────────────────────────────── */}
+            {/* ── image strip + layout ───────────────────────────────────── */}
             <div>
-              <div
-                className={`dab-rule-thumb${dragOver ? ' is-over' : ''}`}
-                onClick={() => fileRef.current?.click()}
-                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={onDrop}>
+              {/* Big preview of the SELECTED image — the card used to show its
+                  only image here, so the panel keeps the same visual weight. It
+                  is deliberately inert: dropping onto the strip below ADDS,
+                  while "replace" stays an explicit action on the labelled
+                  button, and a preview that quietly swallowed a click was the
+                  one thing this card's users could not predict. */}
+              <div className="dab-rule-thumb">
                 {url !== null
                   ? <img src={url} alt="" draggable={false} />
                   : (
@@ -271,21 +368,89 @@ function RuleCard({ p, rule, index, total, active, notify }: {
                   )}
               </div>
 
+              {/* The strip. One item per image, in the order the rotation walks
+                  them; the edited one is ringed, the PAINTED one is marked while
+                  this rule is the live rule. Dropping files anywhere on it adds
+                  them (several at once — a rotation is built in batches). */}
+              <div
+                className={`dab-strip${dragOver ? ' is-over' : ''}`}
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={onDrop}>
+                {rule.images.map((img, i) => {
+                  const thumb = p.imageOf(img.slot)
+                  return (
+                    <button
+                      key={img.slot} type="button"
+                      className={`dab-strip-item${i === selIdx ? ' is-sel' : ''}${liveIndex === i ? ' is-live' : ''}`}
+                      title={`${i + 1} / ${rule.images.length}`}
+                      onClick={() => setSel(i)}>
+                      {thumb !== null
+                        ? <img src={thumb} alt="" draggable={false} />
+                        : <span className="dab-strip-wait" />}
+                      <span className="dab-strip-num">{i + 1}</span>
+                      {liveIndex === i ? <span className="dab-strip-live" title={t('rotShowing')} /> : null}
+                    </button>
+                  )
+                })}
+                <button type="button" className="dab-strip-add" title={t('rotAddImage')}
+                  onClick={() => { setReplace(false); fileRef.current?.click() }}>
+                  <UploadIcon size={16} />
+                  <span>{t('rotAddImage')}</span>
+                </button>
+              </div>
+
               <div className="dab-chip-row" style={{ marginTop: 10 }}>
-                <button type="button" className="dab-btn" onClick={() => fileRef.current?.click()}>
-                  <UploadIcon size={13} />{url === null ? t('rulePickImage') : t('ruleChangeImage')}
+                {/* No position readout for an empty rule: "image 0 / 0" would be a
+                    number about nothing. The strip's own add tile is the whole
+                    story there. */}
+                {rule.images.length > 0 ? (
+                  <span className="dab-strip-pos">{t('rotPos')} {selIdx + 1} / {rule.images.length}</span>
+                ) : null}
+                <button type="button" className="dab-btn" onClick={() => { setReplace(false); fileRef.current?.click() }}>
+                  <UploadIcon size={13} />{t('rotAddImage')}
                 </button>
                 <button type="button" className="dab-btn dab-btn-ghost" onClick={() => setUrlOpen(o => !o)}>
                   <LinkIcon size={13} />{t('ruleFromUrl')}
                 </button>
+                {/* Replacing keeps the image's POSITION in the rotation, which
+                    "remove + add" cannot do — and the two actions are labelled
+                    apart on purpose: the button above appends, this one swaps the
+                    selected image's bytes. */}
+                {selSlot !== null ? (
+                  <button type="button" className="dab-btn dab-btn-ghost"
+                    onClick={() => { setReplace(true); fileRef.current?.click() }}>
+                    <UploadIcon size={13} />{t('rotReplaceImage')}
+                  </button>
+                ) : null}
                 {url !== null && rule.bgMode === 'fit' ? (
                   <button type="button" className="dab-btn" onClick={() => setEditorOpen(true)}>
                     <EditIcon size={13} />{t('ruleFramingEdit')}
                   </button>
                 ) : null}
-                {url !== null ? (
+                {rule.images.length >= 2 ? (
+                  <>
+                    <button type="button" className="dab-icon-btn" disabled={selIdx === 0}
+                      title={t('rotImageEarlier')} onClick={() => moveSel(-1)}>↑</button>
+                    <button type="button" className="dab-icon-btn" disabled={selIdx === rule.images.length - 1}
+                      title={t('rotImageLater')} onClick={() => moveSel(1)}>↓</button>
+                    {selIdx !== 0 ? (
+                      <button type="button" className="dab-btn dab-btn-ghost"
+                        onClick={() => { if (selSlot !== null) p.setCurrentImage(rule.id, selSlot) }}>
+                        {t('rotMakeFirst')}
+                      </button>
+                    ) : null}
+                  </>
+                ) : null}
+                {/* Always offered, including on the LAST image: the rule is then
+                    simply empty, and the empty strip above is the honest picture
+                    of that. Hiding this — the first cut of the feature did —
+                    left a cleared entry that could never be deleted again. Note
+                    that "empty" is not "off": a rule that kept its theme color
+                    still paints (see `ruleCanPaint`), which the hint above says. */}
+                {selSlot !== null ? (
                   <button type="button" className="dab-btn dab-btn-ghost dab-btn-danger"
-                    onClick={() => p.setRuleImage(rule.id, null)}>
+                    onClick={removeSel}>
                     <TrashIcon size={13} />{t('ruleImageRemove')}
                   </button>
                 ) : null}
@@ -310,7 +475,96 @@ function RuleCard({ p, rule, index, total, active, notify }: {
               {urlErr !== null ? (
                 <p style={{ marginTop: 8, color: 'var(--dsw-alias-state-error-primary)', fontSize: 12 }}>{urlErr}</p>
               ) : null}
-              {url === null ? <p className="dab-hint" style={{ marginTop: 8 }}>{t('ruleEmptyHint')}</p> : null}
+              {/* Three states, three sentences — the old single test (`url ===
+                  null`) told a rule with no pictures and a rule whose picture
+                  simply has no bytes yet the same story, and only one of them
+                  was true. A rule with no image but a COLOR of its own is not
+                  skipped: it paints the interface from that color (see
+                  `ruleCanPaint`), and saying otherwise is what made its color
+                  controls look broken. */}
+              {rule.images.length === 0 ? (
+                <p className="dab-hint" style={{ marginTop: 8 }}>
+                  {rule.color === null ? t('ruleEmptyHint') : t('ruleColorOnlyHint')}
+                </p>
+              ) : null}
+              {rule.images.length > 0 && url === null ? (
+                <p className="dab-hint" style={{ marginTop: 8 }}>{t('ruleImagePendingHint')}</p>
+              ) : null}
+
+              {/* ── rotation ──────────────────────────────────────────────── */}
+              <div style={{ marginTop: 14 }}>
+                <div className="dab-rule-section-title">{t('rotTitle')}</div>
+                <div className="dab-chip-row" style={{ alignItems: 'center' }}>
+                  <button type="button" className={`dab-toggle${rule.rotate.enabled ? ' is-on' : ''}`}
+                    role="switch" aria-checked={rule.rotate.enabled} title={t('rotEnable')}
+                    disabled={!rotatable}
+                    onClick={() => p.setRuleRotation(rule.id, { enabled: !rule.rotate.enabled })}>
+                    <span className="dab-toggle-knob" />
+                  </button>
+                  <span className="dab-hint" style={{ padding: 0 }}>{t('rotEnable')}</span>
+                  {!rotatable ? <span className="dab-hint" style={{ padding: 0 }}>{t('rotNeedTwo')}</span> : null}
+                </div>
+
+                {rotatable && rule.rotate.enabled ? (
+                  <div className="dab-rot-panel">
+                    <div className="dab-rule-section-title">{t('rotEvery')}</div>
+                    <div className="dab-chip-row">
+                      {ROTATE_PRESETS.map(item => (
+                        <button key={item.ms} type="button"
+                          className={`dab-chip${item.ms === rule.rotate.intervalMs ? ' is-active' : ''}`}
+                          onClick={() => p.setRuleRotation(rule.id, { intervalMs: item.ms })}>
+                          {t(item.key)}
+                        </button>
+                      ))}
+                      <input
+                        type="number" className="dab-num dab-num-sec" min={5} max={86_400} step={5}
+                        // The draft is what is being typed; without it the field
+                        // would fight the user on every keystroke (and "5" on the
+                        // way to "50" is a legal value nobody meant).
+                        value={secDraft ?? (preset === undefined ? Math.round(rule.rotate.intervalMs / 1000) : '')}
+                        placeholder={t('rotCustom')}
+                        onChange={e => setSecDraft(e.target.value)}
+                        onBlur={commitSeconds}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitSeconds() } }} />
+                      <span className="dab-hint" style={{ padding: 0 }}>{t('rotSeconds')}</span>
+                    </div>
+
+                    <div className="dab-rule-section-title" style={{ marginTop: 12 }}>{t('rotOrder')}</div>
+                    <div className="dab-chip-row">
+                      <button type="button" className={`dab-chip${rule.rotate.order === 'order' ? ' is-active' : ''}`}
+                        onClick={() => p.setRuleRotation(rule.id, { order: 'order' })}>
+                        {t('rotOrderSeq')}
+                      </button>
+                      <button type="button" className={`dab-chip${rule.rotate.order === 'shuffle' ? ' is-active' : ''}`}
+                        onClick={() => p.setRuleRotation(rule.id, { order: 'shuffle' })}>
+                        {t('rotOrderShuffle')}
+                      </button>
+                    </div>
+
+                    <div className="dab-chip-row" style={{ marginTop: 12, alignItems: 'center' }}>
+                      <button type="button" className={`dab-toggle${rule.rotate.advanceOnSwitch ? ' is-on' : ''}`}
+                        role="switch" aria-checked={rule.rotate.advanceOnSwitch} title={t('rotOnSwitch')}
+                        onClick={() => p.setRuleRotation(rule.id, { advanceOnSwitch: !rule.rotate.advanceOnSwitch })}>
+                        <span className="dab-toggle-knob" />
+                      </button>
+                      <span className="dab-hint" style={{ padding: 0 }}>{t('rotOnSwitch')}</span>
+                    </div>
+
+                    <div className="dab-chip-row" style={{ marginTop: 12, alignItems: 'center' }}>
+                      <button type="button" className="dab-btn" disabled={!active} onClick={() => p.rotateNow(rule.id)}>
+                        {t('rotNext')}
+                      </button>
+                      <span className="dab-hint" style={{ padding: 0 }}>
+                        {/* "On screen" rather than "image N": the row above
+                            already reads "image N" for the image being EDITED,
+                            and two numbers under the same wording would be the
+                            one place this panel could mislead. */}
+                        {active ? `${t('rotShowing')} ${rule.images.length === 0 ? 0 : Math.min(liveIndex + 1, rule.images.length)} / ${rule.images.length}` : t('rotNextInactive')}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
 
               <div style={{ marginTop: 14 }}>
                 <div className="dab-rule-section-title">{t('ruleLayout')}</div>
@@ -342,7 +596,12 @@ function RuleCard({ p, rule, index, total, active, notify }: {
                     </button>
                   </div>
                   <p className="dab-hint" style={{ marginTop: 8 }}>{t('ruleColorNoneHint')}</p>
-                  <p className="dab-hint" style={{ marginTop: 6 }}>{t('ruleColorPickHint')}</p>
+                  {/* The extraction promise belongs to a rule that HAS an image:
+                      next to a disabled "extract" button it read as a broken
+                      feature, not as a hint. */}
+                  {url !== null
+                    ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('ruleColorPickHint')}</p>
+                    : <p className="dab-hint" style={{ marginTop: 6 }}>{t('ruleColorNoImageHint')}</p>}
                 </>
               ) : (
                 <>
@@ -400,18 +659,24 @@ function RuleCard({ p, rule, index, total, active, notify }: {
         </div>
       ) : null}
 
-      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
-        const f = e.target.files?.[0]
-        if (!f) return
-        onFile(f)
+      {/* `multiple` because a rotation is built by picking a handful of pictures
+          at once; the strip's drop zone and the URL box take batches too. A
+          replacement only ever takes the first file — see onFiles. */}
+      <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => {
+        const files = Array.from(e.target.files ?? [])
+        if (files.length === 0) return
+        onFiles(files)
         e.target.value = ''
+        setReplace(false)
       }} />
 
-      {editorOpen && url !== null ? (
+      {editorOpen && url !== null && image !== undefined ? (
         <BgEditor
-          url={url} state={rule.bgState} t={t} onClose={() => setEditorOpen(false)}
+          url={url} state={image.bgState} t={t} onClose={() => setEditorOpen(false)}
           onCommit={(z, x, y, iw, ih) => {
-            p.setRule(rule.id, { bgState: { zoom: z, x, y, iw, ih } })
+            // Framing belongs to the IMAGE, so the commit is addressed by slot:
+            // editing image 3's crop must not rewrite image 1's.
+            p.setImageFraming(rule.id, image.slot, { zoom: z, x, y, iw, ih })
             setEditorOpen(false)
           }} />
       ) : null}

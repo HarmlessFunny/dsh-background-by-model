@@ -4,7 +4,7 @@ export const zh: Record<string, string> = {
   nav: '模型背景', brandTag: '按模型换背景',
   pageInterface: '界面', pageModelBg: '模型背景', pageProfile: '配置',
   descInterface: '为主界面的各个区域单独调节透明度与模糊，营造空间层次感。这里的设置对所有模型生效',
-  descModelBg: '每条规则 = 一个匹配串 + 一套背景外观。切换模型时，从上往下找第一条匹配串出现在模型名里的规则；都没中就使用第 1 条',
+  descModelBg: '每条规则 = 一个匹配串 + 一组背景图与外观。切换模型时，从上往下找第一条匹配串出现在模型名里的规则；都没中就使用第 1 条。一条规则可以放多张图，按你设的节奏轮换',
   descProfile: '把当前全部规则连同图片导出备份，或从文件一键恢复',
 
   uiTitle: '主界面',
@@ -24,12 +24,15 @@ export const zh: Record<string, string> = {
 
   rulesTitle: '规则列表',
   rulesHint: '从上到下即为优先级。规则 1 同时兼任兜底：所有匹配串都没命中时使用它',
+  // Shown only when the running host process predates multi-image: the panel works
+  // but holds its writes, and the user has to restart DSH to make them land.
+  hostStaleHint: '检测到 DSH 主进程仍在运行旧版插件：新版配置格式它还读不懂，为避免丢规则，本次只改界面不写入配置。重启 DSH 后多图与轮换即可正常保存',
   tryoutTitle: '匹配试跑',
   tryoutPlaceholder: '输入模型名，如 deepseek-flash',
   tryoutUseCurrent: '填入当前模型',
   tryoutHit: '命中规则',
   tryoutFallback: '无匹配 · 走兜底规则',
-  tryoutNone: '没有可用规则（规则需要启用并有图片）',
+  tryoutNone: '没有可用规则（规则需要启用，并且有图片或主题色）',
   tryoutEmpty: '输入模型名即可试跑',
   autoExtract: '选图后自动取主题色',
   autoExtractHint: '只在规则还没有颜色时自动取色，绝不覆盖你手动选的颜色',
@@ -39,12 +42,16 @@ export const zh: Record<string, string> = {
   ruleEnabled: '启用',
   ruleUp: '上移', ruleDown: '下移', ruleRemove: '删除规则',
   ruleNoImage: '尚未选择图片',
-  rulePickImage: '选择图片', ruleChangeImage: '更换图片',
   ruleFromUrl: '从网址', ruleUrlPlaceholder: '粘贴图片网址 https://…',
   ruleUrlApply: '应用', ruleUrlCancel: '取消', ruleUrlApplying: '加载中…',
   ruleUrlBadHttp: '仅支持 http/https 图片网址', ruleUrlFail: '获取图片失败',
   ruleImageRemove: '移除图片',
-  ruleEmptyHint: '这条规则还没有图片，不会被匹配到，也不会作为兜底',
+  ruleEmptyHint: '这条规则还没有图片，也没有自己的主题色：没有可显示的内容，匹配和兜底都会跳过它',
+  // The other no-image state — the rule kept its own color, so it DOES paint.
+  ruleColorOnlyHint: '这条规则还没有图片：不会铺壁纸，界面只用这个主题色',
+  // Images exist but the selected one has no bytes (deleted outside DSH, or still
+  // being read): saying "this rule has no image" there was simply wrong.
+  ruleImagePendingHint: '这张图片还没有取到内容，稍后会自己出现（也可以直接替换它）',
   ruleColor: '主题色',
   ruleColorNone: '跟随系统主题',
   ruleColorNoneHint: '未设颜色时跟随系统主题：界面用宿主的配色，壁纸与各部位的透明度、模糊照旧生效',
@@ -52,12 +59,40 @@ export const zh: Record<string, string> = {
   // opposite of what the button above does, so it must not borrow that label.
   ruleColorPick: '自定义颜色',
   ruleColorPickHint: '优先从本图取色，取不到就用默认色',
+  // Same button, but there is no image to extract from: promising an extraction
+  // next to a disabled "extract" button is the one thing this hint cannot say.
+  ruleColorNoImageHint: '这条规则还没有图片，取不到色：选一个颜色可以只铺主题色，或先添加图片',
   ruleColorExtract: '从本图提取',
   ruleLayout: '布局模式',
   ruleFramingEdit: '编辑位置',
   ruleOpacity: '背景透明度',
   ruleBlur: '背景模糊',
   ruleBlurHint: '背景模糊作用于壁纸层；界面页里的模糊作用于界面各区域，两者互不影响',
+
+  // ── 多图轮换 ──────────────────────────────────────────────────────────────
+  // 默认关闭：轮换会真的花流量、内存和电，不能靠"默认"偷偷替用户做主。
+  rotTitle: '多图轮换',
+  rotEnable: '轮换这组图',
+  rotNeedTwo: '至少两张图才能轮换',
+  rotEvery: '每张停留',
+  rotCustom: '自定义秒数',
+  rotSeconds: '秒',
+  rotOrder: '换图顺序',
+  rotOrderSeq: '按顺序',
+  rotOrderShuffle: '随机',
+  rotOnSwitch: '切换模型时也换一张',
+  rotNext: '下一张',
+  rotNextInactive: '只有正在生效的规则能换画面上的图',
+  rotPos: '当前第',
+  rotShowing: '正在显示',
+  rotAddImage: '添加图片',
+  // Replacing keeps the image's position in the rotation, so it is a different
+  // action from adding and must not borrow that label.
+  rotReplaceImage: '替换这张',
+  rotImageEarlier: '前移一张', rotImageLater: '后移一张',
+  rotMakeFirst: '设为第一张',
+  rotEvery10s: '10 秒', rotEvery30s: '30 秒', rotEvery1m: '1 分钟',
+  rotEvery5m: '5 分钟', rotEvery30m: '30 分钟', rotEvery1h: '1 小时',
 
 
   bgModeFit: '适应', bgModeFill: '填充', bgModeStretch: '拉伸', bgModeTile: '平铺', bgModeCenter: '居中',
@@ -95,7 +130,7 @@ export const en: Record<string, string> = {
   nav: 'Model background', brandTag: 'Per-model wallpaper',
   pageInterface: 'Interface', pageModelBg: 'Model background', pageProfile: 'Profile',
   descInterface: 'Tune opacity and blur per surface to build depth. These settings are global and apply to every model',
-  descModelBg: 'Each rule is a match string plus one look. On a model switch the list is scanned top-down for the first match string contained in the model name; if nothing hits, rule 1 is used',
+  descModelBg: 'Each rule is a match string plus a set of wallpapers and one look. On a model switch the list is scanned top-down for the first match string contained in the model name; if nothing hits, rule 1 is used. A rule can hold several images and rotate through them on a rhythm you set',
   descProfile: 'Back up every rule together with its image, or restore one from a file',
 
   uiTitle: 'Interface',
@@ -115,12 +150,15 @@ export const en: Record<string, string> = {
 
   rulesTitle: 'Rules',
   rulesHint: 'Top to bottom is the priority. Rule 1 doubles as the fallback — it is used when no match string hits',
+  // Shown only when the running host process predates multi-image: the panel works
+  // but holds its writes, and the user has to restart DSH to make them land.
+  hostStaleHint: 'The DSH host process is still running the older plugin, which cannot read the new config shape. To avoid dropping rules, this session changes the interface but holds every config write — restart DSH and multi-image plus rotation will save normally',
   tryoutTitle: 'Match test',
   tryoutPlaceholder: 'Type a model name, e.g. deepseek-flash',
   tryoutUseCurrent: 'Use current model',
   tryoutHit: 'matches rule',
   tryoutFallback: 'no match · fallback rule',
-  tryoutNone: 'No usable rule (a rule needs to be enabled and have an image)',
+  tryoutNone: 'No usable rule (a rule needs to be enabled and carry an image or a theme color)',
   tryoutEmpty: 'Type a model name to test the list',
   autoExtract: 'Extract the theme color when an image is chosen',
   autoExtractHint: 'Only fills a rule that has no color yet — a color you picked is never overwritten',
@@ -130,12 +168,16 @@ export const en: Record<string, string> = {
   ruleEnabled: 'Enabled',
   ruleUp: 'Move up', ruleDown: 'Move down', ruleRemove: 'Remove rule',
   ruleNoImage: 'No image yet',
-  rulePickImage: 'Choose image', ruleChangeImage: 'Replace image',
   ruleFromUrl: 'From URL', ruleUrlPlaceholder: 'Paste an image URL https://…',
   ruleUrlApply: 'Apply', ruleUrlCancel: 'Cancel', ruleUrlApplying: 'Loading…',
   ruleUrlBadHttp: 'Only http/https image URLs are supported', ruleUrlFail: 'Could not fetch the image',
   ruleImageRemove: 'Remove image',
-  ruleEmptyHint: 'This rule has no image — it can neither match nor serve as the fallback',
+  ruleEmptyHint: 'This rule has no image and no theme color of its own: it has nothing to show, so matching and the fallback both skip it',
+  // The other no-image state — the rule kept its own color, so it DOES paint.
+  ruleColorOnlyHint: 'No image in this rule yet: no wallpaper is shown, and the interface is painted from this theme color alone',
+  // Images exist but the selected one has no bytes (deleted outside DSH, or still
+  // being read): saying "this rule has no image" there was simply wrong.
+  ruleImagePendingHint: 'This image has no content yet — it appears once it loads; you can also replace it',
   ruleColor: 'Theme color',
   ruleColorNone: 'Follow system theme',
   ruleColorNoneHint: 'Without a color this rule follows the system theme: the host palette paints the interface while the wallpaper and every opacity/blur slider keep working',
@@ -143,12 +185,41 @@ export const en: Record<string, string> = {
   // opposite of what the button above does, so it must not borrow that label.
   ruleColorPick: 'Custom color',
   ruleColorPickHint: 'Extracts from this image when it can, otherwise uses a default color',
+  // Same button, but there is no image to extract from: promising an extraction
+  // next to a disabled "extract" button is the one thing this hint cannot say.
+  ruleColorNoImageHint: 'This rule has no image to take a color from: pick a color to tint the interface alone, or add an image first',
   ruleColorExtract: 'Extract from image',
   ruleLayout: 'Layout mode',
   ruleFramingEdit: 'Edit position',
   ruleOpacity: 'Background opacity',
   ruleBlur: 'Background blur',
   ruleBlurHint: 'Background blur affects the wallpaper layer; the blur on the Interface page affects interface surfaces — they are independent',
+
+  // ── Multi-image rotation ──────────────────────────────────────────────────
+  // Off by default: rotating really does spend bandwidth, memory and battery,
+  // and no default should quietly decide that for the user.
+  rotTitle: 'Image rotation',
+  rotEnable: 'Rotate these images',
+  rotNeedTwo: 'At least two images are needed to rotate',
+  rotEvery: 'Dwell time per image',
+  rotCustom: 'Custom seconds',
+  rotSeconds: 's',
+  rotOrder: 'Order',
+  rotOrderSeq: 'In order',
+  rotOrderShuffle: 'Shuffle',
+  rotOnSwitch: 'Also step on a model switch',
+  rotNext: 'Next image',
+  rotNextInactive: 'Only the active rule can step the background',
+  rotPos: 'Image',
+  rotShowing: 'On screen',
+  rotAddImage: 'Add images',
+  // Replacing keeps the image's position in the rotation, so it is a different
+  // action from adding and must not borrow that label.
+  rotReplaceImage: 'Replace this image',
+  rotImageEarlier: 'Move earlier', rotImageLater: 'Move later',
+  rotMakeFirst: 'Make first',
+  rotEvery10s: '10 s', rotEvery30s: '30 s', rotEvery1m: '1 min',
+  rotEvery5m: '5 min', rotEvery30m: '30 min', rotEvery1h: '1 h',
 
 
   bgModeFit: 'Fit', bgModeFill: 'Fill', bgModeStretch: 'Stretch', bgModeTile: 'Tile', bgModeCenter: 'Center',

@@ -102,13 +102,19 @@ export interface Ctx {
 }
 
 // ── The persisted shape ────────────────────────────────────────────────────
-// BgState / BgMode / PartOpacities / PartBlurs / BgRule / ThemeConfig are
-// declared ONCE in ../schema and shared with the node half, so a field can never
-// exist on one side only (that drift is what silently dropped a setting before).
-// They are re-exported here because every client module imports them from this
-// module.
-import type { BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs, ThemeConfig } from '../schema'
-export type { BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs, ThemeConfig }
+// BgState / BgImage / BgMode / BgRotation / PartOpacities / PartBlurs / BgRule /
+// ThemeConfig are declared ONCE in ../schema and shared with the node half, so a
+// field can never exist on one side only (that drift is what silently dropped a
+// setting before). They are re-exported here because every client module imports
+// them from this module.
+import type {
+  BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs,
+  RotateOrder, ThemeConfig,
+} from '../schema'
+export type {
+  BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs,
+  RotateOrder, ThemeConfig,
+}
 
 // The model-resolution facts the section shows for the active rule. Declared with
 // the schema (../model-facts) because the node half names the same shape.
@@ -158,6 +164,20 @@ export interface ThemeStoreState {
   activeRuleId: string | null
   /** Whether the active rule was picked by a match (false = fallback). */
   matched: boolean
+  /** Which of the active rule's images is painted (0-based, clamped). */
+  rotIndex: number
+  /** How many images the active rule owns (0 = nothing to paint or rotate). */
+  rotTotal: number
+  /** Whether the active rule is rotating right now (off, hidden or single-image
+   *  rules all read false, so the UI can label the state honestly). */
+  rotating: boolean
+  /**
+   * True while the host PROCESS is running an older node half that cannot read
+   * this bundle's config shape. Config writes are held then (see canWriteConfig
+   * in ./rpc) and the section says so, because edits that silently do not persist
+   * are worse than edits that visibly wait for a restart.
+   */
+  hostStale: boolean
 }
 
 /** Result of a wallpaper fetch from a network URL. */
@@ -189,12 +209,38 @@ export interface ThemeSectionProps {
   moveRule: (id: string, dir: -1 | 1) => void
   /** Patch one rule; when it is the active rule the live background follows. */
   setRule: (id: string, patch: Partial<BgRule>) => void
-  /** Store (or clear) a rule's image. */
-  setRuleImage: (id: string, dataUrl: string | null) => void
-  /** Download a rule's image from a network URL into its slot. */
-  setRuleImageFromUrl: (id: string, url: string) => Promise<FetchResult>
-  /** Derive a rule's theme color from its own image. */
-  extractColor: (id: string) => Promise<boolean>
+  /**
+   * Append images to a rule (data URLs, in order). The first image of an empty
+   * rule becomes the painted one.
+   */
+  addRuleImages: (id: string, dataUrls: readonly string[]) => void
+  /** Remove one image from a rule; the last one cannot be removed. */
+  removeRuleImage: (id: string, slot: string) => void
+  /** Move one image one position earlier (-1) or later (+1) in its rule. */
+  moveRuleImage: (id: string, slot: string, dir: -1 | 1) => void
+  /** Store one image's framing (the background editor's commit). */
+  setImageFraming: (id: string, slot: string, bgState: BgState) => void
+  /** Make one image the rule's first, i.e. the one painted when nothing rotates. */
+  setCurrentImage: (id: string, slot: string) => void
+  /** Patch a rule's rotation (interval, order, switch behaviour, fade). */
+  setRuleRotation: (id: string, patch: Partial<BgRotation>) => void
+  /** Step a rule's rotation once, right now (no effect when it has < 2 images). */
+  rotateNow: (id: string) => void
+  /**
+   * Hydrate every image of one rule into the paintable cache.
+   *
+   * Boot only reads a rule's FIRST image (see `bootSlots` in index.tsx), so an
+   * expanded card asks for the rest here — which is the only thing standing
+   * between "ten images per rule" and a settings panel that spends its start-up
+   * shipping full-size data URLs over the RPC channel.
+   */
+  loadRuleImages: (id: string) => Promise<void>
+  /** Store (or clear) ONE image's bytes; the slot says which. */
+  setRuleImage: (id: string, slot: string, dataUrl: string | null) => void
+  /** Download an image from a network URL and append it to a rule's images. */
+  addRuleImageFromUrl: (id: string, url: string) => Promise<FetchResult>
+  /** Derive a rule's theme color from one of its images (default: the first). */
+  extractColor: (id: string, slot?: string) => Promise<boolean>
   setOps: (ops: PartOpacities) => void
   setBlurs: (blurs: PartBlurs) => void
   setSop: (v: number) => void

@@ -68,6 +68,9 @@ export const UI_CSS = `
 .dab-wheel-glow{position:absolute;width:230px;height:230px;border-radius:50%;filter:blur(48px);opacity:.2;background:var(--c,#888);pointer-events:none;transition:background .4s ease}
 .dab-wheel{position:relative;cursor:crosshair;border-radius:50%;box-shadow:0 12px 32px -14px rgba(0,0,0,.4)}
 .dab-hint{font-size:11.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary);padding:0 4px}
+/* The "your edits are being held" notice: it reports a state the user has to act
+   on, so it is tinted like a warning rather than left as grey hint text. */
+.dab-stale{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent);border-radius:9px;padding:8px 10px}
 
 /* ── precise color inputs ────────────────────────────────────────────────── */
 .dab-inputs{display:flex;flex-direction:column;gap:10px;min-width:172px}
@@ -202,12 +205,34 @@ export const UI_CSS = `
 .dab-icon-btn:disabled{opacity:.35;cursor:not-allowed}
 .dab-icon-btn-danger:hover:not(:disabled){color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}
 .dab-rule-body{margin-top:13px;display:flex;flex-direction:column;gap:13px}
-.dab-rule-thumb{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:16/9;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);cursor:pointer}
+.dab-rule-thumb{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:16/9;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2)}
 .dab-rule-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .dab-rule-thumb-empty{position:absolute;inset:5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--dsw-alias-border-l2);border-radius:9px;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center;padding:0 10px}
-.dab-rule-thumb.is-over .dab-rule-thumb-empty{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
 .dab-rule-cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px;align-items:start}
 .dab-rule-section-title{font-size:12px;font-weight:600;margin-bottom:9px;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
+
+/* ── image strip (multi-image rules) ─────────────────────────────────────── */
+/* A horizontally scrolling row of thumbnails: the edited one is ringed, the one
+   the wallpaper is actually painting carries a live dot. Drops land here, which
+   is why the border reacts to a drag rather than to hover. */
+.dab-strip{display:flex;gap:7px;margin-top:9px;padding:7px;border-radius:12px;border:1.5px dashed var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);overflow-x:auto;scrollbar-width:thin}
+.dab-strip.is-over{border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent)}
+.dab-strip-item{position:relative;flex:none;width:62px;height:44px;padding:0;border-radius:8px;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);cursor:pointer;transition:border-color .2s,box-shadow .2s,transform .18s}
+.dab-strip-item img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.dab-strip-item:hover{transform:translateY(-1px);border-color:var(--dsw-alias-brand-primary)}
+.dab-strip-item.is-sel{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 40%,transparent)}
+.dab-strip-item.is-live{box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}
+.dab-strip-wait{position:absolute;inset:0;background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent) 4px 8px)}
+.dab-strip-num{position:absolute;left:3px;bottom:2px;font-family:var(--dab-mono);font-size:9.5px;line-height:1;padding:1px 4px;border-radius:5px;background:rgba(0,0,0,.45);color:#fff}
+.dab-strip-live{position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px rgba(0,0,0,.35);animation:dab-pulse 1.8s ease-in-out infinite}
+.dab-strip-add{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:62px;height:44px;border-radius:8px;border:1.5px dashed var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:1.15;cursor:pointer;transition:border-color .2s,color .2s}
+.dab-strip-add:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.dab-strip-pos{display:inline-flex;align-items:center;font-family:var(--dab-mono);font-size:11px;color:var(--dsw-alias-label-tertiary);padding:0 4px}
+
+/* ── rotation panel ──────────────────────────────────────────────────────── */
+.dab-rot-panel{margin-top:10px;padding:12px;border-radius:12px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}
+.dab-num-sec{flex:none;width:88px;min-width:0}
+
 @container (max-width:760px){.dab-rule-cols{grid-template-columns:1fr}}
 
 /* ── host self-check ─────────────────────────────────────────────────────── */
@@ -267,6 +292,9 @@ export const UI_CSS = `
 @keyframes dab-toast-in{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
 @keyframes dab-zoom-in{from{opacity:0;transform:scale(.94) translateY(8px)}to{opacity:1;transform:none}}
 @keyframes dab-flow{to{background-position:300% 50%}}
+/* The strip's "this is the image on screen" dot. It is the only marker that says
+   the rotation is alive, so it breathes rather than merely sitting there. */
+@keyframes dab-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.72)}}
 
 /* ── responsive & motion preferences ─────────────────────────────────────── */
 @container (max-width:620px){

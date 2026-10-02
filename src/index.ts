@@ -20,7 +20,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 // the asset names (the date maths belongs to the browser half).
 import { HOLIDAYS } from './holiday'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
-import { SLOT_RE, normalizeConfig } from './schema'
+import { SCHEMA_VERSION, SLOT_RE, normalizeConfig } from './schema'
 import type { BgState, ThemeConfig } from './schema'
 
 export const name = 'dsh-background-by-model'
@@ -83,14 +83,17 @@ async function migrateLegacy(raw: unknown): Promise<unknown> {
   const next = {
     rules: [{
       id: 'm1',
-      slot: 'm1',
+      // The 0.7 image list, written in the new shape directly: the sanitizer
+      // would lift an old `slot`/`bgState` pair anyway, but leaving a legacy
+      // shape on disk until the first write means the file no longer describes
+      // what the plugin actually holds.
+      images: [{ slot: 'm1', bgState: (r.bgState ?? {}) as Partial<BgState> }],
       match: '',
       enabled: true,
       color: Array.isArray(r.color) ? r.color : null,
       bgMode: typeof r.bgMode === 'string' ? r.bgMode : 'fit',
       wallpaperOpacity: typeof r.wallpaperOpacity === 'number' ? r.wallpaperOpacity : 1,
       blur: typeof r.blur === 'number' ? r.blur : 0,
-      bgState: (r.bgState ?? {}) as Partial<BgState>,
     }],
     opacities: r.opacities,
     blurs: r.blurs,
@@ -135,6 +138,9 @@ async function readConfig(): Promise<ThemeConfig> {
 // next load quietly falls back to the default. Warn once per key so the drift
 // shows up in the host log instead.
 const LEGACY_CONFIG_KEYS = new Set(['color', 'bgMode', 'wallpaperOpacity', 'blur', 'bgState'])
+// Pre-0.7 rule fields: `normalizeRule` deliberately LIFTS these into the image
+// list, so they are not drift and must not be reported as such.
+const LEGACY_RULE_KEYS = new Set(['slot', 'bgState'])
 const warnedConfigKeys = new Set<string>()
 
 function warnUnknownConfigKeys(raw: unknown, normalized: ThemeConfig): void {
@@ -166,9 +172,30 @@ function warnUnknownConfigKeys(raw: unknown, normalized: ThemeConfig): void {
   const sent = Array.isArray(r.rules) ? r.rules[0] : undefined
   const have = normalized.rules[0]
   if (sent !== null && typeof sent === 'object' && have !== undefined) {
+    const rule = sent as Record<string, unknown>
     const keys = new Set(Object.keys(have))
-    for (const key of Object.keys(sent as Record<string, unknown>)) {
-      if (!keys.has(key)) warned(`rules[].${key}`)
+    for (const key of Object.keys(rule)) {
+      if (!keys.has(key) && !LEGACY_RULE_KEYS.has(key)) warned(`rules[].${key}`)
+    }
+    // The rule's own nested objects drift one level deeper, and a field that
+    // lives only in the client bundle would be dropped here in silence — which
+    // is exactly the bug this whole function exists to make audible. `images` is
+    // compared at its first entry: every entry goes through the same sanitizer,
+    // and a second shape check would only ever repeat this one.
+    const nested: Array<[string, unknown, unknown]> = [
+      ['rules[].rotate', rule.rotate, have.rotate],
+      [
+        'rules[].images[]',
+        Array.isArray(rule.images) ? rule.images[0] : undefined,
+        have.images[0],
+      ],
+    ]
+    for (const [label, got, known] of nested) {
+      if (got === null || typeof got !== 'object' || known === null || known === undefined) continue
+      const knownKeys = new Set(Object.keys(known as object))
+      for (const key of Object.keys(got as Record<string, unknown>)) {
+        if (!knownKeys.has(key)) warned(`${label}.${key}`)
+      }
     }
   }
 }
@@ -353,7 +380,11 @@ async function handleRpcMethod(
   try {
     switch (method) {
       case 'read':
-        return { ok: true, value: { config: await readConfig(), slots: await listSlots() } }
+        // `schema` is the persisted shape this half writes, published so a newer
+        // browser bundle can refuse to send it a config it would mangle — see
+        // SCHEMA_VERSION in ./schema. It is part of the response, not of the
+        // config file: the file's shape is the config's own business.
+        return { ok: true, value: { config: await readConfig(), slots: await listSlots(), schema: SCHEMA_VERSION } }
       case 'writeConfig':
         return { ok: true, value: await writeConfig((payload as { config?: unknown } | null)?.config ?? {}) }
       case 'readImage':

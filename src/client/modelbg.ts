@@ -40,10 +40,14 @@ import type {
   BgRule, Ctx, ModelDirectoryLike, ModelDirectoryResolverLike, ModelSelectionProjectionLike,
   ObservableFaceLike, SessionListSnapshotLike, SessionsServiceLike, UiSessionLike,
 } from './types'
+// Whether a rule can paint AT ALL is the shared shape's business, not this
+// module's: `ruleCanPaint` is the one answer (enabled, and carrying an image or a
+// theme color), so matching and the panel's copy cannot drift apart.
+import { ruleCanPaint } from '../schema'
 
-/** Rules that can actually paint: enabled and carrying an image slot. */
+/** Rules that can actually paint: see `ruleCanPaint` (./schema). */
 function usable(rules: readonly BgRule[]): BgRule[] {
-  return rules.filter(r => r.enabled && r.slot !== '')
+  return rules.filter(ruleCanPaint)
 }
 
 /**
@@ -52,6 +56,10 @@ function usable(rules: readonly BgRule[]): BgRule[] {
  * Top→bottom, first case-insensitive substring hit wins; an empty `match` never
  * hits on its own. When nothing hits, the FIRST usable rule is the fallback
  * (rule 1 deliberately doubles as both a matcher and the fallback).
+ *
+ * "Usable" is `ruleCanPaint` — an image, or a theme color of its own — so a rule
+ * whose pictures were all removed still holds the models it matches (and paints
+ * its color alone) instead of quietly handing them to the next rule.
  */
 export function matchRule(
   rules: readonly BgRule[],
