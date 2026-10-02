@@ -22,8 +22,6 @@ export const zh: Record<string, string> = {
   statusNoteNoProjection: '拿不到本会话的模型选择投影（binding / projections 不可用）',
   statusNoteEmptySelection: '本会话的模型选择投影还没有值（切一次模型即可写入）',
 
-  rulesTitle: '规则列表',
-  rulesHint: '从上到下即为优先级。规则 1 同时兼任兜底：所有匹配串都没命中时使用它',
   // Shown only when the running host process predates multi-image: the panel works
   // but holds its writes, and the user has to restart DSH to make them land.
   hostStaleHint: '检测到 DSH 主进程仍在运行旧版插件：新版配置格式它还读不懂，为避免丢规则，本次只改界面不写入配置。重启 DSH 后多图与轮换即可正常保存',
@@ -35,7 +33,6 @@ export const zh: Record<string, string> = {
   tryoutNone: '没有可用规则（规则需要启用，并且有图片或主题色）',
   tryoutEmpty: '输入模型名即可试跑',
   autoExtract: '选图后自动取主题色',
-  autoExtractHint: '只在图片还没有自己的颜色时自动取色，绝不覆盖你手动选的颜色',
   ruleAdd: '新增规则',
   ruleFallbackBadge: '兜底',
   ruleMatchPlaceholder: '如 flash / glm（忽略大小写，留空则不参与匹配）',
@@ -45,7 +42,7 @@ export const zh: Record<string, string> = {
   ruleFromUrl: '从网址', ruleUrlPlaceholder: '粘贴图片网址 https://…',
   ruleUrlApply: '应用', ruleUrlCancel: '取消', ruleUrlApplying: '加载中…',
   ruleUrlBadHttp: '仅支持 http/https 图片网址', ruleUrlFail: '获取图片失败',
-  ruleImageRemove: '移除图片',
+  ruleImageRemove: '移除',
   ruleEmptyHint: '这条规则还没有图片，也没有自己的主题色：没有可显示的内容，匹配和兜底都会跳过它',
   // The other no-image state — the rule kept its own color, so it DOES paint.
   ruleColorOnlyHint: '这条规则还没有图片：不会铺壁纸，界面只用这个主题色',
@@ -92,12 +89,12 @@ export const zh: Record<string, string> = {
   rotOnSwitch: '切换模型时也换一张',
   rotNext: '下一张',
   rotNextInactive: '只有正在生效的规则能换画面上的图',
-  rotPos: '当前第',
+  rotPos: '第',
   rotShowing: '正在显示',
-  rotAddImage: '添加图片',
+  rotAddImage: '添加',
   // Replacing keeps the image's position in the rotation, so it is a different
   // action from adding and must not borrow that label.
-  rotReplaceImage: '替换这张',
+  rotReplaceImage: '替换',
   rotImageEarlier: '前移一张', rotImageLater: '后移一张',
   rotMakeFirst: '设为第一张',
   rotEvery10s: '10 秒', rotEvery30s: '30 秒', rotEvery1m: '1 分钟',
@@ -157,8 +154,6 @@ export const en: Record<string, string> = {
   statusNoteNoProjection: 'This session\'s model-selection projection is unreachable (no binding / projections)',
   statusNoteEmptySelection: 'The model-selection projection exists but carries no value yet (selecting a model once writes it)',
 
-  rulesTitle: 'Rules',
-  rulesHint: 'Top to bottom is the priority. Rule 1 doubles as the fallback — it is used when no match string hits',
   // Shown only when the running host process predates multi-image: the panel works
   // but holds its writes, and the user has to restart DSH to make them land.
   hostStaleHint: 'The DSH host process is still running the older plugin, which cannot read the new config shape. To avoid dropping rules, this session changes the interface but holds every config write — restart DSH and multi-image plus rotation will save normally',
@@ -170,7 +165,6 @@ export const en: Record<string, string> = {
   tryoutNone: 'No usable rule (a rule needs to be enabled and carry an image or a theme color)',
   tryoutEmpty: 'Type a model name to test the list',
   autoExtract: 'Extract the theme color when an image is chosen',
-  autoExtractHint: 'Only fills an image that has no color of its own yet — a color you picked is never overwritten',
   ruleAdd: 'Add rule',
   ruleFallbackBadge: 'fallback',
   ruleMatchPlaceholder: 'e.g. flash / glm (case-insensitive, empty never matches)',
@@ -180,7 +174,7 @@ export const en: Record<string, string> = {
   ruleFromUrl: 'From URL', ruleUrlPlaceholder: 'Paste an image URL https://…',
   ruleUrlApply: 'Apply', ruleUrlCancel: 'Cancel', ruleUrlApplying: 'Loading…',
   ruleUrlBadHttp: 'Only http/https image URLs are supported', ruleUrlFail: 'Could not fetch the image',
-  ruleImageRemove: 'Remove image',
+  ruleImageRemove: 'Remove',
   ruleEmptyHint: 'This rule has no image and no theme color of its own: it has nothing to show, so matching and the fallback both skip it',
   // The other no-image state — the rule kept its own color, so it DOES paint.
   ruleColorOnlyHint: 'No image in this rule yet: no wallpaper is shown, and the interface is painted from this theme color alone',
@@ -226,10 +220,10 @@ export const en: Record<string, string> = {
   rotNextInactive: 'Only the active rule can step the background',
   rotPos: 'Image',
   rotShowing: 'On screen',
-  rotAddImage: 'Add images',
+  rotAddImage: 'Add',
   // Replacing keeps the image's position in the rotation, so it is a different
   // action from adding and must not borrow that label.
-  rotReplaceImage: 'Replace this image',
+  rotReplaceImage: 'Replace',
   rotImageEarlier: 'Move earlier', rotImageLater: 'Move later',
   rotMakeFirst: 'Make first',
   rotEvery10s: '10 s', rotEvery30s: '30 s', rotEvery1m: '1 min',
