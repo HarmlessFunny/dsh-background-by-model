@@ -1,4 +1,4 @@
-import { rWp, rBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity } from './state'
+import { rWp, rBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rFadeMs } from './state'
 import type { PartOpacities, PartBlurs } from './types'
 import { genTokens, toRgba } from './utils/color'
 import { markOwnSheet } from './components/ui.css'
@@ -945,8 +945,10 @@ export function watchThemeResets(): () => void {
 // assigning a `url(data:…)` background re-decodes the photo on every switch,
 // which is where a large wallpaper's stall comes from, while a blob URL is
 // served from the browser's memory cache after the first load.
-const FADE_MS = 320
-
+//
+// The duration is the ACTIVE rule's own (`rotate.fadeMs`, default 320 ms — see
+// DEFAULT_ROTATION in ./schema), so a rule that cycles through images can ask for
+// a slower blend than a model switch, and 0 means a hard cut.
 interface WpLayer {
   el: HTMLDivElement
   /** Display URL of the image painted on this layer; null when empty. */
@@ -1149,7 +1151,8 @@ function applyImageWp(url: string): void {
   from.el.style.zIndex = '0'
   paintLayer(target, url)
   applyWpEffects()
-  if (!canFade(from)) {
+  const fadeMs = rFadeMs()
+  if (!canFade(from) || fadeMs <= 0) {
     el.style.opacity = '1'
     front = idx
     clearLayer(from)
@@ -1162,10 +1165,10 @@ function applyImageWp(url: string): void {
   pending = idx
   requestAnimationFrame(() => {
     if (pending !== idx || layers === null) return
-    el.style.transition = `opacity ${FADE_MS}ms ease`
+    el.style.transition = `opacity ${fadeMs}ms ease`
     el.style.opacity = '1'
   })
-  fadeTimer = window.setTimeout(() => finishFade(idx), FADE_MS + 160)
+  fadeTimer = window.setTimeout(() => finishFade(idx), fadeMs + 160)
 }
 
 function applyWpEffects(): void {

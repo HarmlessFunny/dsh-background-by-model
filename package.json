@@ -1,7 +1,7 @@
 {
   "name": "dsh-background-by-model",
-  "version": "0.6.0",
-  "description": "Appearance plugin for DeepSeek Harness: an ordered list of model rules, each carrying its own wallpaper, theme color, layout mode, opacity and blur — the background follows the model you switch to.",
+  "version": "0.7.0",
+  "description": "Appearance plugin for DeepSeek Harness: an ordered list of model rules, each carrying its own wallpapers, theme color, layout mode, opacity and blur — the background follows the model you switch to, and a rule can rotate through several images on its own rhythm.",
   "keywords": [
     "deepseek-harness",
     "dsh",
@@ -57,9 +57,11 @@
     "watch": "tsdown --watch",
     "typecheck": "tsc -p tsconfig.json",
     "check:holiday": "node scripts/holiday-check.ts",
+    "check:rotation": "node scripts/rotation-check.ts",
+    "check:repaint": "node scripts/repaint-check.ts",
     "check:ui": "node scripts/ui-strings-check.ts",
     "check:node": "node scripts/node-half-check.mjs",
-    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs"
+    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/repaint-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6",

@@ -1,14 +1,15 @@
-import type { BgRule, BgState, BgMode, HolidayRule, ThemeConfig, PartOpacities, PartBlurs } from './types'
+import type { BgImage, BgRule, BgState, BgMode, HolidayRule, ThemeConfig, PartOpacities, PartBlurs } from './types'
 // The persisted shape, its key lists, its defaults and its sanitizers all live in
 // ../schema, shared verbatim with the node half — a field declared on one side
 // only used to be silently dropped by the other side's sanitizer.
 import {
   DEFAULT_BG_STATE, DEFAULT_CHAT_TEXT_OPACITY, DEFAULT_PART_BLURS, DEFAULT_PART_OPACITIES,
   DEFAULT_SETTINGS_OPACITY, DEFAULT_TRAJECTORY_OPACITY, PART_BLUR_KEYS, PART_OPACITY_KEYS,
-  clamp, clamp01, freshThemeConfig, normalizeConfig, normalizeRule,
+  clamp, clamp01, defaultRotation, freshThemeConfig, normalizeConfig, normalizeRotation, normalizeRule,
+  ruleSlots,
 } from '../schema'
 
-export { DEFAULT_BG_STATE, normalizeRule }
+export { DEFAULT_BG_STATE, normalizeRule, ruleSlots }
 
 const PALETTE: Array<[number, number, number]> = [
   [356, 0.72, 0.55], [24, 0.78, 0.55], [44, 0.8, 0.55], [152, 0.62, 0.5],
@@ -96,11 +97,44 @@ export let activeRuleId: string | null = null
 export let activeMatched = false
 export let modelLabel = ''
 
+/**
+ * Which image of the ACTIVE rule is painted right now.
+ *
+ * Deliberately NOT persisted: a background that comes back on image 3 of 7 after
+ * a reload, with no way to say why, is worse than one that starts at the first
+ * image every time. Clamped to the rule's own length on every read, so an index
+ * left over from a longer list can never point at nothing.
+ */
+let rotIndex = 0
+
 export function setActive(ruleId: string | null, matched: boolean): void {
+  // Every switch starts at the rule's FIRST image. Without this, a model switch
+  // from a 7-image rule to a 2-image one would land on whatever index survived.
+  if (ruleId !== activeRuleId) rotIndex = 0
   activeRuleId = ruleId
   activeMatched = matched
 }
 export function setModelLabel(label: string): void { modelLabel = label }
+
+/** The image index the render layer is on, clamped into `rule`'s own range. */
+export function imageIndexOf(rule: BgRule): number {
+  if (rule.images.length === 0) return 0
+  const i = Math.floor(rotIndex)
+  return i >= 0 && i < rule.images.length ? i : 0
+}
+
+/** Point the active rule at another of its images (the rotation's one mutator). */
+export function setRotIndex(i: number): void { rotIndex = Math.floor(i) }
+
+/** The image the active rule is painting now, or null when it has none. */
+export function activeImage(): BgImage | null {
+  const rule = activeRule()
+  if (rule === null) return null
+  return rule.images[imageIndexOf(rule)] ?? null
+}
+
+/** Slot of the active rule's current image; '' when there is nothing to paint. */
+export function activeSlot(): string { return activeImage()?.slot ?? '' }
 
 /**
  * One rule by id — from the USER's list first, then from the holiday overrides.
@@ -125,17 +159,44 @@ export function holidayById(id: string): HolidayRule | null {
 }
 
 // ── Rule factories / allocation ────────────────────────────────────────────
-export function newRule(id: string, slot: string): BgRule {
+/**
+ * A fresh rule, holding NO image yet.
+ *
+ * It used to be born with an allocated slot and an empty entry, which is what put
+ * a blank tile at position 1 of a new rule's strip — and, worse, stopped the
+ * picture the user added next from being the first one (a rule paints its first
+ * image). A rule with no pictures is a valid state: `ruleCanPaint` (./schema) skips
+ * it — it has no image and no color yet — until either arrives, and the slot is
+ * allocated when the first picture does.
+ */
+export function newRule(id: string): BgRule {
   return {
-    id, slot, match: '', enabled: true, color: null,
+    id,
+    images: [],
+    match: '', enabled: true, color: null,
     bgMode: 'fit', wallpaperOpacity: 1, blur: 0,
-    bgState: { ...DEFAULT_BG_STATE },
+    rotate: defaultRotation(),
   }
 }
 
-/** First free image slot (`m1`, `m2`, …). */
+/** Every slot any rule owns — the user's rules and the holiday entries alike. */
+export function takenSlots(): Set<string> {
+  const taken = new Set<string>()
+  for (const rule of cfg.rules) for (const slot of ruleSlots(rule)) taken.add(slot)
+  for (const rule of cfg.holidays.items) for (const slot of ruleSlots(rule)) taken.add(slot)
+  return taken
+}
+
+/**
+ * First free image slot (`m1`, `m2`, …).
+ *
+ * Scans EVERY slot in the config, not just the primary one of each rule: with
+ * several images per rule, "the slots this file already uses" is the only set
+ * that can be safely handed out, and a collision here would silently point two
+ * cards at the same bytes (and let one card's delete orphan the other).
+ */
 export function nextSlot(): string {
-  const taken = new Set(cfg.rules.map(r => r.slot))
+  const taken = takenSlots()
   for (let i = 1; i < 1000; i++) {
     const slot = `m${i}`
     if (!taken.has(slot)) return slot
@@ -153,17 +214,34 @@ export function nextRuleId(): string {
   return `r${Date.now()}`
 }
 
+/** Patch one rule's rotation block, through the shared sanitizer so a live edit
+ *  can never hold a value the next load would clamp differently. */
+export function patchRotation(rule: BgRule, patch: Partial<BgRule['rotate']>): void {
+  rule.rotate = normalizeRotation({ ...rule.rotate, ...patch })
+}
+
+/** Re-sanitize one rule in place, so what the UI holds equals what would persist. */
+export function normalizeRuleInPlace(rule: BgRule): void {
+  const normalized = normalizeRule(rule)
+  if (normalized !== null) Object.assign(rule, normalized)
+}
+
 // ── Accessors used by the render layer (they follow the ACTIVE rule) ───────
 export function rHasColor(): boolean { return activeRule()?.color !== null && activeRule() !== null }
 export function rColor(): [number, number, number] { return activeRule()?.color ?? [220, 0.55, 0.25] }
 export function rBgMode(): BgMode { return activeRule()?.bgMode ?? 'fit' }
 export function rWop(): number { return clamp01(activeRule()?.wallpaperOpacity, 1) }
 export function rBl(): number { return clamp(activeRule()?.blur, 0, 60, 0) }
-export function rBgState(): BgState { return activeRule()?.bgState ?? DEFAULT_BG_STATE }
-/** Paintable URL of the active rule's image, or null when it has none. */
+/** Framing of the CURRENT image (per image, see BgImage). */
+export function rBgState(): BgState { return activeImage()?.bgState ?? DEFAULT_BG_STATE }
+/** Rotation of the active rule; the shipped default when nothing is active. */
+export function rRotation(): BgRule['rotate'] { return activeRule()?.rotate ?? defaultRotation() }
+/** Cross-fade duration the active rule asks for, in ms (0 = hard cut). */
+export function rFadeMs(): number { return rRotation().fadeMs }
+/** Paintable URL of the active rule's CURRENT image, or null when it has none. */
 export function rWp(): string | null {
-  const rule = activeRule()
-  return rule === null ? null : displayImageOf(rule.slot)
+  const slot = activeSlot()
+  return slot === '' ? null : displayImageOf(slot)
 }
 export function rOps(): PartOpacities {
   const o = cfg.opacities ?? {}
@@ -205,6 +283,9 @@ export function adoptConfig(raw: unknown): void {
     activeRuleId = null
     activeMatched = false
   }
+  // The list this index belonged to is gone (an import can replace it wholesale),
+  // so the first image is the only index that is certainly valid.
+  rotIndex = 0
 }
 
 export function resetConfig(): void {
@@ -213,4 +294,5 @@ export function resetConfig(): void {
   activeRuleId = null
   activeMatched = false
   modelLabel = ''
+  rotIndex = 0
 }

@@ -100,9 +100,12 @@ if (!ok2052) failures++
 // ── the four gates that decide whether a holiday takes over ────────────────
 // `pickHoliday` is the feature's entire decision. It used to live inside the
 // plugin's apply closure, where nothing but a browser could reach it.
+//
+// The candidate carries the entry's IMAGE LIST (a rule owns several images since
+// 0.7); a holiday's own list is always the single packaged picture.
 console.log('\n--- pickHoliday: all four gates ---')
-interface Item { id: string; slot: string; enabled: boolean }
-const item = (id: string, enabled = true): Item => ({ id, slot: `h-${id}`, enabled })
+interface Item { id: string; images: { slot: string }[]; enabled: boolean }
+const item = (id: string, enabled = true): Item => ({ id, images: [{ slot: `h-${id}` }], enabled })
 const items: Item[] = [item('mid-autumn'), item('national-day')]
 const has = (...slots: string[]) => (slot: string): boolean => slots.includes(slot)
 const pick = (
@@ -129,6 +132,12 @@ check('the picked entry is the list own object, not a copy',
   pickHoliday(true, items, 'national-day', has('h-national-day')) === items[1], true)
 check('an empty slot never consults another entry',
   pick(true, items, 'national-day', []), null)
+// A multi-image entry counts as paintable when ANY of its images has bytes — the
+// picker must not stop at the first one, which is how it would answer "no" for an
+// entry whose later image is the one that exists.
+check('a later image in the list counts as bytes',
+  pick(true, [{ id: 'national-day', enabled: true, images: [{ slot: 'empty' }, { slot: 'h-national-day' }] }],
+    'national-day', ['h-national-day']), 'national-day')
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

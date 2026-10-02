@@ -76,12 +76,27 @@ One interface, one config — only the current model differs:
 
 - **Ordered Rule List** — Add, remove, reorder and name rules. Each rule is matched by its own match string; the first hit wins and rule 1 is the fallback.
 - **Live Match Readout** — The top of the Model Background tab shows the current state, e.g. `Current model deepseek-flash → matched · Rule 1`, so you can verify a rule on the spot. If the current model can't be detected, a hint is shown instead.
-- **Per-rule Appearance** — Every rule owns its wallpaper, theme color, layout mode, framing, opacity and blur. Nothing is shared globally except the Interface tab.
-- **Import / Export** — Export every rule **including its wallpaper** to a `dsh-background-by-model-theme.json` (format version 3, images inlined as base64) and restore it anywhere.
+- **Per-rule Appearance** — Every rule owns its wallpapers, theme color, layout mode, per-image framing, opacity and blur. Nothing is shared globally except the Interface tab.
+- **Several Images per Rule** — A rule holds an ordered set of images, shown as a filmstrip: add several at once (file picker, drag & drop, or a list of URLs, one per line), reorder them, promote one to first, **replace one in place** (which keeps its position in the rotation), or remove them one by one. The image a rule paints when nothing rotates is its **first**. Removing the last image simply leaves the rule empty — and empty is not the same as off: while the rule keeps a theme color of its own it still matches, still serves as the fallback, and paints the interface instead of a wallpaper; only a rule with neither (a freshly added one) is skipped by matching. So an emptied rule is a visible, reversible state rather than one you get stuck in.
+- **Import / Export** — Export every rule **including all of its images** to a `dsh-background-by-model-theme.json` (format version 4, images inlined as base64) and restore it anywhere. Files written by 0.6 and earlier still import: each rule's single image is lifted into its image list.
 - **File-based Persistence** — All settings and images are stored on the filesystem under `~/.dsh/.dsh-background-by-model-data/`, not `localStorage`.
 - **Automatic Migration** — Old single-wallpaper configs are upgraded in place on first read. See the [v0.3.0 entry in CHANGELOG.md](./CHANGELOG.md#v030).
 - **Bilingual** — Full Chinese / English UI with automatic locale detection.
 - **Theme Watchdog** — Re-asserts the custom theme if the host resets it.
+
+### Image rotation
+
+Per rule, and **off by default** — cycling spends real bandwidth, memory and battery, so nothing turns it on for you.
+
+- **Enable it per rule** — the switch appears in the rule card and only becomes usable once the rule holds two or more images.
+- **Dwell time** — 10 s / 30 s / 1 min / 5 min / 30 min / 1 h, or any custom value in seconds (clamped to 5 s – 24 h).
+- **Order** — **In order** walks the list top-down and wraps around; **Shuffle** picks uniformly among every image *except* the one on screen, so a tick never looks like it was missed.
+- **Also step on a model switch** — an optional second trigger: every time the model changes and lands on that rule, it steps once. That is the whole feature for a rule meant to show "a different picture every time" without any timer running.
+- **Only the active rule rotates** — one timer for the whole plugin, aimed at whichever rule the current model resolved to. It stops while the tab is hidden and resumes on a fresh interval; a single-image rule (and every [holiday](#holiday-backgrounds)) never schedules anything.
+- **Next image** — steps the wallpaper immediately, for when you want to check the set.
+- **What follows a switch is the rule, not the image** — theme color, layout mode, opacity and blur belong to the rule and stay put; only the picture changes. The cross-fade between two images is the same one a model switch already used.
+- **Framing is per image** — a crop belongs to a picture, so each image keeps its own framing while sharing the rule's look.
+- **Only the images it needs are loaded** — boot reads each rule's first image; the rest stream in when a card is expanded or when the rotation is about to need one. Ten images per rule therefore do not mean ten wallpapers transferred before the first frame.
 
 ### Holiday backgrounds
 
@@ -98,10 +113,10 @@ A small one, not a settings block: **one switch on the Config page and nothing e
 
 ### Per-rule settings
 
-- **Wallpaper** — Upload any image as this rule's wallpaper; each rule keeps its own file.
-- **Theme Color** — HSL wheel plus numeric input and an inspiration palette, with **Extract from this image** and an **eyedropper**. When a rule sets no theme color, the system theme is used. Generates the full CSS design-token set in real time. Following the system theme hands the palette back to the host while the wallpaper and the Interface-tab opacity/blur sliders keep working — the surface colors are read back from the host's own tokens and re-emitted with your alpha, so the wallpaper is never buried under an opaque plate.
+- **Wallpaper** — Give a rule one or more images; each image is its own file. The filmstrip picks which one you are editing, and the "first" one is what the rule paints when no rotation is running. A rule may also hold **no** image: it then paints no wallpaper, but as long as it has a theme color of its own it still matches and still serves as the fallback (painting the interface alone), and only with neither is it skipped by matching until you give it something.
+- **Theme Color** — HSL wheel plus numeric input and an inspiration palette, with **Extract from this image** (of the image selected in the strip) and an **eyedropper**. When a rule sets no theme color, the system theme is used. Generates the full CSS design-token set in real time. Following the system theme hands the palette back to the host while the wallpaper and the Interface-tab opacity/blur sliders keep working — the surface colors are read back from the host's own tokens and re-emitted with your alpha, so the wallpaper is never buried under an opaque plate.
 - **Layout Mode** — Fit / Fill / Stretch / Tile / Center.
-- **Framing** — Drag to pan and scroll to zoom inside a viewport-proportional editor; **only editable in Fit mode**, and the committed framing stays consistent across window resizes and cross-monitor moves.
+- **Framing** — Drag to pan and scroll to zoom inside a viewport-proportional editor; **only editable in Fit mode**, and the committed framing stays consistent across window resizes and cross-monitor moves. Stored per image.
 - **Background Opacity** — `0–100%` for the rule's wallpaper layer.
 - **Background Blur** — `0–60 px`, applied to the wallpaper layer.
 
@@ -119,7 +134,7 @@ Settings → **Theme** now has three tabs:
 | Tab | Scope | Contents |
 | --- | --- | --- |
 | **Interface** | Global, shared by every model | Opacity & blur for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
-| **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's wallpaper, theme color, layout mode, framing, opacity and blur |
+| **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's images (filmstrip), theme color, layout mode, per-image framing, opacity, blur and [rotation](#image-rotation) |
 | **Config** | — | Import / export the whole rule set (`dsh-background-by-model-theme.json`), plus the single [holiday background](#holiday-backgrounds) switch |
 
 The old **Color** tab is gone — the theme color is now a property of each rule. The old **Background** tab became **Model Background**.
@@ -130,8 +145,8 @@ Data directory: `~/.dsh/.dsh-background-by-model-data/` (Windows: `C:\Users\<you
 
 | File | Contents |
 | --- | --- |
-| `theme-config.json` | The rule list plus the global Interface settings and the holiday overrides |
-| `modelbg-<slot>` | The image of each rule, stored as raw bytes without a file extension |
+| `theme-config.json` | The rule list (each rule with its image list and rotation) plus the global Interface settings and the holiday overrides |
+| `modelbg-<slot>` | One image, stored as raw bytes without a file extension — one file per image, so a rule with three images owns three slots |
 | `modelbg-h-midautumn` / `modelbg-h-nationalday` | Not used: both holiday wallpapers ship inside the package and are served straight out of it |
 
 ## Installation
@@ -184,9 +199,11 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
-`pnpm test` builds, typechecks and runs three checks (`tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs`). None of them needs a dependency, a transformer or a browser, and each can be run alone with `pnpm check:holiday` / `pnpm check:ui` / `pnpm check:node`:
+`pnpm test` builds, typechecks and runs five checks (`tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/repaint-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs`). None of them needs a dependency, a transformer or a browser, and each can be run alone with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:repaint` / `pnpm check:ui` / `pnpm check:node`:
 
 - **`check:holiday`** — the two holiday windows against known dates, the Beijing day boundary (23:59 vs 00:01), leap eighth months across 1900–2100, and the four gates `pickHoliday` applies before a holiday is allowed to take over the background.
+- **`check:rotation`** — the rotation's decisions (`nextIndex` / `isRotating`): no walking off the end of a list, shuffle never repeating the image already on screen (across the whole support of the roll), and "rotating" never claimed for a rule with nothing to rotate.
+- **`check:repaint`** — the decision that says whether an edit has to repaint the interface (`shouldRepaint`), including the case that kept failing in the field: an edit that **creates** the winner (a rule's first picture, its first or auto-extracted color) must repaint even though the edited rule was not the active one yet. It also fails if any of the write paths in `src/client/index.tsx` stops asking — so re-introducing the old `id === activeRuleId` test breaks the build's checks instead of the user's next upload.
 - **`check:ui`** — every `t('…')` key exists in both dictionaries, both dictionaries carry the same key set, every `dab-…` class has a rule in the stylesheet, and no dictionary entry has gone unreferenced.
 - **`check:node`** — the built node half driven through its real RPC handler with `DSH_HOME` redirected to a throwaway directory: the holiday block through the shared sanitizer, the packaged wallpapers served from an empty slot (without being copied into the data directory), a holiday slot refusing writes, deletes and URL fetches while a file dropped into it is ignored, an ordinary rule slot still writing, listing and deleting, and a hand-edited config unable to redirect a holiday at another rule's image.
 
@@ -199,7 +216,19 @@ Your first rule probably has an empty match string, which makes it a pure fallba
 Matching is first-hit, not best-hit. Put the more specific rule higher in the list, or reorder so the rule you want comes first.
 
 **Where are my wallpapers?**
-In `~/.dsh/.dsh-background-by-model-data/`, one `modelbg-<slot>` file per rule plus `theme-config.json`.
+In `~/.dsh/.dsh-background-by-model-data/`, one `modelbg-<slot>` file per image plus `theme-config.json`.
+
+**I turned the rotation on and the background never changed.**
+Three things can hold it: the rule needs two or more images, the tab has to be visible (a hidden tab paints nothing, so the rotation pauses with it), and only the rule the current model resolved to rotates — a rule that is not active has a disabled **Next image** button for exactly that reason.
+
+**Does rotating cost anything?**
+Yes, and that is why it is off by default. Each image is stored at full fidelity — no re-encoding — so a rule with ten 8 MB wallpapers holds ten of them, and every switch repaints the whole interface. Keep the sets small (two to five images is the sweet spot) and the dwell time sane; boot only reads each rule's first image, and the rotation warms the image it is about to need, so the cost is memory and disk rather than start-up time.
+
+**Why did the theme color stop working after I removed a rule's images?**
+That was the old behaviour, and its root cause was reading "has an image" as "is usable": a rule with no pictures left stopped matching at all, so its color had nothing to act on — and the models it used to own were handed to the next rule instead. A rule now counts while it has **an image, or a theme color of its own**: no wallpaper, the interface painted from that color (the card says which state it is in). Only a rule with neither — nothing to show at all — is skipped, with the card spelling that out.
+
+**I updated the plugin and the panel says my edits are not being saved.**
+The browser half and the host half are updated separately: a refreshed page can run the new client while DSH's own process still runs the previous plugin, which cannot read the new config shape (it announces a lower `SCHEMA_VERSION`) and could drop rules on the next write. The client detects that and holds its writes — restart DSH and the multi-image config, rotation settings and everything else save normally.
 
 **Can I share a setup?**
 Yes — export it from the **Config** tab; the JSON inlines every rule's image.
@@ -218,7 +247,22 @@ The other half of the same hole: while it owns a color the plugin **forces** `bo
 
 ## Recent Optimizations
 
-> Only the two most recent releases are listed here; older ones (v0.5.4 and earlier) live in [CHANGELOG.md](./CHANGELOG.md).
+> Only the two most recent releases are listed here; older ones (v0.5.5 and earlier) live in [CHANGELOG.md](./CHANGELOG.md).
+
+### v0.7.0
+
+- **Multi-image rotation, per rule** — a rule now owns an ordered list of images and can cycle them on its own rhythm: 10 s / 30 s / 1 min / 5 min / 30 min / 1 h or a custom dwell, **in order** or **shuffle** (which never lands on the image already on screen, because that is indistinguishable from a missed tick). Off by default, because rotating spends bandwidth, memory and battery and no default should decide that quietly.
+- **A second trigger: a model switch** — with *also step on a model switch* on, stepping has nothing to do with time at all: every model change that lands on the rule shows its next image. A rule can then read as "a different picture every time" with no timer scheduled.
+- **One timer, aimed at the active rule** — it is armed by a signature of exactly the inputs the schedule depends on (rule, interval, order, image count, visibility), so a slider drag re-runs the whole apply dozens of times a second without ever restarting the dwell. A hidden tab stops the rotation instead of painting three times into the void.
+- **What follows the image is nothing** — theme color, layout mode, opacity and blur stay the rule's; only the picture changes, through the cross-fade a model switch already used. A rule can ask for a slower blend than a switch (or 0 for a hard cut).
+- **Storyboard, not a form** — the rule card's single thumbnail became a filmstrip: add several images at once (multi-select, drop, or one URL per line), click one to edit it, reorder it, promote it to first, replace it in place, remove it. The big preview above the strip shows the selected image, and the one on screen carries a live dot.
+- **An empty rule is a state, not a dead end** — the first cut refused to remove a rule's last picture and cleared its bytes "instead", which left the entry itself behind: a blank tile at position 1 that could never be deleted, so the next upload landed at position 2 and the rule kept painting nothing while the preview showed an empty frame. Removing the last image now empties the list, a brand-new rule starts empty (no slot is allocated until the first picture), the picture you add becomes the one you are looking at, and a hand-edited list whose entries are all unusable lands in the same state instead of being conjured back into a broken slot.
+- **Empty is not off: the theme color keeps working** — the first cut read "has an image" as "is usable", so a rule whose pictures had all been removed **stopped matching and stopped being the fallback**: its own theme color, the wheel, the swatches and the clear-to-system-theme button became decoration (the symptom is "the theme color does nothing") and the models it used to own were handed to the next rule. A rule now counts while it has **an image, or a theme color of its own** (`ruleCanPaint`) — no wallpaper, just the interface painted from that color. The card's copy names which of the three real states it is in (no image but a color / neither / an image whose bytes have not arrived) instead of covering all three with one sentence.
+- **Editing a rule that is not the active one takes effect at once** — `color`, `enabled` and `match` all feed which rule wins, but the write path only re-ran the resolution when the edited rule was already the winner: picking the first color for an empty rule, or typing a match string into a rule that had not won yet, changed nothing on screen until some unrelated event re-ran it.
+- **Only the images that are needed are loaded** — boot hydrates each rule's FIRST image (exactly what it hydrated per rule before multi-image), the rest arrive when a card is expanded or when the rotation is about to need one. Twenty pictures across five rules therefore do not mean twenty full-size data URLs before the first frame.
+- **A stale host can no longer eat a profile** — the node half publishes the config shape it writes, and a client that finds a host announcing an older version (`SCHEMA_VERSION`, where 3 is the first that means "an empty image list is legal") **holds every config write** and says so in the panel. Without it, updating the package and merely refreshing the page would let the previous sanitizer drop every rule on the next slider drag.
+- **Old configs still load, and old exports still import** — a rule's single `slot`/`bgState` pair is lifted into `images: [{ slot, bgState }]` on read; theme files (version 4 now, version 3 and earlier still accepted) carry, and restore, every image of every rule rather than just the first.
+- **A fourth static gate: `pnpm check:rotation`** — the rotation's decisions are pure (`nextIndex` / `isRotating`) and are now pinned down: no walking off the end of a list, shuffle never repeating the current image (checked across the whole support of the roll, not one sample), and "rotating" never being claimed for a rule with nothing to rotate. `check:node` covers the new shape through the real RPC handler: legacy lifting, per-image framing, dedupe, clamping, nested-drift warnings and per-image slot independence.
 
 ### v0.6.0
 
@@ -226,11 +270,6 @@ The other half of the same hole: while it owns a color the plugin **forces** `bo
 - **中秋 is lunar, 国庆 is fixed, both read in Asia/Shanghai** — 中秋 (八月十五) moves every year, so it comes from the browser's own ICU Chinese calendar, no dependency. The zone is pinned rather than taken from the machine: the lunar day turns over at Beijing midnight. A leap eighth month is excluded by an exact `month === '8'` test — verified against every leap-eighth-month year from 1900 to 2100 (2052 fires on 2052-09-07, not on that year's `8bis` fifteenth in October). Where the two overlap (2025-10-06), 中秋 wins.
 - **The built-in wallpapers are compressed 12×: 8.37 MB → 729 KB** — native resolution WebP q80; the tarball goes 401 KB → 1.12 MB, and gzip cannot shrink already-compressed images further. That is the whole cost of the feature.
 - **An unused holiday costs nothing — and neither does an unused day** — boot fetches only the holiday that can paint *today*, and the node half looks the asset up lazily rather than loading it with the plugin.
-
-### v0.5.5
-
-- **The color preview field prints its own hex** — it sat at the bottom of the H/S/L (R/G/B) column behind the same 1px border and carried no text, so on a light color (reported: `#BADEE8`, L 82%) it read as one more — blank — text input with nothing to type into it. It now prints `#RRGGBB` in monospace centered on the color, inked by **Rec.709 luma** (the wallpaper extractor's own brightness measure) so the value never disappears into its fill, and the hover `scale(1.02)` it never backed up is gone. The duplicate hex caption above the HSL/RGB toggle went with it.
-- **The clear-color button says what it does** — **System theme** (a state) is now **Follow system theme** (the action), with the host's own sun glyph. It is the mirror of the 0.5.3 rename that turned the no-color button into **Custom color**.
 
 ## Star History
 
