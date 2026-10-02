@@ -221,16 +221,28 @@ export const UI_CSS = `
 .dab-rule-section-title{font-size:12px;font-weight:600;margin-bottom:9px;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
 
 /* ── image strip (multi-image rules) ─────────────────────────────────────── */
-/* A horizontally scrolling row of thumbnails: the edited one is ringed, the one
-   the wallpaper is actually painting carries a live dot. Drops land here, which
-   is why the border reacts to a drag rather than to hover. */
+/* A horizontally scrolling row of thumbnails: the one open for editing is
+   ringed, and the one the wallpaper is actually painting carries a live dot —
+   but deliberately NO ring of its own. Two tiles ringed at once read as "two
+   things are selected", which is the one question a row of near-identical
+   thumbnails must not leave open: being on screen is the dot, and nothing
+   else. FILES dropped here are added, which is why the container's border
+   reacts to a drag; a TILE dragged across the row reorders it instead, and that
+   is what the is-dragging / dab-strip-bar pair below is for. */
 .dab-strip{display:flex;gap:7px;margin-top:9px;padding:7px;border-radius:12px;border:1.5px dashed var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);overflow-x:auto;scrollbar-width:thin}
 .dab-strip.is-over{border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent)}
-.dab-strip-item{position:relative;flex:none;width:62px;height:44px;padding:0;border-radius:8px;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);cursor:pointer;transition:border-color .2s,box-shadow .2s,transform .18s}
+.dab-strip-item{position:relative;flex:none;width:62px;height:44px;padding:0;border-radius:8px;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);cursor:grab;user-select:none;transition:border-color .2s,box-shadow .2s,transform .18s}
 .dab-strip-item img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .dab-strip-item:hover{transform:translateY(-1px);border-color:var(--dsw-alias-brand-primary)}
 .dab-strip-item.is-sel{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 40%,transparent)}
-.dab-strip-item.is-live{box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}
+/* The tile being dragged out of the row, and the 2px bar that says where it will
+   land. The bar is drawn INSIDE the tile it precedes (at its left edge) or inside
+   the last tile (at its right edge, for a drop past the end): a bar as its own flex
+   item would push the tiles sideways, and a target that slides away as the pointer
+   approaches it is how a drop ends up one slot off. */
+.dab-strip-item.is-dragging{cursor:grabbing;opacity:.45;transform:none;border-style:dashed}
+.dab-strip-bar{position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--dsw-alias-brand-primary);z-index:2}
+.dab-strip-bar.is-end{left:auto;right:0}
 .dab-strip-wait{position:absolute;inset:0;background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent) 4px 8px)}
 .dab-strip-num{position:absolute;left:3px;bottom:2px;font-family:var(--dab-mono);font-size:9.5px;line-height:1;padding:1px 4px;border-radius:5px;background:rgba(0,0,0,.45);color:#fff}
 .dab-strip-live{position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px rgba(0,0,0,.35);animation:dab-pulse 1.8s ease-in-out infinite}

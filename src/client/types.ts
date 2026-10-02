@@ -219,10 +219,17 @@ export interface ThemeSectionProps {
    * rule becomes the painted one.
    */
   addRuleImages: (id: string, dataUrls: readonly string[]) => void
-  /** Remove one image from a rule; the last one cannot be removed. */
+  /** Remove one image from a rule; the rule is then simply empty when it was last. */
   removeRuleImage: (id: string, slot: string) => void
-  /** Move one image one position earlier (-1) or later (+1) in its rule. */
-  moveRuleImage: (id: string, slot: string, dir: -1 | 1) => void
+  /**
+   * Move one image straight to an index of its rule — the strip's drag-and-drop
+   * reorder, and the ONLY way the order changes.
+   *
+   * `to` addresses the list the move PRODUCES, not the one it starts from. A
+   * reorder is not a change of subject: whichever picture is on screen stays on
+   * screen, so this never repaints a different one.
+   */
+  moveRuleImageTo: (id: string, slot: string, to: number) => void
   /** Store one image's framing (the background editor's commit). */
   setImageFraming: (id: string, slot: string, bgState: BgState) => void
   /**
@@ -234,12 +241,19 @@ export interface ThemeSectionProps {
    * a rule that has no image to address.
    */
   setImageColor: (id: string, slot: string, color: [number, number, number] | null) => void
-  /** Make one image the rule's first, i.e. the one painted when nothing rotates. */
-  setCurrentImage: (id: string, slot: string) => void
   /** Patch a rule's rotation (interval, order, switch behaviour, fade). */
   setRuleRotation: (id: string, patch: Partial<BgRotation>) => void
   /** Step a rule's rotation once, right now (no effect when it has < 2 images). */
   rotateNow: (id: string) => void
+  /**
+   * Put one of a rule's images on screen right now — the strip's double-click.
+   *
+   * Deliberately not `moveRuleImageTo`: showing a picture is not a statement about
+   * the rotation ORDER, so nothing is reordered and nothing is written to the
+   * config. Like `rotateNow` this only means something for the rule that is
+   * painting, and is a no-op for any other.
+   */
+  showRuleImage: (id: string, slot: string) => void
   /**
    * Hydrate every image of one rule into the paintable cache.
    *
