@@ -96,6 +96,29 @@ if (autoAt >= 0) {
   check('maybeAutoExtract closes with repaintIfMoved', /repaintIfMoved\(id, winner\)/.test(body), true)
 }
 
+console.log('\n--- one upload themes its whole batch ---')
+// "一次上传了多张图片，似乎只有最后一张会被自动选主题色": the extraction was
+// addressed by LIST POSITION (`rule.images[length - 1]`), which is the right
+// answer for a one-file upload and silently the wrong one for a batch — the other
+// pictures of the rotation stayed on the system theme. It is now addressed by the
+// slots the upload itself just appended, so every file of the batch is themed.
+const eachAt = source.indexOf('const maybeAutoExtractEach = async')
+check('the batch form of the extraction is still there', eachAt >= 0, true)
+if (eachAt >= 0) {
+  const body = source.slice(eachAt, source.indexOf('\n  }\n', eachAt))
+  check('the batch form walks every slot it was handed', /for \(const slot of slots\) await maybeAutoExtract\(id, slot\)/.test(body), true)
+}
+const uploadAt = source.indexOf('\n      addRuleImages: ')
+check('addRuleImages is still there', uploadAt >= 0, true)
+if (uploadAt >= 0) {
+  const body = source.slice(uploadAt, source.indexOf('\n      },\n', uploadAt))
+  check('an upload records the slots of its own batch', /added\.push\(slot\)/.test(body), true)
+  check('an upload themes the whole batch', /maybeAutoExtractEach\(id, added\)/.test(body), true)
+  // The exact shape of the bug, so it cannot come back as a "small" edit: a batch
+  // that reaches for one image of the rule by position.
+  check('an upload no longer themes a single image of the rule', /maybeAutoExtract\(id, rule\.images\[/.test(body), false)
+}
+
 console.log('\n--- a rotation step re-emits the palette too ---')
 // The 0.7.1 half of the same failure, one step further out: a theme color belongs
 // to an IMAGE, so moving the rotation from picture 1 to picture 2 changes the
