@@ -29,18 +29,42 @@ export interface BgState { zoom: number; x: number; y: number; iw: number; ih: n
 export const DEFAULT_BG_STATE: BgState = { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 }
 
 /**
- * One image of a rule: its slot plus the framing that belongs to THAT image.
+ * One image of a rule: its slot, plus everything that belongs to THAT image —
+ * its framing and its theme color.
  *
  * The framing is per image rather than per rule because a crop is a property of
  * a picture: two wallpapers with different aspect ratios share the rule's
- * `bgMode`, color, opacity and blur, but a single `fit` framing computed for one
- * of them is simply wrong for the other. Everything else stays on the rule.
+ * `bgMode`, opacity and blur, but a single `fit` framing computed for one of
+ * them is simply wrong for the other.
+ *
+ * The theme color is per image for the same reason one step further out: a rule
+ * is a rotation through several pictures, and pictures that were collected for
+ * different moods do not share one accent. A rule's own `color` therefore means
+ * something narrower than it used to (see `BgRule.color`) — it is what a rule
+ * with no image left paints.
  */
 export interface BgImage {
   /** Image slot; the bytes live in `modelbg-<slot>` under the data dir. */
   slot: string
   /** This image's framing (zoom + fractional center + intrinsic size). */
   bgState: BgState
+  /**
+   * This image's own theme color as `[h, s, l]`, or null for "follow the system
+   * theme while THIS image is on screen".
+   *
+   * Null is an opinion, not an absence: it is the state the clear button puts an
+   * image in, and it is deliberately NOT the rule's color — an image's color is
+   * the image's, which is what makes a rotation through a green, a red and a
+   * system-themed picture expressible at all. The rule's own color only applies
+   * when the rule has no image to speak for it.
+   *
+   * Written by every release from 0.7.1 on. An entry that predates the field has
+   * no `color` KEY at all, which is exactly how `normalizeImage` tells "this
+   * image never had a color of its own" from "this image was explicitly cleared"
+   * — and why the rule's color is lifted onto such an entry on read rather than
+   * being quietly dropped.
+   */
+  color: [number, number, number] | null
 }
 
 /** Adaptive placement of a background image. */
@@ -162,7 +186,16 @@ export interface BgRule {
   images: BgImage[]
   /** Disabled rules are skipped by matching AND by the fallback pick. */
   enabled: boolean
-  /** Saved HSL theme color of this rule; null = use the system theme. */
+  /**
+   * The theme color of the rule ITSELF: what an image-less rule paints the
+   * interface from. Null = that rule falls back to the system theme.
+   *
+   * It is not a default for the rule's images — each of those carries its own
+   * (`BgImage.color`) and never inherits this one at paint time. The only
+   * inheritance that exists is a one-shot LIFT at read time for configs written
+   * before per-image colors, so a rule that was themed before 0.7.1 comes back
+   * looking exactly the same (see `normalizeImage`).
+   */
   color: [number, number, number] | null
   bgMode: BgMode
   /** Wallpaper layer opacity (0..1). */
@@ -184,14 +217,18 @@ export function ruleSlots(rule: BgRule): string[] {
  * own. Used by matching (`usable` in ./client/modelbg) and by the panel's copy.
  *
  * An image is the obvious way a rule paints, and until 0.7 it was the ONLY one —
- * which stopped being true the moment the last image became removable. The theme
- * color is a rule-level property: it recolors the interface through the token
- * palette with no wallpaper involved, so a rule whose pictures were all removed
- * still paints, and treating it as unusable made every control left on its card
- * (the wheel, the swatches, the clear-to-system-theme button) dead — the one
- * state where the panel was confidently showing a lie. It also silently handed
- * the model to the NEXT rule, so clearing the default rule's images put another
- * model's wallpaper on the screen.
+ * which stopped being true the moment the last image became removable. A
+ * rule-level theme color is the second: it recolors the interface through the
+ * token palette with no wallpaper involved, so a rule whose pictures were all
+ * removed still paints, and treating it as unusable made every control left on
+ * its card (the wheel, the swatches, the clear-to-system-theme button) dead — the
+ * one state where the panel was confidently showing a lie. It also silently
+ * handed the model to the NEXT rule, so clearing the default rule's images put
+ * another model's wallpaper on the screen.
+ *
+ * Note that a per-image color (0.7.1) does not enter this question at all: an
+ * image is already enough, so the answer here is about the IMAGE LIST being
+ * non-empty, never about what those images are painted in.
  *
  * A rule with no image and no color of its own paints nothing: the system theme
  * is not a paint of this rule's own, so such a rule is skipped by matching, which
@@ -216,6 +253,13 @@ export function ruleCanPaint(rule: BgRule): boolean {
  * the one bundled in the package (under `holiday/`), the node half serves it
  * straight out of there, and a holiday slot is read-only — no entry point takes
  * bytes for it. The feature is an easter egg, not a thing to configure.
+ *
+ * Its theme colors are forced from the definition for the same reason, one level
+ * deeper: a holiday's color belongs to it, so `normalizeHolidayRule` rewrites both
+ * the rule's color and every image's. That is also what makes a future holiday
+ * with SEVERAL pictures (a rotation through festival art, each piece with its own
+ * palette) a change to `HOLIDAYS` and its assets alone, rather than a second code
+ * path in the render layer.
  */
 export type HolidayRule = BgRule
 
@@ -321,15 +365,20 @@ export function hexToHsl(hex: string): [number, number, number] | null {
  * art was not cut for.
  */
 export function defaultHolidayRule(def: HolidayDef): HolidayRule {
+  // The definition's own color, never an extracted one — see hexToHsl. It is
+  // written BOTH on the rule (what an image-less festival would paint) and on the
+  // image (what actually paints today), because those are two different slots in
+  // the shape now and a holiday that only filled one of them would look themed or
+  // unthemed depending on which branch the render layer happened to read.
+  const color = hexToHsl(def.color)
   return {
     id: def.id,
     // Exactly one image: a holiday's art is the package's, so there is nothing
     // for a second entry to point at and nothing for a rotation to walk.
-    images: [{ slot: def.slot, bgState: { ...DEFAULT_BG_STATE } }],
+    images: [{ slot: def.slot, bgState: { ...DEFAULT_BG_STATE }, color }],
     match: '',
     enabled: true,
-    // The definition's own color, never an extracted one — see hexToHsl.
-    color: hexToHsl(def.color),
+    color,
     bgMode: 'fill',
     wallpaperOpacity: 1,
     blur: 0,
@@ -366,8 +415,8 @@ export function freshThemeConfig(): ThemeConfig {
 export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
- * The persisted SHAPE this build writes: 3 = a rule may legitimately hold an
- * EMPTY image list (and paint from its theme color alone).
+ * The persisted SHAPE this build writes: 4 = a theme color belongs to an IMAGE
+ * (`images[].color`), and a rule's own color is what an image-less rule paints.
  *
  * Declared here, with the shape itself, and published by the node half on every
  * `read`. The browser half compares it before it writes anything: a client bundle
@@ -377,15 +426,17 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  * Knowing the shape up front is what lets the client hold its writes and say so
  * instead.
  *
- * 2 → 3 is exactly that kind of change, not a cosmetic bump. A schema-2 host
- * refuses an empty list (`normalizeRule` used to rebuild an entry for it, and
- * before 0.7.0's empty-rule fix it dropped such a rule outright), so once this
- * bundle can PRODUCE an empty rule, every write is at risk of erasing the user's
- * rule list — the failure mode is data loss, and it arrives on the first slider
- * drag after emptying a rule. The check is a plain `>=`, so an older host now
- * lands in the hold-writes path automatically.
+ * Both bumps so far were of that kind, not cosmetic. 2 → 3 was "an empty image
+ * list is legal": a schema-2 host refuses one, so once this bundle could PRODUCE
+ * an empty rule, every write was at risk of erasing the user's rule list — the
+ * failure mode is data loss, and it arrived on the first slider drag after
+ * emptying a rule. 3 → 4 is `images[].color`: the field is unknown to a schema-3
+ * sanitizer, which REBUILDS each image entry from the keys it knows, so a color
+ * the user set would survive in memory until the next reload and then be gone —
+ * a silent, per-image loss that no warning would accompany. The check is a plain
+ * `>=`, so an older host lands in the hold-writes path automatically.
  */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 export function clamp(n: unknown, lo: number, hi: number, def: number): number {
   return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
@@ -427,11 +478,34 @@ export function normalizeRotation(raw: unknown): BgRotation {
   }
 }
 
-/** Coerce one persisted image entry, or null when it lacks a usable slot. */
-export function normalizeImage(raw: unknown): BgImage | null {
+/** Own-property test for values that may be anything at all (a raw JSON entry). */
+function hasOwn(o: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(o, key)
+}
+
+/**
+ * Coerce one persisted image entry, or null when it lacks a usable slot.
+ *
+ * `inherit` is the RULE's own color, and it is applied only to an entry that has
+ * no `color` key at all — the shape every release before 0.7.1 wrote, where a
+ * rule's color was the only color there was. Lifting it here, once, is what makes
+ * an upgrade a no-op on screen: a themed wallpaper keeps its theme instead of
+ * silently dropping to the system palette, and it happens in the shared sanitizer
+ * so both halves lift identically.
+ *
+ * The KEY's presence is the whole distinction, which is why `null` is not the
+ * same as absent: an entry with `color: null` is an image the user explicitly set
+ * to "follow the system theme", and re-inheriting the rule's color over that
+ * would undo a deliberate choice on every load.
+ */
+export function normalizeImage(raw: unknown, inherit: [number, number, number] | null = null): BgImage | null {
   const i = (raw ?? {}) as Partial<BgImage>
   if (typeof i.slot !== 'string' || !SLOT_RE.test(i.slot)) return null
-  return { slot: i.slot, bgState: normalizeBgState(i.bgState as Partial<BgState> | undefined) }
+  return {
+    slot: i.slot,
+    bgState: normalizeBgState(i.bgState as Partial<BgState> | undefined),
+    color: hasOwn(i, 'color') ? normalizeHsl(i.color) : inherit,
+  }
 }
 
 /**
@@ -443,6 +517,11 @@ export function normalizeImage(raw: unknown): BgImage | null {
  * rest of the codebase free of "old config" branches. Duplicate slots inside one
  * rule are dropped: two entries pointing at the same bytes would only make the
  * rotation look stuck.
+ *
+ * The rule's color is resolved FIRST and handed to every image entry, because it
+ * is what an entry written before 0.7.1 inherits (`normalizeImage`). The rule keeps
+ * it as well: it is not a default for its images at paint time any more, but it
+ * is still what the rule paints once its last picture is gone.
  *
  * An EMPTY list is a legitimate rule, not a broken one: removing a rule's last
  * picture has to be expressible, and forcing an entry back in is what produced a
@@ -457,12 +536,13 @@ export function normalizeRule(raw: unknown): BgRule | null {
   const r = (raw ?? {}) as Partial<BgRule> & { slot?: unknown; bgState?: unknown }
   const id = typeof r.id === 'string' && r.id !== '' ? r.id : null
   if (id === null) return null
+  const color = normalizeHsl(r.color)
   const images: BgImage[] = []
   const seen = new Set<string>()
   const hadList = Array.isArray(r.images)
   if (hadList) {
     for (const entry of r.images as unknown[]) {
-      const image = normalizeImage(entry)
+      const image = normalizeImage(entry, color)
       if (image === null || seen.has(image.slot)) continue
       seen.add(image.slot)
       images.push(image)
@@ -470,7 +550,10 @@ export function normalizeRule(raw: unknown): BgRule | null {
   }
   const legacySlot = typeof r.slot === 'string' && SLOT_RE.test(r.slot) ? r.slot : null
   if (images.length === 0 && legacySlot !== null) {
-    images.push({ slot: legacySlot, bgState: normalizeBgState(r.bgState as Partial<BgState> | undefined) })
+    // Synthesized, not read: the pre-0.7 pair has no image entry of its own, so
+    // the rule's color is what this image starts out with (the same lift as
+    // above, for the shape that has no `color` key to be absent from).
+    images.push({ slot: legacySlot, bgState: normalizeBgState(r.bgState as Partial<BgState> | undefined), color })
   }
   // Nothing usable anywhere: a pre-0.7 rule whose slot was empty or malformed.
   if (images.length === 0 && !hadList) return null
@@ -480,7 +563,7 @@ export function normalizeRule(raw: unknown): BgRule | null {
     images,
     match: typeof r.match === 'string' ? r.match : '',
     enabled: r.enabled !== false,
-    color: normalizeHsl(r.color),
+    color,
     bgMode: mode,
     wallpaperOpacity: clamp01(r.wallpaperOpacity, 1),
     blur: clamp(r.blur, 0, 60, 0),
@@ -491,14 +574,14 @@ export function normalizeRule(raw: unknown): BgRule | null {
 /**
  * Coerce one persisted holiday entry.
  *
- * `id`, `images` and `color` come from the DEFINITION, never from disk: a
- * holiday's slot is the only thing tying it to its bytes, and its theme color is
- * a fixed part of what that holiday looks like — so a stale or hand-edited value
- * would either orphan the wallpaper, point the holiday at a rule's image, or
- * paint a festival in a color it does not have. Everything else is sanitized
- * exactly like a rule's field — except the image list and the rotation, which
- * stay the definition's own single image and stay off, so a festival can never be
- * swapped or cycled.
+ * `id`, `images` and every theme color (the rule's and each image's) come from
+ * the DEFINITION, never from disk: a holiday's slot is the only thing tying it to
+ * its bytes, and its theme color is a fixed part of what that holiday looks like —
+ * so a stale or hand-edited value would either orphan the wallpaper, point the
+ * holiday at a rule's image, or paint a festival in a color it does not have.
+ * Everything else is sanitized exactly like a rule's field — except the image
+ * list and the rotation, which stay the definition's own single image and stay
+ * off, so a festival can never be swapped or cycled.
  */
 export function normalizeHolidayRule(def: HolidayDef, raw: unknown): HolidayRule {
   const r = (raw ?? {}) as Partial<HolidayRule> & { bgState?: unknown }
@@ -512,10 +595,14 @@ export function normalizeHolidayRule(def: HolidayDef, raw: unknown): HolidayRule
     wallpaperOpacity: clamp01(r.wallpaperOpacity, base.wallpaperOpacity),
     blur: clamp(r.blur, 0, 60, base.blur),
     // A holiday's own framing is still the user's: which part of the festival art
-    // fills the screen is a taste question, and the editor allows it.
+    // fills the screen is a taste question, and the editor allows it. Its COLOR is
+    // not — it comes from `base` (the definition), like the slot beside it, so the
+    // `hasOwn` lift in normalizeImage can never reach a holiday and a hand-edited
+    // per-image color cannot repaint a festival.
     images: base.images.map(image => ({
       slot: image.slot,
       bgState: normalizeBgState((r.images?.[0]?.bgState ?? r.bgState) as Partial<BgState> | undefined),
+      color: image.color,
     })),
   }
 }
