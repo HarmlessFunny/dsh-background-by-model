@@ -22,6 +22,7 @@
  * reason it imports nothing from `src/schema.ts`.
  */
 import { resolveFadeMs, transitionPlan } from '../src/client/transition.ts'
+import { paletteFadeCss, paletteFadeInline } from '../src/client/palette-fade.ts'
 import type { TransitionConfig, TransitionEffect, TransitionEasing } from '../src/schema.ts'
 
 let failures = 0
@@ -110,6 +111,43 @@ for (const cfg of [t(), t({ durationMs: 900 }), t({ effect: 'none' }), t({ effec
   const ms = resolveFadeMs(cfg)
   check(`plan and resolve agree for ${JSON.stringify(cfg)}`, plan({ effect: cfg.effect, durationMs: ms }).durationMs, ms)
 }
+
+console.log('\n--- the palette fade rides the same switch, on registered tokens ---')
+// A colour change is one rewrite of `body{…}`, so it snaps unless the tokens are
+// REGISTERED as colours; the fade is the same duration and the same vetoes as the
+// wallpaper by construction (both come from `transitionPlan`), which is also what
+// the wiring in ./wallpaper is checked for in `check:repaint`.
+const INIT = {
+  '--dsw-alias-bg-base': 'rgb(255, 255, 255)',
+  '--dsw-alias-label-primary': 'rgb(0, 0, 0)',
+}
+const fade = paletteFadeCss({ selectors: ['body', '.dlg'], initial: INIT, durationMs: 320, easing: 'ease' })
+check('each token is registered as an interpolable colour',
+  (fade.match(/@property --dsw-alias-[a-z-]+\{syntax:'<color>';inherits:true;initial-value:rgb\(/g) ?? []).length, 2)
+check('the registration carries the host value as its initial',
+  fade.includes('initial-value:rgb(255, 255, 255)'), true)
+check('the transition runs on the switch duration and easing',
+  fade.includes('--dsw-alias-bg-base 320ms ease'), true)
+check('every registered token is in the transition list',
+  ['--dsw-alias-bg-base', '--dsw-alias-label-primary'].every(n => fade.includes(`${n} 320ms ease`)), true)
+check('and it is declared on every element that re-declares the tokens',
+  fade.includes('body,.dlg{transition:'), true)
+// 0 ms is "do not animate", not "animate for no time": the registrations stay
+// (they cost nothing and are what makes a LATER fade possible) and no transition
+// rule is emitted at all — which is also what keeps a slider drag instant, since
+// a drag rewrites the same token block on every frame.
+const fadeOff = paletteFadeCss({ selectors: ['body'], initial: INIT, durationMs: 0, easing: 'ease' })
+check('a zero duration emits no transition rule', fadeOff.includes('transition:'), false)
+check('but still registers the tokens', fadeOff.includes('@property'), true)
+check('no tokens means no CSS (nothing is invented)',
+  paletteFadeCss({ selectors: ['body'], initial: {}, durationMs: 320, easing: 'ease' }), '')
+check('a name that is not a custom property is ignored',
+  paletteFadeCss({ selectors: ['body'], initial: { color: 'rgb(0,0,0)' }, durationMs: 320, easing: 'ease' }), '')
+// The elements the plugin paints INLINE do not read the registered tokens, so
+// they carry the standard property instead — and 0 must be `none`, never an empty
+// value that would leave the host's own transition in place.
+check('inline: the same duration on background-color', paletteFadeInline(320, 'ease'), 'background-color 320ms ease')
+check('inline: zero disarms instead of inheriting', paletteFadeInline(0, 'ease'), 'none')
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
