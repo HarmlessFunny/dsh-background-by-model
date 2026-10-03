@@ -32,7 +32,7 @@ function check(label: string, got: unknown, want: unknown): void {
 }
 
 const t = (patch: Partial<TransitionConfig> = {}): TransitionConfig => ({
-  effect: 'fade', easing: 'ease', durationMode: 'per-rule', durationMs: 320, ...patch,
+  effect: 'fade', easing: 'ease', durationMs: 320, ...patch,
 })
 
 const plan = (patch: Partial<Parameters<typeof transitionPlan>[0]> = {}) =>
@@ -49,16 +49,15 @@ check('on exactly the old transition string', plan().transition, 'opacity 320ms 
 check('with exactly the old compositor hint', plan().willChange, 'opacity')
 
 console.log('\n--- which duration one switch uses ---')
-check('per-rule mode uses the rule\'s own', resolveFadeMs(t(), 700), 700)
-check('per-rule mode keeps a deliberate hard cut', resolveFadeMs(t(), 0), 0)
-check('unified mode uses the global one', resolveFadeMs(t({ durationMode: 'unified', durationMs: 120 }), 700), 120)
-check('unified mode keeps a deliberate hard cut', resolveFadeMs(t({ durationMode: 'unified', durationMs: 0 }), 700), 0)
+// There is exactly ONE duration for every switch: a rule has no notion of a
+// transition, and the per-rule field this replaced had no control anywhere.
+check('the global duration is the one used', resolveFadeMs(t({ durationMs: 700 })), 700)
+check('a deliberate hard cut is kept', resolveFadeMs(t({ durationMs: 0 })), 0)
 // Asking for no animation and asking for 0 ms are the same request, and the
 // effect is the more explicit of the two.
-check('effect none beats a long rule duration', resolveFadeMs(t({ effect: 'none' }), 3000), 0)
-check('effect none beats a long unified duration', resolveFadeMs(t({ effect: 'none', durationMode: 'unified', durationMs: 3000 }), 3000), 0)
-check('a negative duration is a hard cut, not a default', resolveFadeMs(t(), -5), 0)
-check('a non-finite duration is a hard cut, not a default', resolveFadeMs(t({ durationMode: 'unified', durationMs: NaN }), 700), 0)
+check('effect none beats a long duration', resolveFadeMs(t({ effect: 'none', durationMs: 3000 })), 0)
+check('a negative duration is a hard cut, not a default', resolveFadeMs(t({ durationMs: -5 })), 0)
+check('a non-finite duration is a hard cut, not a default', resolveFadeMs(t({ durationMs: NaN })), 0)
 
 console.log('\n--- "nothing to animate from" and reduced motion both veto ---')
 // The first paint after a boot, and a wallpaper the user set to 0% opacity.
@@ -107,8 +106,8 @@ check('the resolved duration is what is written', plan({ durationMs: 1500 }).tra
 check('the plan reports the duration it will use', plan({ durationMs: 1500 }).durationMs, 1500)
 // The two halves must agree: whatever `resolveFadeMs` hands over is what the plan
 // animates with — a mismatch is a switch that writes one duration and runs another.
-for (const cfg of [t(), t({ durationMode: 'unified', durationMs: 900 }), t({ effect: 'none' })]) {
-  const ms = resolveFadeMs(cfg, 700)
+for (const cfg of [t(), t({ durationMs: 900 }), t({ effect: 'none' }), t({ effect: 'zoom', durationMs: 0 })]) {
+  const ms = resolveFadeMs(cfg)
   check(`plan and resolve agree for ${JSON.stringify(cfg)}`, plan({ effect: cfg.effect, durationMs: ms }).durationMs, ms)
 }
 

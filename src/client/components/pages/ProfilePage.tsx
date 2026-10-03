@@ -3,9 +3,9 @@ import type { CSSProperties } from 'react'
 import type { ThemeSectionProps, ThemeStoreState } from '../../types'
 import { cfg, rFadeMs } from '../../state'
 import { saveConfig } from '../../rpc'
-import { normalizeTransition, TRANSITION_DURATION_MODES, TRANSITION_EASINGS, TRANSITION_EFFECTS } from '../../../schema'
+import { normalizeTransition, TRANSITION_EASINGS, TRANSITION_EFFECTS } from '../../../schema'
 import { transitionPlan } from '../../transition'
-import type { TransitionDurationMode, TransitionEffect, TransitionEasing } from '../../../schema'
+import type { TransitionEffect, TransitionEasing } from '../../../schema'
 import { LiveSlider } from '../LiveSlider'
 import { DownloadIcon, SparkleIcon, UploadIcon } from '../icons'
 
@@ -16,9 +16,6 @@ const EFFECT_KEYS: Record<TransitionEffect, string> = {
 }
 const EASING_KEYS: Record<TransitionEasing, string> = {
   ease: 'trEasingEase', linear: 'trEasingLinear', 'ease-out': 'trEasingOut', 'ease-in-out': 'trEasingInOut',
-}
-const DURATION_KEYS: Record<TransitionDurationMode, string> = {
-  'per-rule': 'trDurPerRule', unified: 'trDurUnified',
 }
 
 export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg: string, ok?: boolean) => void }) {
@@ -76,10 +73,10 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
   // as the timing being edited.
   useEffect(() => {
     if (!reduced) play()
-    // `play` closes over the current `tr`; the three fields below are the ones
-    // that change the effect's shape.
+    // `play` closes over the current `tr`; the two fields below are the ones that
+    // change the effect's shape.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tr.effect, tr.easing, tr.durationMode])
+  }, [tr.effect, tr.easing])
 
   const onImport = async (file: File) => {
     try {
@@ -159,31 +156,20 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
           </>
         )}
 
+        {/* One duration for every switch — the slider IS the setting, with no
+            "where does it come from" choice in front of it: the per-rule fade
+            this could have deferred to had no control anywhere, so offering the
+            choice would have been offering a real setting and a phantom one. */}
         <div className="dab-swatch-title" style={{ marginTop: 12 }}>{t('trDuration')}</div>
-        <div className="dab-chip-row">
-          {TRANSITION_DURATION_MODES.map(mode => (
-            <button key={mode} type="button"
-              className={`dab-chip${tr.durationMode === mode ? ' is-active' : ''}`}
-              onClick={() => setTransition({ durationMode: mode })}>
-              {t(DURATION_KEYS[mode])}
-            </button>
-          ))}
+        <div style={{ marginTop: 2 }}>
+          <LiveSlider label={t('trDuration')} min={0} max={3000} step={50} def={tr.durationMs}
+            fmt={v => `${v} ms`}
+            onInput={v => {
+              cfg.transition = normalizeTransition({ ...cfg.transition, durationMs: v })
+              saveConfig()
+            }}
+            onChange={v => setTransition({ durationMs: v })} />
         </div>
-        {/* The slider appears only for the destination that HAS a value here; a
-            per-rule duration lives on the rule, and the hint says where. */}
-        {tr.durationMode === 'unified' ? (
-          <div style={{ marginTop: 10 }}>
-            <LiveSlider label={t('trDuration')} min={0} max={3000} step={50} def={tr.durationMs}
-              fmt={v => `${v} ms`}
-              onInput={v => {
-                cfg.transition = normalizeTransition({ ...cfg.transition, durationMs: v })
-                saveConfig()
-              }}
-              onChange={v => setTransition({ durationMs: v })} />
-          </div>
-        ) : (
-          <p className="dab-hint" style={{ marginTop: 9 }}>{t('trDurHint')}</p>
-        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 13 }}>
           <div className="dab-tr-preview">

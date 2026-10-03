@@ -109,11 +109,11 @@ export interface Ctx {
 // client module imports them from this module.
 import type {
   BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs,
-  RotateOrder, ThemeConfig, TransitionConfig, TransitionDurationMode, TransitionEffect, TransitionEasing,
+  RotateOrder, ThemeConfig, TransitionConfig, TransitionEffect, TransitionEasing,
 } from '../schema'
 export type {
   BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs,
-  RotateOrder, ThemeConfig, TransitionConfig, TransitionDurationMode, TransitionEffect, TransitionEasing,
+  RotateOrder, ThemeConfig, TransitionConfig, TransitionEffect, TransitionEasing,
 }
 
 // The model-resolution facts the section shows for the active rule. Declared with

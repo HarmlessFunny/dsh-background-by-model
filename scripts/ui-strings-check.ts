@@ -75,12 +75,11 @@ const TABLE_KEYS: Array<[string, RegExp, string]> = [
   // reached through a table just like the two above.
   ['rotation.ts', /key:\s*'(rot[A-Za-z0-9]+)'/g, 'ROTATE_PRESETS'],
   // The switch-effect card renders its chips from one table per axis, and each
-  // table is a `Record<TransitionEffect | TransitionEasing | DurationMode, …>`:
-  // the compiler is what keeps "a value with no label" from existing, and these
-  // three entries are what keep the labels from going missing on the way out.
+  // table is a `Record<TransitionEffect | TransitionEasing, …>`: the compiler is
+  // what keeps "a value with no label" from existing, and these two entries are
+  // what keep the labels from going missing on the way out.
   ['components/pages/ProfilePage.tsx', /'(trEffect[A-Za-z]+)'/g, 'EFFECT_KEYS'],
   ['components/pages/ProfilePage.tsx', /'(trEasing[A-Za-z]+)'/g, 'EASING_KEYS'],
-  ['components/pages/ProfilePage.tsx', /'(trDur[A-Za-z]+)'/g, 'DURATION_KEYS'],
 ]
 for (const [rel, re, table] of TABLE_KEYS) {
   const src = sources.get(join(CLIENT, rel))

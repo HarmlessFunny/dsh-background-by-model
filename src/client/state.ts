@@ -267,8 +267,7 @@ export function rBgState(): BgState { return activeImage()?.bgState ?? DEFAULT_B
 /** Rotation of the active rule; the shipped default when nothing is active. */
 export function rRotation(): BgRule['rotate'] { return activeRule()?.rotate ?? defaultRotation() }
 /**
- * The GLOBAL wallpaper-switch transition (effect, easing, where the duration
- * comes from).
+ * The GLOBAL wallpaper-switch transition (effect, easing, duration).
  *
  * Read from the config on every apply rather than cached: the Config page edits
  * it while a wallpaper is on screen, and the next switch has to use what the
@@ -278,12 +277,12 @@ export function rTransition(): TransitionConfig { return cfg.transition ?? DEFAU
 /**
  * Duration the next switch runs for, in ms (`0` = a hard cut).
  *
- * The two rungs are `resolveFadeMs`'s business (./transition): the global effect
- * can veto the animation outright, the global duration can override every rule,
- * and otherwise the rule's own `rotate.fadeMs` decides — which is what keeps this
- * setting from changing anything for a config that predates it.
+ * The two rungs are `resolveFadeMs`'s business (./transition): the effect can
+ * veto the animation outright, and otherwise the global duration decides. It is
+ * deliberately NOT a per-rule value — a rule has no notion of a transition, and
+ * the per-rule field this replaced had no control anywhere to set it with.
  */
-export function rFadeMs(): number { return resolveFadeMs(rTransition(), rRotation().fadeMs) }
+export function rFadeMs(): number { return resolveFadeMs(rTransition()) }
 /** Paintable URL of the active rule's CURRENT image, or null when it has none. */
 export function rWp(): string | null {
   const slot = activeSlot()
