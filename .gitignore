@@ -1,4 +1,8 @@
 node_modules/
 .git/
 *.npmignore
-RELEASING.md
+*.md
+!/README.md
+!/CHANGELOG.md
+!/README.zh.md
+!/CHANGELOG.zh.md
