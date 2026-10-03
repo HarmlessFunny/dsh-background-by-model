@@ -271,17 +271,63 @@ export function refreshSystemTheme(): void {
 // over a large wallpaper. Batching keeps at most one update per frame.
 let pendingOps: PartOpacities | null = null
 let tokensRaf: number | null = null
+/** When the pending frame was armed, so a frame that never ran can be spotted. */
+let tokensArmedAt = 0
+/** A frame outstanding for longer than this is treated as lost (see below). */
+const STALE_TOKENS_RAF_MS = 1_000
 
+/** The fingerprint of the palette + colour in force; see `applyCustomTokensNow`. */
+function paletteKey(src: Palette, color: [number, number, number]): string {
+  return src.own
+    ? `own:${color[0]}|${color[1]}|${color[2]}`
+    : `host:${HOST_SURFACE_TOKENS.map(n => src.tokens[n] ?? '').join('|')}`
+}
+
+/**
+ * Re-emit the interface palette, coalescing a slider drag into one frame.
+ *
+ * A PALETTE change is never coalesced, and that distinction is the whole point:
+ * this call is the only writer of the palette's INK. Every other surface has a
+ * second, synchronous writer (the dialog's layer tokens come from
+ * `applySettingsOverrides`, the columns' backgrounds from the view cards, the
+ * `--dsh-any-op-*` alphas from the same callback as the ink), so a palette update
+ * that is deferred and then lost leaves the surfaces on the NEW colour and the
+ * ink on the previous one — a dark palette with dark text, which reads as
+ * "the theme colour did nothing" and only a reload clears it.
+ *
+ * Measured in the field: a window that is not rendering can swallow the frame
+ * (the id stays armed, so every later update parks behind it), and a failure
+ * inside the write used to be swallowed by an empty `catch`. Both are handled
+ * here — a changed palette goes through synchronously, a stale frame is dropped
+ * instead of blocking forever, and the failure is logged (see `applyCustomTokensNow`).
+ */
 export function applyCustomTokens(ops: PartOpacities): void {
   pendingOps = ops
-  if (tokensRaf !== null) return
+  const src = palette()
+  // Synchronous whenever the palette itself moved: that is a model switch, a
+  // rotation step, a rule edit or an image colour, i.e. exactly the cases where
+  // ink and surfaces must land together (`applyWp` already runs synchronously).
+  if (src !== null && paletteKey(src, rColor()) !== baseTokenKey) { flushTokens(); return }
+  if (tokensRaf !== null) {
+    if (Date.now() - tokensArmedAt <= STALE_TOKENS_RAF_MS) return
+    // The frame this id belongs to is never going to run: cancelling it lets the
+    // update through now instead of parking every later one behind a dead id.
+    window.cancelAnimationFrame(tokensRaf)
+    tokensRaf = null
+  }
+  tokensArmedAt = Date.now()
   tokensRaf = requestAnimationFrame(() => {
     tokensRaf = null
-    if (pendingOps === null) return
-    const o = pendingOps
-    pendingOps = null
-    applyCustomTokensNow(o)
+    flushTokens()
   })
+}
+
+/** Run the pending token write now (one funnel, so no path can skip it). */
+function flushTokens(): void {
+  if (pendingOps === null) return
+  const o = pendingOps
+  pendingOps = null
+  applyCustomTokensNow(o)
 }
 
 // Only the main-bg slider retints the center/details columns; keys on
@@ -305,9 +351,7 @@ function applyCustomTokensNow(ops: PartOpacities): void {
     const forceDark = own && l < 0.55
     // The fingerprint carries the source, so switching between the two palettes
     // always rewrites the rule, even when the numbers happen to coincide.
-    const key = own
-      ? `own:${h}|${s}|${l}`
-      : `host:${HOST_SURFACE_TOKENS.map(n => tokens[n] ?? '').join('|')}`
+    const key = paletteKey(src, [h, s, l])
     if (key !== baseTokenKey) {
       // Drive the base-palette switch with a plugin-specific value so the
       // gradient rule never matches a host dark-mode flag; color-scheme makes
@@ -347,8 +391,13 @@ function applyCustomTokensNow(ops: PartOpacities): void {
     root.style.setProperty('--dsh-any-op-menu-cordis', withAlpha(tokens['--dsw-specific-menu'] ?? '#000', ops.input))
     const bgKey = `${baseTokenKey}|${ops.bg}`
     if (bgKey !== lastBgKey) { lastBgKey = bgKey; applyPartOpacities(ops) }
-  } catch {
-    // ignore
+  } catch (e) {
+    // Never silent. This block is the ONLY writer of the palette's ink, and a
+    // failure swallowed here leaves the interface on the previous palette's text
+    // colour while every surface follows the new one — a dark panel with dark
+    // text that no amount of switching models repairs and only a reload clears.
+    // It used to be `catch {}`, which is why that state was invisible in the log.
+    console.warn('dsh-background-by-model: could not re-emit the palette tokens', e)
   }
 }
 
