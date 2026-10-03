@@ -211,5 +211,40 @@ check('the scheme of the new palette is remembered', /paletteScheme = scheme/.te
 check('and it is the same answer the inline-painted surfaces get',
   /applyPartOpacities\(ops, fadeable\)/.test(wall), true)
 
+console.log('\n--- every surface painted from a plugin-OWNED variable is also faded ---')
+// The third place this bug class landed. A surface painted from one of the
+// plugin's own variables (`--dsh-any-…`, written on <html> with its alpha folded
+// in) is NOT painted from a registered alias token, so registering tokens cannot
+// reach it: the element snaps in one frame while every surface around it fades.
+// The faded half is a `transition` on the element's own standard property, and it
+// has to name the SAME selector the paint rule does — which is why both sides now
+// read one shared constant. Pairing them here means a new paint site without a
+// fade is a failing check rather than a screenshot nobody took.
+const PLUGIN_PAINTED = [
+  {
+    surface: 'the settings dialog plate',
+    paint: ['SETTINGS_PANEL_SEL}{', 'background:var(--dsh-any-bg-settings-surface'],
+    fade: /selector: SETTINGS_PANEL_SEL,[^}]*properties: \['background-color'\]/,
+  },
+  {
+    surface: 'the file-preview panel',
+    paint: ['RIGHTBAR_SEL}{', 'background:var(--dsh-any-bg-rightbar'],
+    fade: /selector: RIGHTBAR_SEL,[^}]*properties: \['background-color'\]/,
+  },
+  {
+    surface: 'the Cordis panel',
+    paint: ['CORDIS_PANEL_SEL}{', '--dsw-specific-menu:var(--dsh-any-op-menu-cordis)'],
+    fade: /selector: CORDIS_PANEL_SEL,[^}]*tokens: \['--dsw-specific-menu'\]/,
+  },
+]
+for (const p of PLUGIN_PAINTED) {
+  check(`${p.surface} is painted from its own variable`, p.paint.every(t => wall.includes(t)), true)
+  check(`and that same selector carries a fade for it`, p.fade.test(wall), true)
+}
+// Both sides read one constant, so the selector cannot drift apart; the check
+// above would pass a rename on one side only.
+check('the shared selectors are declared once each',
+  [/const CORDIS_PANEL_SEL =/g, /const RIGHTBAR_SEL =/g].map(re => (wall.match(re) ?? []).length), [1, 1])
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
