@@ -4,7 +4,7 @@ import type { PartOpacities, PartBlurs } from './types'
 // (scripts/transition-check.ts); this file only applies it to the two layers.
 import { transitionPlan } from './transition'
 import type { LayerStyle } from './transition'
-import { paletteFadeCss, paletteFadeInline } from './palette-fade'
+import { paletteFadeAllowed, paletteFadeCss, paletteFadeInline } from './palette-fade'
 import { genTokens, toRgba } from './utils/color'
 import { markOwnSheet } from './components/ui.css'
 
@@ -308,9 +308,10 @@ export function applyCustomTokens(ops: PartOpacities): boolean {
   // Synchronous whenever the palette itself moved: that is a model switch, a
   // rotation step, a rule edit or an image colour, i.e. exactly the cases where
   // ink and surfaces must land together (`applyWp` already runs synchronously).
-  // The return value is that same fact, for the callers that paint their own
-  // surfaces inline and have to decide whether a change may fade.
-  if (src !== null && paletteKey(src, rColor()) !== baseTokenKey) { flushTokens(); return true }
+  // The return value is that same fact shortened by one question — may this
+  // change fade? — for the callers that paint their own surfaces inline and have
+  // to decide whether to animate them (`paletteFadeAllowed`).
+  if (src !== null && paletteKey(src, rColor()) !== baseTokenKey) { flushTokens(); return lastFadeable }
   if (tokensRaf !== null) {
     if (Date.now() - tokensArmedAt <= STALE_TOKENS_RAF_MS) return false
     // The frame this id belongs to is never going to run: cancelling it lets the
@@ -337,8 +338,18 @@ function flushTokens(): void {
 // Only the main-bg slider retints the center/details columns; keys on
 // baseTokenKey + ops.bg so a sidebar/card/input drag never rewrites them.
 let lastBgKey = ''
+/**
+ * Whether the palette write in flight may fade — the answer `applyCustomTokens`
+ * hands back to the callers that paint their own surfaces inline.
+ *
+ * It has to travel out of `applyCustomTokensNow` (which is where the decision is
+ * made) because those callers run AFTER it in the same task, and re-deciding
+ * there would be a second opinion on the same question.
+ */
+let lastFadeable = false
 
 function applyCustomTokensNow(ops: PartOpacities): void {
+  lastFadeable = false
   const src = palette()
   if (src === null) {
     // Nothing to paint from: drop the token rule too, then hand every
@@ -357,12 +368,21 @@ function applyCustomTokensNow(ops: PartOpacities): void {
     // always rewrites the rule, even when the numbers happen to coincide.
     const key = paletteKey(src, [h, s, l])
     const paletteChanged = key !== baseTokenKey
+    // Which palette family is in force: the plugin's own verdict when it owns the
+    // palette, the host's scheme when the rule follows the system theme.
+    const scheme: 'light' | 'dark' = own ? (forceDark ? 'dark' : 'light') : (resolveHostDark() ? 'dark' : 'light')
+    // A colour change may fade only while the SCHEME stays put — see
+    // `paletteFadeAllowed`. A light↔dark flip is a different palette, not a tint
+    // of the same one, and the wallpaper's own animation is unaffected either way.
+    const fadeable = paletteChanged && paletteFadeAllowed(paletteScheme, scheme)
+    lastFadeable = fadeable
     // BEFORE the tokens are written: whether a colour change may fade at all, and
     // for how long, is decided here for both halves of a switch. A palette change
     // arms the transition; every other pass (a slider moving the alphas) DISARMS
     // it in the same task, so a drag stays glued to the pointer.
-    applyPaletteFade(paletteChanged)
+    applyPaletteFade(fadeable)
     if (paletteChanged) {
+      paletteScheme = scheme
       // Drive the base-palette switch with a plugin-specific value so the
       // gradient rule never matches a host dark-mode flag; color-scheme makes
       // native controls (select popups) follow the forced palette. Both ride the
@@ -400,7 +420,7 @@ function applyCustomTokensNow(ops: PartOpacities): void {
     // The Cordis panel keeps its own input-slider alpha (see INPUT_BLUR_RULE).
     root.style.setProperty('--dsh-any-op-menu-cordis', withAlpha(tokens['--dsw-specific-menu'] ?? '#000', ops.input))
     const bgKey = `${baseTokenKey}|${ops.bg}`
-    if (bgKey !== lastBgKey) { lastBgKey = bgKey; applyPartOpacities(ops, paletteChanged) }
+    if (bgKey !== lastBgKey) { lastBgKey = bgKey; applyPartOpacities(ops, fadeable) }
   } catch (e) {
     // Never silent. This block is the ONLY writer of the palette's ink, and a
     // failure swallowed here leaves the interface on the previous palette's text
@@ -545,6 +565,8 @@ function fadeTokenNames(): string[] {
 let fadeStyleEl: HTMLStyleElement | null = null
 let fadeInitials: Record<string, string> | null = null
 let fadeCssCache = ''
+/** The scheme the last written palette had, so a FLIP can be told from a tint. */
+let paletteScheme: 'light' | 'dark' | null = null
 
 function ensureFadeSheet(): HTMLStyleElement {
   if (fadeStyleEl?.isConnected) return fadeStyleEl

@@ -22,7 +22,7 @@
  * reason it imports nothing from `src/schema.ts`.
  */
 import { resolveFadeMs, transitionPlan } from '../src/client/transition.ts'
-import { paletteFadeCss, paletteFadeInline } from '../src/client/palette-fade.ts'
+import { paletteFadeAllowed, paletteFadeCss, paletteFadeInline } from '../src/client/palette-fade.ts'
 import type { TransitionConfig, TransitionEffect, TransitionEasing } from '../src/schema.ts'
 
 let failures = 0
@@ -148,6 +148,17 @@ check('a name that is not a custom property is ignored',
 // value that would leave the host's own transition in place.
 check('inline: the same duration on background-color', paletteFadeInline(320, 'ease'), 'background-color 320ms ease')
 check('inline: zero disarms instead of inheriting', paletteFadeInline(0, 'ease'), 'none')
+
+console.log('\n--- but a light/dark FLIP is not a tint, so it does not fade ---')
+// Interpolating between the two palettes walks the interface through mid-tones
+// whose ink is wrong in both directions, which is worse than the switch it would
+// replace. The wallpaper keeps its own animation either way: it has no scheme.
+check('light -> light fades', paletteFadeAllowed('light', 'light'), true)
+check('dark -> dark fades', paletteFadeAllowed('dark', 'dark'), true)
+check('light -> dark does NOT fade', paletteFadeAllowed('light', 'dark'), false)
+check('dark -> light does NOT fade', paletteFadeAllowed('dark', 'light'), false)
+// The first apply after a load has no previous colour to come from.
+check('nothing painted yet does not fade', paletteFadeAllowed(null, 'dark'), false)
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
