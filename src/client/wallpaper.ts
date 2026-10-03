@@ -4,6 +4,7 @@ import type { PartOpacities, PartBlurs } from './types'
 // (scripts/transition-check.ts); this file only applies it to the two layers.
 import { transitionPlan } from './transition'
 import type { LayerStyle } from './transition'
+import { paletteFadeCss, paletteFadeInline } from './palette-fade'
 import { genTokens, toRgba } from './utils/color'
 import { markOwnSheet } from './components/ui.css'
 
@@ -301,15 +302,17 @@ function paletteKey(src: Palette, color: [number, number, number]): string {
  * here — a changed palette goes through synchronously, a stale frame is dropped
  * instead of blocking forever, and the failure is logged (see `applyCustomTokensNow`).
  */
-export function applyCustomTokens(ops: PartOpacities): void {
+export function applyCustomTokens(ops: PartOpacities): boolean {
   pendingOps = ops
   const src = palette()
   // Synchronous whenever the palette itself moved: that is a model switch, a
   // rotation step, a rule edit or an image colour, i.e. exactly the cases where
   // ink and surfaces must land together (`applyWp` already runs synchronously).
-  if (src !== null && paletteKey(src, rColor()) !== baseTokenKey) { flushTokens(); return }
+  // The return value is that same fact, for the callers that paint their own
+  // surfaces inline and have to decide whether a change may fade.
+  if (src !== null && paletteKey(src, rColor()) !== baseTokenKey) { flushTokens(); return true }
   if (tokensRaf !== null) {
-    if (Date.now() - tokensArmedAt <= STALE_TOKENS_RAF_MS) return
+    if (Date.now() - tokensArmedAt <= STALE_TOKENS_RAF_MS) return false
     // The frame this id belongs to is never going to run: cancelling it lets the
     // update through now instead of parking every later one behind a dead id.
     window.cancelAnimationFrame(tokensRaf)
@@ -320,6 +323,7 @@ export function applyCustomTokens(ops: PartOpacities): void {
     tokensRaf = null
     flushTokens()
   })
+  return false
 }
 
 /** Run the pending token write now (one funnel, so no path can skip it). */
@@ -352,7 +356,13 @@ function applyCustomTokensNow(ops: PartOpacities): void {
     // The fingerprint carries the source, so switching between the two palettes
     // always rewrites the rule, even when the numbers happen to coincide.
     const key = paletteKey(src, [h, s, l])
-    if (key !== baseTokenKey) {
+    const paletteChanged = key !== baseTokenKey
+    // BEFORE the tokens are written: whether a colour change may fade at all, and
+    // for how long, is decided here for both halves of a switch. A palette change
+    // arms the transition; every other pass (a slider moving the alphas) DISARMS
+    // it in the same task, so a drag stays glued to the pointer.
+    applyPaletteFade(paletteChanged)
+    if (paletteChanged) {
       // Drive the base-palette switch with a plugin-specific value so the
       // gradient rule never matches a host dark-mode flag; color-scheme makes
       // native controls (select popups) follow the forced palette. Both ride the
@@ -390,7 +400,7 @@ function applyCustomTokensNow(ops: PartOpacities): void {
     // The Cordis panel keeps its own input-slider alpha (see INPUT_BLUR_RULE).
     root.style.setProperty('--dsh-any-op-menu-cordis', withAlpha(tokens['--dsw-specific-menu'] ?? '#000', ops.input))
     const bgKey = `${baseTokenKey}|${ops.bg}`
-    if (bgKey !== lastBgKey) { lastBgKey = bgKey; applyPartOpacities(ops) }
+    if (bgKey !== lastBgKey) { lastBgKey = bgKey; applyPartOpacities(ops, paletteChanged) }
   } catch (e) {
     // Never silent. This block is the ONLY writer of the palette's ink, and a
     // failure swallowed here leaves the interface on the previous palette's text
@@ -508,6 +518,114 @@ export function applyTrajectoryOverrides(op: number): void {
   write('--dsh-any-traj-layer-1', '--dsw-alias-bg-layer-1')
   write('--dsh-any-traj-layer-2', '--dsw-alias-bg-layer-2')
   write('--dsh-any-traj-layer-3', '--dsw-alias-bg-layer-3')
+}
+
+// ── Palette fade (a theme-colour change that interpolates) ────────────────
+// Writing the token block is what changes every surface, and by default that
+// change is instantaneous: the wallpaper cross-fades while the interface jumps.
+// The fade is a REGISTRATION problem, not a declaration one — an unregistered
+// custom property cannot interpolate — so the palette's own tokens are registered
+// as `<color>`s and the elements that (re)declare them carry a transition for the
+// same duration the switch uses. See ./palette-fade for what is registered and why
+// a token the host does not publish is left alone.
+const TRAJECTORY_ROOT_SEL = '[data-conversation-composer-overlay]'
+
+/** Elements whose own token declarations change when the palette does: the body
+ *  (which everything else inherits), and the two surfaces that RE-declare the
+ *  layer tokens instead of inheriting them. */
+const FADE_SELECTORS: readonly string[] = ['body', SETTINGS_PANEL_SEL, TRAJECTORY_ROOT_SEL]
+
+/** The token names the plugin re-emits. One palette is enough: every branch
+ *  defines the same set, and an unknown name would only be registered when the
+ *  host can answer for it (see `fadeInitials`). */
+function fadeTokenNames(): string[] {
+  return Object.keys(genTokens(220, 0.55, 0.25).tokens)
+}
+
+let fadeStyleEl: HTMLStyleElement | null = null
+let fadeInitials: Record<string, string> | null = null
+let fadeCssCache = ''
+
+function ensureFadeSheet(): HTMLStyleElement {
+  if (fadeStyleEl?.isConnected) return fadeStyleEl
+  fadeStyleEl = document.createElement('style')
+  fadeStyleEl.dataset.plugin = 'dsh-background-by-model-fade'
+  markOwnSheet(fadeStyleEl)
+  document.head.appendChild(fadeStyleEl)
+  return fadeStyleEl
+}
+
+/**
+ * The host's own value for each token — the `initial-value` a registration needs,
+ * and the test for whether a token may be registered at all.
+ *
+ * Read with the plugin's token sheet muted, for the same reason `readHostPalette`
+ * does it: our rule re-emits the very names being asked for. Cached, because the
+ * answer only changes with the host's scheme and a stale hint is only ever used
+ * for a token the host does not publish anyway.
+ */
+function fadeInitialsOf(names: readonly string[]): Record<string, string> {
+  if (fadeInitials !== null) return fadeInitials
+  const sheet = tokenStyleEl
+  const muted = sheet !== null && sheet.isConnected && !sheet.disabled
+  if (muted) sheet!.disabled = true
+  try {
+    const computed = getComputedStyle(document.body)
+    const out: Record<string, string> = {}
+    for (const name of names) {
+      // `resolveCssColor` rejects anything the engine will not read as a COLOUR,
+      // which is exactly the set a `<color>` registration can carry.
+      const used = resolveCssColor(computed.getPropertyValue(name))
+      if (used !== null) out[name] = used
+    }
+    fadeInitials = out
+    return out
+  } catch {
+    fadeInitials = {}
+    return fadeInitials
+  } finally {
+    if (muted) sheet!.disabled = false
+  }
+}
+
+/** How long a colour change may take, or `0` for "do not animate it".
+ *
+ * The same decision the wallpaper layer makes (`transitionPlan` over the global
+ * effect, the resolved duration and the OS preference), so the two halves of one
+ * switch can never disagree about whether they are animating. */
+function paletteFadeMs(): number {
+  const tr = rTransition()
+  const plan = transitionPlan({
+    effect: tr.effect,
+    easing: tr.easing,
+    durationMs: rFadeMs(),
+    canAnimate: true,
+    reducedMotion: prefersReducedMotion(),
+  })
+  return plan.animate ? plan.durationMs : 0
+}
+
+/** Arm the fade for a palette change, or disarm it for anything else.
+ *
+ * `animate` is false on every pass that only moves an alpha (a slider drag): the
+ * tokens are rewritten there too, and a live transition would make the surface
+ * lag behind the pointer. */
+function applyPaletteFade(animate: boolean): void {
+  const initials = fadeInitialsOf(fadeTokenNames())
+  const css = paletteFadeCss({
+    selectors: FADE_SELECTORS,
+    initial: initials,
+    durationMs: animate ? paletteFadeMs() : 0,
+    easing: rTransition().easing,
+  })
+  if (css === fadeCssCache) return
+  fadeCssCache = css
+  ensureFadeSheet().textContent = css
+}
+
+/** Inline `transition` for an element the plugin paints itself; `0` disarms it. */
+function fadeInlineFor(animate: boolean): string {
+  return paletteFadeInline(animate ? paletteFadeMs() : 0, rTransition().easing)
 }
 
 // ── File-preview panel (right sidebar) ────────────────────────────────────
@@ -652,7 +770,7 @@ function applySettingsBlur(px: number): void {
  *  the frame. The frame's translucent bg-base sits UNDER the sidebar, so
  *  reducing the main-bg opacity stacked a second alpha onto the sidebar; moving
  *  the alpha onto the columns keeps the sidebar owned by its own slider. */
-function applyPartOpacities(ops: PartOpacities): void {
+function applyPartOpacities(ops: PartOpacities, fade = false): void {
   discoverParts()
   if (frameEl === null) return
   const base = palette()?.tokens['--dsw-alias-bg-base']
@@ -663,8 +781,20 @@ function applyPartOpacities(ops: PartOpacities): void {
     return
   }
   frameEl.style.background = 'transparent'
-  if (centerEl !== null) centerEl.style.background = withAlpha(base, ops.bg)
-  if (detailsEl !== null) detailsEl.style.background = withAlpha(base, ops.bg)
+  // The columns are painted INLINE, so they do not read the registered tokens and
+  // would snap while everything inheriting them fades; `fade` carries the same
+  // duration, and is false whenever only an alpha moved (a drag must not lag).
+  // `none` is written in that case rather than '' — an empty value would leave
+  // whatever the host declared on the element.
+  const transition = fadeInlineFor(fade)
+  if (centerEl !== null) {
+    centerEl.style.transition = transition
+    centerEl.style.background = withAlpha(base, ops.bg)
+  }
+  if (detailsEl !== null) {
+    detailsEl.style.transition = transition
+    detailsEl.style.background = withAlpha(base, ops.bg)
+  }
 }
 
 /** Blur of the option panels inside the settings dialog (.dab-card), owned by
@@ -890,12 +1020,13 @@ function syncTableFix(): void {
 }
 
 /** Re-derive the conversation view cards from the current config. */
-export function applyViewCards(): void {
+export function applyViewCards(fade = false): void {
   discoverParts()
   if (centerEl === null) return
   // The chat card is tinted from the palette in force, so a color-less rule gets
   // the host's own surface instead of the seed color's fallback tint.
   const surface = palette()?.tokens['--dsw-alias-bg-layer-1']
+  const transition = fadeInlineFor(fade)
   VIEW_CARDS.forEach((spec, i) => {
     const target = discoverViewTarget(i, spec)
     if (target === null) return
@@ -906,8 +1037,11 @@ export function applyViewCards(): void {
       if (!target.hasAttribute(spec.mark)) stashCardPrev(target, spec.prev, false)
       // Mirrors .dab-card (layer-1 background, border, 16px radius, 18px
       // padding), written inline so it wins over host stylesheets; the opacity
-      // slider drives surface alpha and fades the border with it.
+      // slider drives surface alpha and fades the border with it. The transition
+      // is inline for the same reason the background is: this card does not read
+      // the registered tokens, so a palette change would otherwise snap here.
       const borderAlpha = opacity > 0 ? Math.min(1, opacity * 1.5) : (blurPx > 0 ? 0.35 : 0)
+      target.style.transition = transition
       target.style.background = surface !== undefined ? withAlpha(surface, opacity) : 'transparent'
       target.style.border = surface !== undefined ? `1px solid ${withAlpha(surface, borderAlpha)}` : '1px solid transparent'
       target.style.borderRadius = '16px'
@@ -1305,11 +1439,16 @@ export function applyWp(): void {
     clearCustomTokens()
     clearOwnedSurfaces()
   }
-  applyCustomTokens(rOps())
+  // The return value says whether the PALETTE itself just moved — the one case a
+  // colour change is allowed to fade (see `applyCustomTokens`) — and it is what
+  // the inline-painted cards below need to know, since they do not read the
+  // registered tokens.
+  const paletteMoved = applyCustomTokens(rOps())
   applySettingsOverrides(rSop())
   applyTrajectoryOverrides(rTrajectoryOpacity())
   applyRightbarOverrides(rRightbarOpacity())
   applyPartBlurs(rBlurs())
+  applyViewCards(paletteMoved)
 }
 
 export function teardownWp(): void {
