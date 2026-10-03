@@ -247,7 +247,7 @@ check('and are not reported as drift (the sanitizer lifts them on purpose)',
   JSON.stringify(legacyWarnings))
 check('a legacy rule gets the shipped rotation defaults',
   lifted.rotate.enabled === false && lifted.rotate.intervalMs === 60_000
-  && lifted.rotate.order === 'order' && lifted.rotate.advanceOnSwitch === false && lifted.rotate.fadeMs === 320,
+  && lifted.rotate.order === 'order' && lifted.rotate.advanceOnSwitch === false,
   JSON.stringify(lifted.rotate))
 // 0.7.1 moved the theme color onto the image, and this is the ONE piece of it that
 // touches configs written by every earlier release: an image entry with no
@@ -284,7 +284,7 @@ const multiRule = {
     { slot: 'bad slot!', bgState: {} },
     { slot: 'm4', bgState: { zoom: 0.5 } },
   ],
-  rotate: { enabled: true, intervalMs: 30_000, order: 'shuffle', advanceOnSwitch: true, fadeMs: 700 },
+  rotate: { enabled: true, intervalMs: 30_000, order: 'shuffle', advanceOnSwitch: true },
 }
 await call('writeConfig', { config: { ...first, rules: [legacyRule, multiRule] } })
 const rules = (await readConfig()).rules
@@ -367,7 +367,7 @@ check('an emptied rule keeps its theme color (that is what it paints now)',
 await call('writeConfig', {
   config: {
     ...first,
-    rules: [{ ...multiRule, rotate: { enabled: 'yes', intervalMs: 10, order: 'zigzag', advanceOnSwitch: 'yes', fadeMs: 999_999 } }],
+    rules: [{ ...multiRule, rotate: { enabled: 'yes', intervalMs: 10, order: 'zigzag', advanceOnSwitch: 'yes' } }],
   },
 })
 const clamped = (await readConfig()).rules[0].rotate
@@ -375,10 +375,6 @@ check('only an explicit true turns the rotation on', clamped.enabled === false, 
 check('a too-fast dwell is clamped up', clamped.intervalMs === 5_000, String(clamped.intervalMs))
 check('an unknown order falls back to sequential', clamped.order === 'order', String(clamped.order))
 check('a truthy-but-not-true switch stays off', clamped.advanceOnSwitch === false, String(clamped.advanceOnSwitch))
-check('an absurd fade is clamped', clamped.fadeMs === 3_000, String(clamped.fadeMs))
-// 0 fade is a legal value (a hard cut), so it must not be read as "absent".
-await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, rotate: { ...multiRule.rotate, fadeMs: 0 } }] } })
-check('a zero fade is kept, not defaulted', (await readConfig()).rules[0].rotate.fadeMs === 0)
 
 // A field only the (newer) client knows about, one level down inside a rule.
 const nestedWarnings = []
@@ -395,33 +391,77 @@ check('and the unknown key is not persisted', !('bogus' in (await readConfig()).
 // A config written before this setting existed has no `transition` key at all,
 // and it has to come back as the cross-fade those releases already performed —
 // adding a global setting must not change what anybody was already seeing.
-await call('writeConfig', { config: { ...first, rules: [multiRule] } })
+// `first` is a full read, so it ALWAYS carries a `transition` block; the key has
+// to be dropped to exercise the path a pre-0.8 file actually takes.
+const { transition: _omitTransition, ...preTransition } = first
+await call('writeConfig', { config: { ...preTransition, rules: [multiRule] } })
 const trDefault = (await readConfig()).transition
 check('a config without a transition gets the shipped one',
-  JSON.stringify(trDefault) === JSON.stringify({ effect: 'fade', easing: 'ease', durationMode: 'per-rule', durationMs: 320 }),
+  JSON.stringify(trDefault) === JSON.stringify({ effect: 'fade', easing: 'ease', durationMs: 320 }),
   JSON.stringify(trDefault))
-// `durationMode: 'per-rule'` is what keeps every rule's own `rotate.fadeMs`
-// authoritative, so the global duration is NOT what a switch uses by default.
+// The duration is ONE global value: a rule has no notion of a transition, so
+// there is nothing per-rule left to defer to.
 await call('writeConfig', {
-  config: { ...first, transition: { effect: 'zoom', easing: 'linear', durationMode: 'unified', durationMs: 900 } },
+  config: { ...first, transition: { effect: 'zoom', easing: 'linear', durationMs: 900 } },
 })
 const trSet = (await readConfig()).transition
-check('the chosen effect, easing and unified duration land on disk',
-  trSet.effect === 'zoom' && trSet.easing === 'linear' && trSet.durationMode === 'unified' && trSet.durationMs === 900,
+check('the chosen effect, easing and duration land on disk',
+  trSet.effect === 'zoom' && trSet.easing === 'linear' && trSet.durationMs === 900,
   JSON.stringify(trSet))
 // Hostile / stale values go through the same shared sanitizer as everything else.
 await call('writeConfig', {
-  config: { ...first, transition: { effect: 'warp', easing: 'bounce', durationMode: 'sometimes', durationMs: 999_999 } },
+  config: { ...first, transition: { effect: 'warp', easing: 'bounce', durationMs: 999_999 } },
 })
 const trBad = (await readConfig()).transition
 check('an unknown effect falls back to the cross-fade', trBad.effect === 'fade', String(trBad.effect))
 check('an unknown easing falls back', trBad.easing === 'ease', String(trBad.easing))
-check('an unknown duration mode falls back to per-rule', trBad.durationMode === 'per-rule', String(trBad.durationMode))
 check('an absurd duration is clamped', trBad.durationMs === 3_000, String(trBad.durationMs))
-// 0 ms is a legal value (a hard cut), so it must not be read as "absent" — the
-// same trap `rotate.fadeMs` documents one level down.
+// 0 ms is a legal value (a hard cut), so it must not be read as "absent".
 await call('writeConfig', { config: { ...first, transition: { ...trDefault, durationMs: 0 } } })
 check('a zero duration is kept, not defaulted', (await readConfig()).transition.durationMs === 0)
+
+// ── the per-rule fade this replaced is folded in, not dropped ──────────────
+// `rotate.fadeMs` was the per-rule duration from 0.7.0 on and had NO control
+// anywhere: it could only be hand-edited, which is why the global setting
+// replaced it. A hand-tuned value must survive that, or upgrading would silently
+// re-time somebody's switch.
+const foldedWarnings = []
+console.warn = (...a) => { foldedWarnings.push(a.join(' ')) }
+await call('writeConfig', {
+  config: { ...preTransition, rules: [{ ...multiRule, rotate: { ...multiRule.rotate, fadeMs: 1_200 } }] },
+})
+console.warn = realWarn
+const folded = await readConfig()
+check('a hand-tuned per-rule fade becomes the global duration',
+  folded.transition.durationMs === 1_200, String(folded.transition.durationMs))
+check('and is gone from the rule that carried it', !('fadeMs' in folded.rules[0].rotate),
+  JSON.stringify(folded.rules[0].rotate))
+// It is consumed ON PURPOSE, so it is not drift and must not be reported as such.
+check('and is not reported as drift',
+  !foldedWarnings.some(w => w.includes('rules[].rotate.fadeMs')), JSON.stringify(foldedWarnings))
+// A deliberate hard cut (0, which is a real value) folds the same way.
+await call('writeConfig', {
+  config: { ...preTransition, rules: [{ ...multiRule, rotate: { ...multiRule.rotate, fadeMs: 0 } }] },
+})
+check('a hand-set 0 (a deliberate hard cut) folds in too',
+  (await readConfig()).transition.durationMs === 0)
+// The shipped default is not "a deliberate value": a config whose rules all carry
+// the 320 ms every build wrote keeps the ordinary default.
+await call('writeConfig', {
+  config: { ...preTransition, rules: [{ ...multiRule, rotate: { ...multiRule.rotate, fadeMs: 320 } }] },
+})
+check('the default per-rule fade leaves the default global duration',
+  (await readConfig()).transition.durationMs === 320)
+// An explicit global duration always wins over a legacy field sitting beside it.
+await call('writeConfig', {
+  config: {
+    ...first,
+    transition: { effect: 'fade', easing: 'ease', durationMs: 500 },
+    rules: [{ ...multiRule, rotate: { ...multiRule.rotate, fadeMs: 1_200 } }],
+  },
+})
+check('an explicit global duration is not overridden by the legacy field',
+  (await readConfig()).transition.durationMs === 500)
 // A field only the (newer) client knows about, inside the fixed-shape block:
 // `transition` is rebuilt by the sanitizer, so without the drift guard a typo
 // would disappear with nothing in the host log to explain it.

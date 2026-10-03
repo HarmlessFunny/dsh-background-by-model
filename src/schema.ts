@@ -85,8 +85,6 @@ export const ROTATE_ORDERS: readonly RotateOrder[] = ['order', 'shuffle']
 export const ROTATE_MIN_MS = 5_000
 /** Slowest allowed dwell time (24 h): one image per day is still "rotation". */
 export const ROTATE_MAX_MS = 24 * 60 * 60 * 1000
-/** Longest allowed cross-fade; 0 is a hard cut. */
-export const ROTATE_FADE_MAX_MS = 3_000
 
 /**
  * Multi-image rotation, per rule.
@@ -96,6 +94,13 @@ export const ROTATE_FADE_MAX_MS = 3_000
  * animate. `intervalMs` is the dwell time, `order` picks the next image, and
  * `advanceOnSwitch` also steps once when the model switch lands on this rule —
  * so a model can have "a different picture every time" without any timer at all.
+ *
+ * There is deliberately no fade here: how long a switch takes is the GLOBAL
+ * switch effect's business (`TransitionConfig`), because a rule has no notion of
+ * a transition. The per-rule `fadeMs` this block used to carry was a field no
+ * control ever reached — a setting nobody could set — so the first build that
+ * has a duration control at all folded it into the global one (see
+ * `normalizeTransition`).
  */
 export interface BgRotation {
   enabled: boolean
@@ -105,8 +110,6 @@ export interface BgRotation {
   order: RotateOrder
   /** Step once when this rule becomes the active one. */
   advanceOnSwitch: boolean
-  /** Cross-fade duration in ms (0 = hard cut, max `ROTATE_FADE_MAX_MS`). */
-  fadeMs: number
 }
 
 /** Everything off: the shipped default, and what a config predating this feature gets. */
@@ -115,7 +118,6 @@ export const DEFAULT_ROTATION: BgRotation = {
   intervalMs: 60_000,
   order: 'order',
   advanceOnSwitch: false,
-  fadeMs: 320,
 }
 
 /** A fresh rotation block (never hand out the shared default object). */
@@ -158,10 +160,17 @@ export const DEFAULT_PART_BLURS: PartBlurs = {
 
 // ── Wallpaper switch transition (global) ───────────────────────────────────
 
+/** Longest allowed switch duration; 0 is a hard cut. */
+export const TRANSITION_MAX_MS = 3_000
+
 /**
- * What a wallpaper CHANGE looks like. Global by design — a rule has no notion of
- * a transition — while the DURATION stays the rule's own `rotate.fadeMs` unless
- * `durationMode` is switched to `unified`.
+ * What a wallpaper CHANGE looks like.
+ *
+ * Global by design, all three parts of it: a rule has no notion of a transition,
+ * and there is exactly ONE duration for every switch. The per-rule `fadeMs` that
+ * used to carry the duration was a field no control ever reached, so offering a
+ * choice between "each rule's own" and "one global value" would have been
+ * offering a choice between a real setting and a phantom one.
  *
  * `fade` is the cross-fade every release so far performed, so the shipped
  * default is exactly the behaviour of the build before this setting existed:
@@ -184,20 +193,6 @@ export type TransitionEasing = 'ease' | 'linear' | 'ease-out' | 'ease-in-out'
 export const TRANSITION_EASINGS: readonly TransitionEasing[] = ['ease', 'linear', 'ease-out', 'ease-in-out']
 
 /**
- * Where the transition's DURATION comes from.
- *
- * `per-rule` is the default and keeps every rule's own `rotate.fadeMs`
- * authoritative — including a rule that deliberately asks for a hard cut — so
- * this setting changes nothing on upgrade and the per-rule control stays
- * meaningful. `unified` overrides all of them with `durationMs`, for the
- * reading in which the switch is one thing rather than one thing per model.
- */
-export type TransitionDurationMode = 'per-rule' | 'unified'
-
-/** Every accepted `durationMode`, in UI order. */
-export const TRANSITION_DURATION_MODES: readonly TransitionDurationMode[] = ['per-rule', 'unified']
-
-/**
  * The global wallpaper-switch transition.
  *
  * There is deliberately no `enabled`: switching it off and picking `none` are
@@ -209,18 +204,14 @@ export interface TransitionConfig {
   effect: TransitionEffect
   /** Timing function of the animation. */
   easing: TransitionEasing
-  /** Whether the duration is each rule's own, or the one below for all of them. */
-  durationMode: TransitionDurationMode
-  /** Duration used while `durationMode` is `unified` (0 = a hard cut). */
+  /** How long a change takes, in ms (`0` = a hard cut, max `TRANSITION_MAX_MS`). */
   durationMs: number
 }
 
-/** The shipped default: the cross-fade this plugin already performed, at 320 ms,
- *  with every rule's own duration still in charge. */
+/** The shipped default: the cross-fade this plugin already performed, at 320 ms. */
 export const DEFAULT_TRANSITION: TransitionConfig = {
   effect: 'fade',
   easing: 'ease',
-  durationMode: 'per-rule',
   durationMs: 320,
 }
 
@@ -515,9 +506,11 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  * a silent, per-image loss that no warning would accompany. 4 → 5 is
  * `transition`, the same mechanism one level up: a schema-4 sanitizer rebuilds
  * the whole config from the keys it knows, so the effect, the easing and the
- * unified duration would all be dropped on the first write after a refresh
- * paired a new client bundle with an older host process. The check is a plain
- * `>=`, so an older host lands in the hold-writes path automatically.
+ * duration would all be dropped on the first write after a refresh paired a new
+ * client bundle with an older host process — and 5 also carries the removal of
+ * the per-rule `rotate.fadeMs`, whose value is lifted into that global duration
+ * on read (see `legacyFadeMs`). The check is a plain `>=`, so an older host
+ * lands in the hold-writes path automatically.
  */
 export const SCHEMA_VERSION = 5
 
@@ -556,8 +549,6 @@ export function normalizeRotation(raw: unknown): BgRotation {
     intervalMs: clamp(r.intervalMs, ROTATE_MIN_MS, ROTATE_MAX_MS, d.intervalMs),
     order: ROTATE_ORDERS.includes(r.order as RotateOrder) ? (r.order as RotateOrder) : d.order,
     advanceOnSwitch: r.advanceOnSwitch === true,
-    // 0 is a legal value (a hard cut), so it must not be treated as "absent".
-    fadeMs: clamp(r.fadeMs, 0, ROTATE_FADE_MAX_MS, d.fadeMs),
   }
 }
 
@@ -567,23 +558,53 @@ function hasOwn(o: object, key: string): boolean {
 }
 
 /**
+ * The duration a config written before the switch effect carries on any of its
+ * rules, or `undefined` when it carries none worth adopting.
+ *
+ * `rotate.fadeMs` was the per-rule duration from 0.7.0 on, and it had NO control
+ * anywhere — it could only be hand-edited, which is why the global setting
+ * replaced it. This is the one-shot lift that keeps such a hand-tuned value from
+ * being silently dropped on upgrade: the first rule whose value differs from the
+ * 320 ms every build shipped is adopted as the global duration. Values that are
+ * all the default are ignored, so an ordinary config keeps the ordinary default,
+ * and rules that DISAGREE cannot be represented by one global number — the first
+ * deliberate value wins, and the others are gone with the field they lived on.
+ */
+export function legacyFadeMs(rawRules: unknown): number | undefined {
+  if (!Array.isArray(rawRules)) return undefined
+  for (const entry of rawRules) {
+    const rotate = (entry as { rotate?: unknown } | null | undefined)?.rotate
+    if (rotate === null || typeof rotate !== 'object') continue
+    const value = (rotate as { fadeMs?: unknown }).fadeMs
+    if (typeof value !== 'number' || !isFinite(value)) continue
+    if (value === DEFAULT_TRANSITION.durationMs) continue
+    return clamp(value, 0, TRANSITION_MAX_MS, DEFAULT_TRANSITION.durationMs)
+  }
+  return undefined
+}
+
+/**
  * Coerce one persisted transition block; a config written before this setting
  * existed has no `transition` key at all and gets the shipped default, which is
  * the behaviour it already had.
  *
+ * `legacyMs` is the per-rule `fadeMs` this shape replaced (see `legacyFadeMs`),
+ * adopted only when the incoming config has no `durationMs` of its own — so a
+ * deliberate hand-tuned blend survives the upgrade instead of being dropped with
+ * the field it used to live on.
+ *
  * `durationMs` is clamped with `0` kept as a real value (a hard cut) rather than
- * read as "absent" — the same trap `rotate.fadeMs` documents one level down.
+ * read as "absent": 0 is exactly how a hard cut is asked for without changing
+ * the effect.
  */
-export function normalizeTransition(raw: unknown): TransitionConfig {
+export function normalizeTransition(raw: unknown, legacyMs?: number): TransitionConfig {
   const t = (raw ?? {}) as Partial<TransitionConfig>
   const d = DEFAULT_TRANSITION
+  const fallback = typeof legacyMs === 'number' && isFinite(legacyMs) ? legacyMs : d.durationMs
   return {
     effect: TRANSITION_EFFECTS.includes(t.effect as TransitionEffect) ? (t.effect as TransitionEffect) : d.effect,
     easing: TRANSITION_EASINGS.includes(t.easing as TransitionEasing) ? (t.easing as TransitionEasing) : d.easing,
-    durationMode: TRANSITION_DURATION_MODES.includes(t.durationMode as TransitionDurationMode)
-      ? (t.durationMode as TransitionDurationMode)
-      : d.durationMode,
-    durationMs: clamp(t.durationMs, 0, ROTATE_FADE_MAX_MS, d.durationMs),
+    durationMs: clamp(t.durationMs, 0, TRANSITION_MAX_MS, fallback),
   }
 }
 
@@ -750,7 +771,7 @@ export function normalizeConfig(raw: unknown): ThemeConfig {
     rules,
     opacities,
     blurs,
-    transition: normalizeTransition(r.transition),
+    transition: normalizeTransition(r.transition, legacyFadeMs(r.rules)),
     settingsOpacity: clamp01(r.settingsOpacity, DEFAULT_SETTINGS_OPACITY),
     chatTextOpacity: clamp01(r.chatTextOpacity, DEFAULT_CHAT_TEXT_OPACITY),
     trajectoryOpacity: clamp01(r.trajectoryOpacity, DEFAULT_TRAJECTORY_OPACITY),

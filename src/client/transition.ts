@@ -44,26 +44,22 @@ export interface TransitionPlan {
 }
 
 /**
- * Resolve the duration one switch uses.
+ * Resolve the duration one switch uses, in ms (`0` = a hard cut).
  *
- * The order is the whole "global effect, per-rule duration" bargain:
- *
- *   1. `effect: 'none'` is a hard cut whatever any duration says — asking for no
+ *   1. `effect: 'none'` is a hard cut whatever the duration says — asking for no
  *      animation and asking for 0 ms are the same request, and the effect is the
  *      more explicit of the two;
- *   2. `durationMode: 'unified'` uses the global duration for every rule;
- *   3. otherwise the rule's own `rotate.fadeMs` decides, which is what makes
- *      this setting change nothing on upgrade.
+ *   2. otherwise the global `durationMs` decides, because a rule has no notion of
+ *      a transition and there is exactly one duration for every switch.
  *
  * A non-finite or negative value answers `0` (a hard cut) rather than a default:
- * animating for an unknown length is the one answer that cannot be right. Both
- * inputs are already clamped by the shared sanitizer (`./schema`), so this is a
+ * animating for an unknown length is the one answer that cannot be right. The
+ * input is already clamped by the shared sanitizer (`./schema`), so this is a
  * guard against a hand-edited config, not a second clamp.
  */
-export function resolveFadeMs(transition: TransitionConfig, ruleFadeMs: number): number {
+export function resolveFadeMs(transition: TransitionConfig): number {
   if (transition.effect === 'none') return 0
-  const chosen = transition.durationMode === 'unified' ? transition.durationMs : ruleFadeMs
-  return Number.isFinite(chosen) && chosen > 0 ? chosen : 0
+  return Number.isFinite(transition.durationMs) && transition.durationMs > 0 ? transition.durationMs : 0
 }
 
 /**

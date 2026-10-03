@@ -104,12 +104,10 @@ What a wallpaper **change** looks like. It lives on the **Config** page, it is t
 
 - **Four effects** — **Cross-fade** (the blend every earlier release performed, and therefore the default), **Instant** (a hard cut), **Zoom in** (the incoming image settles from 6% larger) and **Slide in** (it pushes in from the side). Zoom and slide animate `transform`, which the wallpaper layer had never used, so neither costs a byte of extra transfer.
 - **Easing** — standard / linear / ease-out / ease-in-out. The row is not rendered while the effect is **Instant**: a hard cut has no curve to shape, and a control that does nothing is worse than no control.
-- **Where the duration comes from** — **Follow each rule** (the default) leaves every rule's own `rotate.fadeMs` authoritative, exactly as before this setting existed; **Unified** uses one duration for all of them. That is also why this release changes nothing on upgrade: the shipped default is the old cross-fade at the old 320 ms.
+- **One duration for every switch** — `0`–`3000 ms`, and `0` is a hard cut rather than "unset". It replaced the per-rule `rotate.fadeMs`, which from 0.7.0 on was a duration with **no control anywhere** — it could only be hand-edited — so a hand-tuned value is folded into this one when a config that predates the setting is first read (a value equal to the shipped 320 ms is ignored, so an ordinary config keeps the ordinary default).
 - **`Instant` and `0` ms are the same hard cut** — two ways of asking for one thing, so both are honoured instead of one being read as "not set".
-- **A `0` duration stays `0`** rather than falling back to a default — the same trap `rotate.fadeMs` documents one level down.
 - **Reduced motion is a veto, not a shorter animation** — while `prefers-reduced-motion: reduce` is in force nothing animates at all, and the card says so rather than previewing something the interface will not do.
 - **A preview swatch, because a wallpaper fading into itself is invisible** — replaying the effect on the wallpaper already on screen would show nothing, which is exactly the "I changed it and nothing happened" this plugin keeps designing out. The swatch replays the chosen effect with the duration a real switch would use right now, and picking a different effect replays it at once.
-- **The per-rule duration is untouched** — `rotate.fadeMs` keeps its meaning and its default; the global card can take over, but it does not redefine it.
 
 ### Holiday backgrounds
 
@@ -266,7 +264,7 @@ Pressing it means leaving the system-theme state, so it has to hand out a starti
 The other half of the same hole: while it owns a color the plugin **forces** `body[data-ds-dark-theme]` (setting its marker for a dark palette, removing the attribute for a light one), and the host only rewrites that flag when it projects a **theme snapshot** — it does not watch the attribute. A flag dropped by a light skin therefore sticks, so the readback captured the host's light palette at the moment the color was cleared and nothing ever re-read it until an unrelated apply ran. Now the switch hands the flag back synchronously in the host's own boolean form, the scheme the host resolved (`ctx.theme`'s `active.colorScheme`, falling back to `html[data-ds-theme-source]` plus `prefers-color-scheme`) is pushed into the render layer, and the one-second watchdog re-reads the host palette while a rule has no color, repainting when it moved.
 
 **I picked a new switch effect and the wallpaper still cuts instantly.**
-Three things can hold it, and all three are on the card: the effect is **Instant**, or a duration of `0` is in force (an effect and a duration are two ways of asking for the same hard cut, and the effect wins), or your system asks for **reduced motion** — in which case nothing animates at all and the card says so. If none of those applies, check where the duration comes from: with **Follow each rule** the value that counts is that rule's own `rotate.fadeMs`, and **Unified** is what makes the number on this card the one in force.
+Two things can hold it, and both are on the card: the effect is **Instant**, or the duration is `0` (an effect and a duration are two ways of asking for the same hard cut, and the effect wins). A third one is outside the plugin: if your system asks for **reduced motion**, nothing animates at all and the card says so.
 
 ## Recent Optimizations
 

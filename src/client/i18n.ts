@@ -145,11 +145,8 @@ export const zh: Record<string, string> = {
   trEasingOut: '先快后慢',
   trEasingInOut: '两端慢',
   trDuration: '切换时长',
-  trDurPerRule: '跟随每条规则',
-  trDurUnified: '统一为',
   trPreview: '试放',
   trHint: '效果对所有换图生效：切模型、轮换、手动下一张、节日。「直接切换」和 0 秒一样是硬切',
-  trDurHint: '「跟随每条规则」使用配置里每条规则自己的时长（rotate.fadeMs，默认 320ms），「统一为」时全部使用这里的值',
   trReducedHint: '系统开启了「减少动态效果」，实际切换不会播放动画',
 }
 
@@ -296,10 +293,7 @@ export const en: Record<string, string> = {
   trEasingOut: 'Ease out',
   trEasingInOut: 'Ease in-out',
   trDuration: 'Duration',
-  trDurPerRule: 'Follow each rule',
-  trDurUnified: 'Unified',
   trPreview: 'Preview',
   trHint: 'The effect applies to every change: model switch, rotation, manual next, holidays. “Instant” and 0 s are the same hard cut',
-  trDurHint: '“Follow each rule” uses each rule’s own duration (rotate.fadeMs, 320 ms by default); “Unified” uses this value for all of them',
   trReducedHint: 'Your system asks for reduced motion, so a real switch will not animate',
 }

@@ -141,6 +141,11 @@ const LEGACY_CONFIG_KEYS = new Set(['color', 'bgMode', 'wallpaperOpacity', 'blur
 // Pre-0.7 rule fields: `normalizeRule` deliberately LIFTS these into the image
 // list, so they are not drift and must not be reported as such.
 const LEGACY_RULE_KEYS = new Set(['slot', 'bgState'])
+// Nested fields an older shape carried and the sanitizer consumes on purpose:
+// the per-rule `rotate.fadeMs` is folded into the global transition duration on
+// read (`legacyFadeMs` in ./schema), so a config that still has it is being
+// migrated rather than drifting.
+const LEGACY_NESTED_KEYS = new Set(['rules[].rotate.fadeMs'])
 const warnedConfigKeys = new Set<string>()
 
 function warnUnknownConfigKeys(raw: unknown, normalized: ThemeConfig): void {
@@ -207,7 +212,7 @@ function warnUnknownConfigKeys(raw: unknown, normalized: ThemeConfig): void {
       if (got === null || typeof got !== 'object' || known === null || known === undefined) continue
       const knownKeys = new Set(Object.keys(known as object))
       for (const key of Object.keys(got as Record<string, unknown>)) {
-        if (!knownKeys.has(key)) warned(`${label}.${key}`)
+        if (!knownKeys.has(key) && !LEGACY_NESTED_KEYS.has(`${label}.${key}`)) warned(`${label}.${key}`)
       }
     }
   }

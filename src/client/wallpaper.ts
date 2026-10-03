@@ -950,9 +950,9 @@ export function watchThemeResets(): () => void {
 // which is where a large wallpaper's stall comes from, while a blob URL is
 // served from the browser's memory cache after the first load.
 //
-// The duration is the ACTIVE rule's own (`rotate.fadeMs`, default 320 ms — see
-// DEFAULT_ROTATION in ./schema), so a rule that cycles through images can ask for
-// a slower blend than a model switch, and 0 means a hard cut.
+// The duration is the GLOBAL switch effect's (`transition.durationMs`, default
+// 320 ms — see DEFAULT_TRANSITION and TRANSITION_MAX_MS in ./schema), the same
+// for every switch this plugin performs, and 0 means a hard cut.
 interface WpLayer {
   el: HTMLDivElement
   /** Display URL of the image painted on this layer; null when empty. */
