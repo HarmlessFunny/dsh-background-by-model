@@ -201,6 +201,15 @@ if (nowAt >= 0) {
   check('and never swallows one in silence',
     /catch(\s*\([^)]*\))?\s*\{\s*\}/.test(code), false)
 }
+// The palette fade is armed by ONE question — may this change fade? — and the
+// answer has two halves: the palette moved, and the scheme stayed put. Both are
+// asserted here because the call site is where a later edit would drop one.
+check('the palette fade is gated on the palette having moved AND the scheme holding',
+  /const fadeable = paletteChanged && paletteFadeAllowed\(paletteScheme, scheme\)/.test(wall), true)
+check('and that answer is what the writer receives', /applyPaletteFade\(fadeable\)/.test(wall), true)
+check('the scheme of the new palette is remembered', /paletteScheme = scheme/.test(wall), true)
+check('and it is the same answer the inline-painted surfaces get',
+  /applyPartOpacities\(ops, fadeable\)/.test(wall), true)
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

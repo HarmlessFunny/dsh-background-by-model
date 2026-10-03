@@ -35,6 +35,23 @@ export interface PaletteFadeInput {
   easing: string
 }
 
+/**
+ * Whether a palette change may interpolate at all.
+ *
+ * Only while the SCHEME stays put. A light↔dark flip is not a tint of the same
+ * palette, it is a different palette: interpolating between them walks the whole
+ * interface through mid-tones whose ink is wrong in both directions (dark text
+ * half-way into a dark palette), which looks worse than the switch it replaces.
+ * The wallpaper has no such problem — one image fades into another either way —
+ * so its own animation is deliberately untouched by this.
+ *
+ * `previous === null` means nothing has been painted yet (the first apply after a
+ * load): there is no colour to come from, so there is nothing to fade.
+ */
+export function paletteFadeAllowed(previous: 'light' | 'dark' | null, next: 'light' | 'dark'): boolean {
+  return previous === next
+}
+
 /** One `@property` block per registered token. */
 function registrations(names: readonly string[], initial: Readonly<Record<string, string>>): string {
   return names.map(n => `@property ${n}{syntax:'<color>';inherits:true;initial-value:${initial[n]}}`).join('')
