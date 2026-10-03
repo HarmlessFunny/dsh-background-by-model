@@ -167,6 +167,19 @@ function warnUnknownConfigKeys(raw: unknown, normalized: ThemeConfig): void {
       if (!keys.has(key)) warned(`${group}.${key}`)
     }
   }
+  // Fixed-shape nested objects, as opposed to the dynamic-key maps above: every
+  // key of `transition` is declared, so an unknown one is drift rather than a
+  // name the user chose — and the sanitizer REBUILDS the object, which would
+  // otherwise drop it in silence. `holidays` is deliberately absent: its `items`
+  // are keyed by holiday id and are already rebuilt from `HOLIDAYS`.
+  const shapes: Array<[string, unknown, object]> = [['transition', r.transition, normalized.transition]]
+  for (const [label, got, known] of shapes) {
+    if (got === null || typeof got !== 'object') continue
+    const keys = new Set(Object.keys(known))
+    for (const key of Object.keys(got as Record<string, unknown>)) {
+      if (!keys.has(key)) warned(`${label}.${key}`)
+    }
+  }
   // Rule fields drift the same way; every rule goes through one sanitizer, so
   // comparing the first sent rule with the first normalized one is enough.
   const sent = Array.isArray(r.rules) ? r.rules[0] : undefined

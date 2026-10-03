@@ -5,7 +5,7 @@ export const zh: Record<string, string> = {
   pageInterface: '界面', pageModelBg: '模型背景', pageProfile: '配置',
   descInterface: '为主界面的各个区域单独调节透明度与模糊，营造空间层次感。这里的设置对所有模型生效',
   descModelBg: '每条规则 = 一个匹配串 + 一组背景图与外观。切换模型时，从上往下找第一条匹配串出现在模型名里的规则；都没中就使用第 1 条。一条规则可以放多张图，按你设的节奏轮换',
-  descProfile: '把当前全部规则连同图片导出备份，或从文件一键恢复',
+  descProfile: '调整壁纸切换效果，并把当前全部规则连同图片导出备份，或从文件一键恢复',
 
   uiTitle: '主界面',
   uiOpacity: '透明度', uiBlur: '模糊度',
@@ -130,6 +130,27 @@ export const zh: Record<string, string> = {
   // ── 节日特殊背景（默认开启；界面上只有一行开关）───────────────────────────
   holidayTitle: '节日特殊背景',
   holidayEnable: '启用节日特殊背景（中秋当天、国庆 10 月 1–7 日）',
+
+  // ── 切换效果（全局；配置页）───────────────────────────────────────────────
+  // 效果与缓动是全局的（规则没有"效果"这个概念），时长默认仍由每条规则决定。
+  trTitle: '切换效果',
+  trEffect: '切换方式',
+  trEffectFade: '淡入淡出',
+  trEffectNone: '直接切换',
+  trEffectZoom: '缩放淡入',
+  trEffectSlide: '平移推入',
+  trEasing: '缓动',
+  trEasingEase: '标准',
+  trEasingLinear: '匀速',
+  trEasingOut: '先快后慢',
+  trEasingInOut: '两端慢',
+  trDuration: '切换时长',
+  trDurPerRule: '跟随每条规则',
+  trDurUnified: '统一为',
+  trPreview: '试放',
+  trHint: '效果对所有换图生效：切模型、轮换、手动下一张、节日。「直接切换」和 0 秒一样是硬切',
+  trDurHint: '「跟随每条规则」使用配置里每条规则自己的时长（rotate.fadeMs，默认 320ms），「统一为」时全部使用这里的值',
+  trReducedHint: '系统开启了「减少动态效果」，实际切换不会播放动画',
 }
 
 export const en: Record<string, string> = {
@@ -137,7 +158,7 @@ export const en: Record<string, string> = {
   pageInterface: 'Interface', pageModelBg: 'Model background', pageProfile: 'Profile',
   descInterface: 'Tune opacity and blur per surface to build depth. These settings are global and apply to every model',
   descModelBg: 'Each rule is a match string plus a set of wallpapers and one look. On a model switch the list is scanned top-down for the first match string contained in the model name; if nothing hits, rule 1 is used. A rule can hold several images and rotate through them on a rhythm you set',
-  descProfile: 'Back up every rule together with its image, or restore one from a file',
+  descProfile: 'Tune how the wallpaper switches, and back up every rule together with its image — or restore one from a file',
 
   uiTitle: 'Interface',
   uiOpacity: 'Opacity', uiBlur: 'Blur',
@@ -259,4 +280,26 @@ export const en: Record<string, string> = {
   // ── Holiday overrides (on by default; one switch, no cards) ───────────────
   holidayTitle: 'Holiday backgrounds',
   holidayEnable: 'Enable holiday backgrounds (Mid-Autumn day, Oct 1–7)',
+
+  // ── Switch effect (global; the Config page) ───────────────────────────────
+  // The effect and the easing are global — a rule has no notion of one — while
+  // the duration stays each rule's own unless it is unified here.
+  trTitle: 'Switch effect',
+  trEffect: 'Transition',
+  trEffectFade: 'Cross-fade',
+  trEffectNone: 'Instant',
+  trEffectZoom: 'Zoom in',
+  trEffectSlide: 'Slide in',
+  trEasing: 'Easing',
+  trEasingEase: 'Standard',
+  trEasingLinear: 'Linear',
+  trEasingOut: 'Ease out',
+  trEasingInOut: 'Ease in-out',
+  trDuration: 'Duration',
+  trDurPerRule: 'Follow each rule',
+  trDurUnified: 'Unified',
+  trPreview: 'Preview',
+  trHint: 'The effect applies to every change: model switch, rotation, manual next, holidays. “Instant” and 0 s are the same hard cut',
+  trDurHint: '“Follow each rule” uses each rule’s own duration (rotate.fadeMs, 320 ms by default); “Unified” uses this value for all of them',
+  trReducedHint: 'Your system asks for reduced motion, so a real switch will not animate',
 }

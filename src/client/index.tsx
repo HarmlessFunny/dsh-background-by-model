@@ -9,7 +9,7 @@
 import { defineStore } from './runtime'
 import type {
   Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgImage, BgRule, BgState, HolidayRule,
-  FetchResult, ModelFacts,
+  FetchResult, ModelFacts, TransitionConfig,
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
@@ -19,6 +19,7 @@ import {
   rWp, rRightbarOpacity, DEFAULT_BG_STATE,
 } from './state'
 import { activeHoliday, pickHoliday } from '../holiday'
+import { normalizeTransition } from '../schema'
 import { nextIndex, isRotating } from './rotation'
 import { shouldRepaint } from './repaint'
 import {
@@ -983,6 +984,23 @@ export function apply(ctx: Ctx): void {
         saveConfig()
       },
       setAutoExtract: (v: boolean): void => { cfg.autoExtract = v; saveConfig(); sync() },
+      /**
+       * Patch the GLOBAL wallpaper-switch transition (effect, easing, where the
+       * duration comes from).
+       *
+       * Deliberately no `applyWp()`: this setting decides what the NEXT switch
+       * looks like and nothing on screen changes right now, so re-running the
+       * whole apply (token rewrite, every interface part) for something that
+       * paints nothing would be the expensive way to say "saved". The Config
+       * page's own preview plays the effect instead.
+       */
+      setTransition: (patch: Partial<TransitionConfig>): void => {
+        // Through the shared sanitizer, exactly like `patchRotation`: a live edit
+        // can never hold a value the next load would clamp differently.
+        cfg.transition = normalizeTransition({ ...cfg.transition, ...patch })
+        sync()
+        saveConfig()
+      },
 
       // ── Holiday overrides ─────────────────────────────────────────────────
       setHolidaysEnabled: (v: boolean): void => {
@@ -1012,11 +1030,15 @@ export function apply(ctx: Ctx): void {
           if (url !== null) images[slot] = url
         }
         const payload = {
+          // 6 = the global switch transition (`transition`) is part of the config.
+          // 5 and older still import: every field this file predates is defaulted
+          // by the shared sanitizer, so an older theme restores unchanged.
+          //
           // 5 = a theme color belongs to an image (`images[].color`). 4 and older
           // still import: their image entries carry no `color` key at all, which is
           // exactly the shape `normalizeImage` lifts the rule's color onto, so a
           // theme file written before that feature restores its look unchanged.
-          version: 5,
+          version: 6,
           exportedAt: new Date().toISOString(),
           config: cfg,
           images,

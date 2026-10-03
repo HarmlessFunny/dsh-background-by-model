@@ -163,6 +163,11 @@ export const UI_CSS = `
 
 /* ── profile page ────────────────────────────────────────────────────────── */
 .dab-profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:13px}
+/* The switch-effect preview: a two-tone swatch that replays the chosen effect in
+   the panel. It exists because a wallpaper fading into ITSELF is invisible —
+   the one thing a transition setting must not leave the user guessing about. */
+.dab-tr-preview{position:relative;overflow:hidden;flex:1;min-width:0;height:74px;border-radius:12px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);background-image:linear-gradient(120deg,color-mix(in srgb,var(--dsw-alias-label-tertiary) 24%,transparent),transparent 70%)}
+.dab-tr-preview-in{position:absolute;inset:0;background-image:linear-gradient(120deg,var(--dsw-alias-brand-primary),color-mix(in srgb,var(--dsw-alias-brand-primary) 50%,var(--dsw-alias-bg-layer-1)))}
 .dab-profile-ico{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;margin-bottom:13px;color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
 .dab-profile-title{font-size:14px;font-weight:650}
 .dab-profile-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.55;margin:5px 0 15px}

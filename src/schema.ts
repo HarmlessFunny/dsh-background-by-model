@@ -156,6 +156,77 @@ export const DEFAULT_PART_BLURS: PartBlurs = {
   bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, rightbar: 0, input: 0,
 }
 
+// ── Wallpaper switch transition (global) ───────────────────────────────────
+
+/**
+ * What a wallpaper CHANGE looks like. Global by design — a rule has no notion of
+ * a transition — while the DURATION stays the rule's own `rotate.fadeMs` unless
+ * `durationMode` is switched to `unified`.
+ *
+ * `fade` is the cross-fade every release so far performed, so the shipped
+ * default is exactly the behaviour of the build before this setting existed:
+ * adding a global switch must not change what anybody already sees.
+ */
+export type TransitionEffect = 'fade' | 'none' | 'zoom' | 'slide'
+
+/** Every accepted `effect`, in UI order. */
+export const TRANSITION_EFFECTS: readonly TransitionEffect[] = ['fade', 'none', 'zoom', 'slide']
+
+/**
+ * The transition's timing function, global along with the effect.
+ *
+ * `ease` is the curve the cross-fade already ran on, so the default does not
+ * move either.
+ */
+export type TransitionEasing = 'ease' | 'linear' | 'ease-out' | 'ease-in-out'
+
+/** Every accepted `easing`, in UI order. */
+export const TRANSITION_EASINGS: readonly TransitionEasing[] = ['ease', 'linear', 'ease-out', 'ease-in-out']
+
+/**
+ * Where the transition's DURATION comes from.
+ *
+ * `per-rule` is the default and keeps every rule's own `rotate.fadeMs`
+ * authoritative — including a rule that deliberately asks for a hard cut — so
+ * this setting changes nothing on upgrade and the per-rule control stays
+ * meaningful. `unified` overrides all of them with `durationMs`, for the
+ * reading in which the switch is one thing rather than one thing per model.
+ */
+export type TransitionDurationMode = 'per-rule' | 'unified'
+
+/** Every accepted `durationMode`, in UI order. */
+export const TRANSITION_DURATION_MODES: readonly TransitionDurationMode[] = ['per-rule', 'unified']
+
+/**
+ * The global wallpaper-switch transition.
+ *
+ * There is deliberately no `enabled`: switching it off and picking `none` are
+ * the same state, and two controls that mean one thing is how a panel starts
+ * contradicting itself.
+ */
+export interface TransitionConfig {
+  /** What a change looks like. `none` is a hard cut whatever the duration says. */
+  effect: TransitionEffect
+  /** Timing function of the animation. */
+  easing: TransitionEasing
+  /** Whether the duration is each rule's own, or the one below for all of them. */
+  durationMode: TransitionDurationMode
+  /** Duration used while `durationMode` is `unified` (0 = a hard cut). */
+  durationMs: number
+}
+
+/** The shipped default: the cross-fade this plugin already performed, at 320 ms,
+ *  with every rule's own duration still in charge. */
+export const DEFAULT_TRANSITION: TransitionConfig = {
+  effect: 'fade',
+  easing: 'ease',
+  durationMode: 'per-rule',
+  durationMs: 320,
+}
+
+/** A fresh transition block (never hand out the shared default object). */
+export function defaultTransition(): TransitionConfig { return { ...DEFAULT_TRANSITION } }
+
 /**
  * One model rule: a match string plus everything the background needs while it
  * is the active rule. Every appearance field lives HERE rather than globally —
@@ -282,6 +353,11 @@ export interface ThemeConfig {  /** Ordered rules: matching runs top→bottom, r
   opacities: PartOpacities
   /** Global per-part blur (Interface page). */
   blurs: PartBlurs
+  /**
+   * Global wallpaper-switch transition (Config page): the effect and easing
+   * every change uses, plus where its duration comes from.
+   */
+  transition: TransitionConfig
   /** Settings-panel opacity (0..1). */
   settingsOpacity: number
   /** Translucent tint over the conversation text region (0 = none, 1 = solid). */
@@ -397,6 +473,7 @@ export function freshThemeConfig(): ThemeConfig {
     rules: [],
     opacities: { ...DEFAULT_PART_OPACITIES },
     blurs: { ...DEFAULT_PART_BLURS },
+    transition: defaultTransition(),
     settingsOpacity: DEFAULT_SETTINGS_OPACITY,
     chatTextOpacity: DEFAULT_CHAT_TEXT_OPACITY,
     trajectoryOpacity: DEFAULT_TRAJECTORY_OPACITY,
@@ -415,8 +492,10 @@ export function freshThemeConfig(): ThemeConfig {
 export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
- * The persisted SHAPE this build writes: 4 = a theme color belongs to an IMAGE
- * (`images[].color`), and a rule's own color is what an image-less rule paints.
+ * The persisted SHAPE this build writes: 5 = the global wallpaper-switch
+ * transition (`transition`) is part of the config; 4 = a theme color belongs to
+ * an IMAGE (`images[].color`), and a rule's own color is what an image-less rule
+ * paints.
  *
  * Declared here, with the shape itself, and published by the node half on every
  * `read`. The browser half compares it before it writes anything: a client bundle
@@ -433,10 +512,14 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  * emptying a rule. 3 → 4 is `images[].color`: the field is unknown to a schema-3
  * sanitizer, which REBUILDS each image entry from the keys it knows, so a color
  * the user set would survive in memory until the next reload and then be gone —
- * a silent, per-image loss that no warning would accompany. The check is a plain
+ * a silent, per-image loss that no warning would accompany. 4 → 5 is
+ * `transition`, the same mechanism one level up: a schema-4 sanitizer rebuilds
+ * the whole config from the keys it knows, so the effect, the easing and the
+ * unified duration would all be dropped on the first write after a refresh
+ * paired a new client bundle with an older host process. The check is a plain
  * `>=`, so an older host lands in the hold-writes path automatically.
  */
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 export function clamp(n: unknown, lo: number, hi: number, def: number): number {
   return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
@@ -481,6 +564,27 @@ export function normalizeRotation(raw: unknown): BgRotation {
 /** Own-property test for values that may be anything at all (a raw JSON entry). */
 function hasOwn(o: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(o, key)
+}
+
+/**
+ * Coerce one persisted transition block; a config written before this setting
+ * existed has no `transition` key at all and gets the shipped default, which is
+ * the behaviour it already had.
+ *
+ * `durationMs` is clamped with `0` kept as a real value (a hard cut) rather than
+ * read as "absent" — the same trap `rotate.fadeMs` documents one level down.
+ */
+export function normalizeTransition(raw: unknown): TransitionConfig {
+  const t = (raw ?? {}) as Partial<TransitionConfig>
+  const d = DEFAULT_TRANSITION
+  return {
+    effect: TRANSITION_EFFECTS.includes(t.effect as TransitionEffect) ? (t.effect as TransitionEffect) : d.effect,
+    easing: TRANSITION_EASINGS.includes(t.easing as TransitionEasing) ? (t.easing as TransitionEasing) : d.easing,
+    durationMode: TRANSITION_DURATION_MODES.includes(t.durationMode as TransitionDurationMode)
+      ? (t.durationMode as TransitionDurationMode)
+      : d.durationMode,
+    durationMs: clamp(t.durationMs, 0, ROTATE_FADE_MAX_MS, d.durationMs),
+  }
 }
 
 /**
@@ -646,6 +750,7 @@ export function normalizeConfig(raw: unknown): ThemeConfig {
     rules,
     opacities,
     blurs,
+    transition: normalizeTransition(r.transition),
     settingsOpacity: clamp01(r.settingsOpacity, DEFAULT_SETTINGS_OPACITY),
     chatTextOpacity: clamp01(r.chatTextOpacity, DEFAULT_CHAT_TEXT_OPACITY),
     trajectoryOpacity: clamp01(r.trajectoryOpacity, DEFAULT_TRAJECTORY_OPACITY),

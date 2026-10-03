@@ -1,5 +1,9 @@
-import { rWp, rBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rFadeMs } from './state'
+import { rWp, rBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rFadeMs, rTransition } from './state'
 import type { PartOpacities, PartBlurs } from './types'
+// The switch's decision is pure and checked without a browser
+// (scripts/transition-check.ts); this file only applies it to the two layers.
+import { transitionPlan } from './transition'
+import type { LayerStyle } from './transition'
 import { genTokens, toRgba } from './utils/color'
 import { markOwnSheet } from './components/ui.css'
 
@@ -1001,6 +1005,17 @@ function clearLayer(l: WpLayer): void {
   l.el.style.backgroundImage = ''
   l.el.style.backgroundSize = ''
   l.el.style.backgroundPosition = ''
+  // The transition's own property is part of what a layer IS, not just how it
+  // arrived: a layer retired mid-zoom would otherwise keep `scale(1.06)` and
+  // paint the next wallpaper 6% too large.
+  l.el.style.transform = 'none'
+}
+
+/** Write the two properties a switch animates. Both are always written, so a
+ *  layer can never keep half of a previous effect. */
+function applyLayerStyle(el: HTMLElement, style: LayerStyle): void {
+  el.style.opacity = style.opacity
+  el.style.transform = style.transform
 }
 
 /** Intrinsic-size cache for the center mode (native pixels of the current image). */
@@ -1075,13 +1090,19 @@ function paintLayer(l: WpLayer, url: string): void {
   }
 }
 
-/** Whether a switch should animate: nothing to fade from, an invisible
- *  wallpaper and a reduced-motion preference all switch instantly. */
-function canFade(from: WpLayer): boolean {
+/** Whether there is anything to animate FROM: a wallpaper on screen that is
+ *  actually visible. The duration question belongs to `rFadeMs`, and the
+ *  `reduced-motion` veto to `transitionPlan` — this answers only the layer half,
+ *  so a first paint (no previous image) never fades in from nothing. */
+function canAnimateFrom(from: WpLayer): boolean {
   if (from.url === null) return false
-  if (rWop() <= 0.01) return false
+  return rWop() > 0.01
+}
+
+/** Whether the OS asks for reduced motion right now. */
+function prefersReducedMotion(): boolean {
   const mm = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
-  return mm === null || !mm.matches
+  return mm !== null && mm.matches
 }
 
 /** End an in-flight fade: promote the incoming layer, free the one under it. */
@@ -1092,8 +1113,10 @@ function finishFade(idx: 0 | 1): void {
   front = idx
   const el = layers[idx].el
   // Re-asserted so a fade whose frames never ran (background tab) still ends on
-  // the visible image.
+  // the visible image — and on the END of the effect, not on the frame it was
+  // interrupted at (a zoom left at 1.06 crops every later wallpaper).
   el.style.opacity = '1'
+  el.style.transform = 'none'
   el.style.willChange = ''
   // Covered from here on: drop its bytes so a second full-resolution image is
   // never left decoded behind the visible one.
@@ -1110,6 +1133,7 @@ function settleFade(): void {
   const el = layers[idx].el
   el.style.transition = 'none'
   el.style.opacity = '1'
+  el.style.transform = 'none'
   el.style.willChange = ''
   clearLayer(layers[idx === 0 ? 1 : 0])
 }
@@ -1123,6 +1147,7 @@ function cancelFade(): void {
   const el = layers[idx].el
   el.style.transition = 'none'
   el.style.opacity = '0'
+  el.style.transform = 'none'
   el.style.willChange = ''
   clearLayer(layers[idx])
 }
@@ -1143,17 +1168,31 @@ function applyImageWp(url: string): void {
   const idx: 0 | 1 = front === 0 ? 1 : 0
   const target = ls[idx]
   const el = target.el
+  // One decision, from the global effect + the resolved duration + the two vetoes
+  // (nothing to animate from, reduced motion) — see ./transition.
+  const tr = rTransition()
+  const plan = transitionPlan({
+    effect: tr.effect,
+    easing: tr.easing,
+    durationMs: rFadeMs(),
+    canAnimate: canAnimateFrom(from),
+    reducedMotion: prefersReducedMotion(),
+  })
   // Rewind the incoming layer before its bytes land, so a stale image from an
-  // earlier switch can never flash through while the new one rasterizes.
+  // earlier switch can never flash through while the new one rasterizes — and so
+  // the effect's start state is in place a frame before the transition is armed.
   el.style.transition = 'none'
-  el.style.opacity = '0'
+  el.style.willChange = plan.willChange
+  applyLayerStyle(el, plan.from)
   el.style.zIndex = '1'
   from.el.style.zIndex = '0'
   paintLayer(target, url)
   applyWpEffects()
-  const fadeMs = rFadeMs()
-  if (!canFade(from) || fadeMs <= 0) {
-    el.style.opacity = '1'
+  if (!plan.animate) {
+    // No animation: land on the end state at once (`transition` is already
+    // 'none' from the rewind above), which is both the hard cut and what a
+    // first paint does.
+    applyLayerStyle(el, plan.to)
     front = idx
     clearLayer(from)
     return
@@ -1161,14 +1200,13 @@ function applyImageWp(url: string): void {
   // will-change promotes the layer in this frame, so the fade itself is a pure
   // compositor animation that survives the main-thread work a switch triggers
   // (theme re-registration, token rewrite, settings-panel re-render).
-  el.style.willChange = 'opacity'
   pending = idx
   requestAnimationFrame(() => {
     if (pending !== idx || layers === null) return
-    el.style.transition = `opacity ${fadeMs}ms ease`
-    el.style.opacity = '1'
+    el.style.transition = plan.transition
+    applyLayerStyle(el, plan.to)
   })
-  fadeTimer = window.setTimeout(() => finishFade(idx), fadeMs + 160)
+  fadeTimer = window.setTimeout(() => finishFade(idx), plan.durationMs + 160)
 }
 
 function applyWpEffects(): void {
