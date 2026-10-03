@@ -157,5 +157,50 @@ const sampledElsewhere = [...source.matchAll(/const winner = (?!winnerId\(\))[^\
 check('every sampled winner is `winnerId()`', sampledElsewhere, [])
 check('repaintIfMoved is defined once', (source.match(/const repaintIfMoved = /g) ?? []).length, 1)
 
+console.log('\n--- a palette change cannot wait for a frame that may never run ---')
+// The field bug this section exists for: switching a rule to a DARK theme colour
+// left the panel's ink on the PREVIOUS (light) palette while every surface
+// followed the new one — dark text on a dark panel, unreadable, cleared only by
+// reloading, and absent from the log. The reason it could happen at all is that
+// the ink has exactly ONE writer (the token stylesheet) and that write used to be
+// reachable only from a `requestAnimationFrame` callback wrapped in `catch {}`:
+// a window that is not rendering swallows the frame and the id stays armed, so
+// every later update parks behind it, and a failure inside the write disappears.
+// A palette change is therefore written SYNCHRONOUSLY (the rAF is left to what it
+// was for: coalescing a slider drag, where the palette is already correct), a
+// frame older than a second is dropped instead of blocking, and the failure is
+// logged. Every one of those is a line a later edit can quietly undo.
+const WALLPAPER = resolve(HERE, '../src/client/wallpaper.ts')
+const wall = readFileSync(WALLPAPER, 'utf8')
+
+const applyAt = wall.indexOf('export function applyCustomTokens(')
+check('applyCustomTokens is still there', applyAt >= 0, true)
+if (applyAt >= 0) {
+  const body = wall.slice(applyAt, wall.indexOf('\n}\n', applyAt))
+  check('a palette that moved is written synchronously',
+    /paletteKey\(src, rColor\(\)\) !== baseTokenKey\)\s*\{\s*flushTokens\(\)/.test(body), true)
+  check('the frame path is still there for the alphas', /requestAnimationFrame/.test(body), true)
+  check('a frame that never ran does not park every later update',
+    /cancelAnimationFrame/.test(body), true)
+  check('and the frame path runs the same funnel', /flushTokens\(\)/.test(body), true)
+}
+// One funnel, so no caller can reach the writer while skipping the decision.
+check('flushTokens is defined once', (wall.match(/function flushTokens\(/g) ?? []).length, 1)
+const nowAt = wall.indexOf('function applyCustomTokensNow(')
+check('applyCustomTokensNow is still the one writer', nowAt >= 0, true)
+if (nowAt >= 0) {
+  const body = wall.slice(nowAt, nowAt + 8000)
+  // `catch {}` is the exact text that hid this state: the ink went stale and the
+  // console said nothing at all.
+  check('the palette writer reports its own failure',
+    /catch \(e\)[\s\S]{0,3000}?console\.warn\(/.test(body), true)
+  // Comments are stripped before this one: the section above explains the removed
+  // `catch {}` in prose, and a check that trips on its own explanation is not a
+  // check. Only code is asked whether a failure can disappear without a word.
+  const code = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  check('and never swallows one in silence',
+    /catch(\s*\([^)]*\))?\s*\{\s*\}/.test(code), false)
+}
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
