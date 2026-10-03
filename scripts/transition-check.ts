@@ -121,33 +121,90 @@ const INIT = {
   '--dsw-alias-bg-base': 'rgb(255, 255, 255)',
   '--dsw-alias-label-primary': 'rgb(0, 0, 0)',
 }
-const fade = paletteFadeCss({ selectors: ['body', '.dlg'], initial: INIT, durationMs: 320, easing: 'ease' })
+const fade = paletteFadeCss({
+  // Two elements that DECLARE tokens: the body declares both, the dialog only the
+  // first — the shape the plugin's own two re-scoping rules have.
+  scopes: [
+    { selector: 'body', tokens: ['--dsw-alias-bg-base', '--dsw-alias-label-primary'] },
+    { selector: '.dlg', tokens: ['--dsw-alias-bg-base'] },
+  ],
+  initial: INIT, durationMs: 320, easing: 'ease',
+})
 check('each token is registered as an interpolable colour',
   (fade.match(/@property --dsw-alias-[a-z-]+\{syntax:'<color>';inherits:true;initial-value:rgb\(/g) ?? []).length, 2)
 check('the registration carries the host value as its initial',
   fade.includes('initial-value:rgb(255, 255, 255)'), true)
 check('the transition runs on the switch duration and easing',
   fade.includes('--dsw-alias-bg-base 320ms ease'), true)
-check('every registered token is in the transition list',
-  ['--dsw-alias-bg-base', '--dsw-alias-label-primary'].every(n => fade.includes(`${n} 320ms ease`)), true)
+check('every token an element declares is in that element\'s transition list',
+  fade.includes('body{transition:--dsw-alias-bg-base 320ms ease,--dsw-alias-label-primary 320ms ease}'), true)
 check('and it is declared on every element that re-declares the tokens',
-  fade.includes('body,.dlg{transition:'), true)
+  fade.includes('.dlg{transition:--dsw-alias-bg-base 320ms ease}'), true)
+// THE invariant this shape exists for. An element that only INHERITS a token must
+// not be given a transition for it: the transition then targets the value that
+// element sees at arm time, which — while its ancestor is itself interpolating —
+// is still the OLD one, so it drags its whole subtree behind a lagged copy of the
+// palette and releases it only when the animation ends. That is exactly how the
+// settings dialog froze every control inside it for a whole wallpaper switch.
+check('a scope is never given a token it only inherits',
+  fade.includes('.dlg{transition:--dsw-alias-label-primary'), false)
+check('a scope with nothing of its own emits no rule',
+  paletteFadeCss({
+    scopes: [{ selector: '.empty', tokens: ['--dsw-alias-not-published'] }, { selector: 'body', tokens: ['--dsw-alias-bg-base'] }],
+    initial: INIT, durationMs: 320, easing: 'ease',
+  }).includes('.empty'), false)
 // 0 ms is "do not animate", not "animate for no time": the registrations stay
 // (they cost nothing and are what makes a LATER fade possible) and no transition
 // rule is emitted at all — which is also what keeps a slider drag instant, since
 // a drag rewrites the same token block on every frame.
-const fadeOff = paletteFadeCss({ selectors: ['body'], initial: INIT, durationMs: 0, easing: 'ease' })
+const fadeOff = paletteFadeCss({ scopes: [{ selector: 'body', tokens: Object.keys(INIT) }], initial: INIT, durationMs: 0, easing: 'ease' })
 check('a zero duration emits no transition rule', fadeOff.includes('transition:'), false)
 check('but still registers the tokens', fadeOff.includes('@property'), true)
 check('no tokens means no CSS (nothing is invented)',
-  paletteFadeCss({ selectors: ['body'], initial: {}, durationMs: 320, easing: 'ease' }), '')
+  paletteFadeCss({ scopes: [{ selector: 'body', tokens: ['--dsw-alias-bg-base'] }], initial: {}, durationMs: 320, easing: 'ease' }), '')
 check('a name that is not a custom property is ignored',
-  paletteFadeCss({ selectors: ['body'], initial: { color: 'rgb(0,0,0)' }, durationMs: 320, easing: 'ease' }), '')
+  paletteFadeCss({ scopes: [{ selector: 'body', tokens: ['color'] }], initial: { color: 'rgb(0,0,0)' }, durationMs: 320, easing: 'ease' }), '')
 // The elements the plugin paints INLINE do not read the registered tokens, so
 // they carry the standard property instead — and 0 must be `none`, never an empty
 // value that would leave the host's own transition in place.
 check('inline: the same duration on background-color', paletteFadeInline(320, 'ease'), 'background-color 320ms ease')
 check('inline: zero disarms instead of inheriting', paletteFadeInline(0, 'ease'), 'none')
+
+console.log('\n--- a surface painted from a plugin-OWNED variable names the property ---')
+// The second way a surface is painted, and the one no registration can reach: the
+// settings dialog's plate, the file-preview panel and the Cordis panel read a
+// colour the plugin owns as a PLAIN variable on <html> (`--dsh-any-…`), not a
+// registered alias token. An unregistered variable cannot interpolate, so there is
+// no token to register and none to transition — the element's own
+// `background-color` is what moves, and naming it here is the whole fix. It must
+// NOT be filtered against the registered names the way a token is: a property name
+// is not something the host publishes.
+const own = paletteFadeCss({
+  scopes: [
+    { selector: '.plate', tokens: [], properties: ['background-color'] },
+    { selector: '.chip', tokens: ['--dsw-alias-bg-base'], properties: ['background-color'] },
+    { selector: '.empty', tokens: [], properties: [] },
+  ],
+  initial: INIT, durationMs: 320, easing: 'ease',
+})
+check('a scope with only a standard property still emits its rule',
+  own.includes('.plate{transition:background-color 320ms ease}'), true)
+check('and it rides the same duration and easing as the tokens',
+  own.includes('.chip{transition:--dsw-alias-bg-base 320ms ease,background-color 320ms ease}'), true)
+check('a scope with neither a token nor a property emits nothing', own.includes('.empty'), false)
+check('a standard property is never registered as a colour', own.includes('@property background-color'), false)
+check('and a scope whose only token is unregistered keeps its property',
+  paletteFadeCss({
+    scopes: [{ selector: '.plate', tokens: ['--dsw-alias-not-published'], properties: ['background-color'] }],
+    initial: INIT, durationMs: 320, easing: 'ease',
+  }).includes('.plate{transition:background-color 320ms ease}'), true)
+// 0 ms disarms this half too: a slider drag rewrites the same variables, and a
+// live transition on them would make the plate lag behind the slider.
+check('a zero duration disarms the standard property as well',
+  paletteFadeCss({
+    scopes: [{ selector: '.plate', tokens: [], properties: ['background-color'] }],
+    initial: INIT, durationMs: 0, easing: 'ease',
+  }).includes('transition:'), false)
 
 console.log('\n--- but a light/dark FLIP is not a tint, so it does not fade ---')
 // Interpolating between the two palettes walks the interface through mid-tones

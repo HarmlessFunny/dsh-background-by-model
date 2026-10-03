@@ -6,7 +6,9 @@
  * single frame. The wallpaper cross-fades and the interface jumps, which is what
  * this module exists to fix: it emits the `@property` registrations that turn the
  * alias tokens into interpolable `<color>`s, plus the `transition` declarations
- * for the elements whose own token declarations are what changed.
+ * for the elements whose own token declarations are what changed — and, for the
+ * surfaces the plugin paints from a variable of its own instead of from a token,
+ * a transition on the STANDARD property that carries it (see `properties`).
  *
  * Two rules shape it, and both are about not inventing behaviour:
  *
@@ -25,9 +27,55 @@
  * Pure: it takes resolved values and returns CSS, so `scripts/transition-check.ts`
  * can pin the shape down without a browser.
  */
+/**
+ * One element whose OWN declarations move with the palette, and the tokens those
+ * declarations are for.
+ *
+ * The list is per element and deliberately NOT the whole registered set, which is
+ * the entire reason this shape is not a flat `selectors` array. An element that
+ * merely INHERITS a token must not be handed a transition for it: that element's
+ * transition then targets the value it sees at arm time — and while the ancestor
+ * is itself interpolating, that value is still the OLD one — so the element drags
+ * its whole subtree behind a lagged copy of the palette for the length of the
+ * animation instead of riding the real clock.
+ *
+ * Measured in Chromium, one 1200 ms transition on the declaring ancestor and
+ * three consumers of it (`@property` registered `<color>`, `inherits: true`):
+ *
+ *   inherits, no transition of its own -> follows the ancestor frame for frame
+ *   inherits, HAS a transition of its own -> 113/255 of the way at t = 1500 ms
+ *
+ * The plugin walked straight into it: the settings dialog and the trajectory root
+ * were both given the FULL token list while they only re-declare the three layer
+ * tokens, so every control inside the dialog (the holiday switch fill, the active
+ * effect chips) sat on the previous theme colour for an entire wallpaper switch
+ * and snapped to the new one only after it ended.
+ */
+export interface PaletteFadeScope {
+  selector: string
+  /** The tokens THIS element declares. An inherited name belongs to its owner. */
+  tokens: readonly string[]
+  /**
+   * Standard properties whose OWN value on this element moves with the palette.
+   *
+   * The second way the plugin paints a surface, and the one a token list cannot
+   * reach: three of them are painted from a colour the plugin OWNS as a plain
+   * variable (`--dsh-any-…`, written on `<html>` with its alpha folded in) rather
+   * than from a registered alias token — the settings dialog's plate, the
+   * file-preview panel, the Cordis panel. An unregistered variable is not
+   * interpolable, so there is nothing to register and no token to transition;
+   * `background-color` is what changes on the element itself, and it interpolates
+   * like any other standard property once it is named here.
+   *
+   * No filter is applied to these: unlike a token name, a property name is not
+   * something the host has to publish.
+   */
+  properties?: readonly string[]
+}
+
 export interface PaletteFadeInput {
   /** Elements whose OWN token declarations change when the palette does. */
-  selectors: readonly string[]
+  scopes: readonly PaletteFadeScope[]
   /** Registered colour token -> the value it must never be without. */
   initial: Readonly<Record<string, string>>
   /** Transition length in ms; `0` emits the registrations alone (no animation). */
@@ -70,9 +118,23 @@ export function paletteFadeCss(input: PaletteFadeInput): string {
   const names = Object.keys(input.initial).filter(n => n.startsWith('--'))
   if (names.length === 0) return ''
   const css = registrations(names, input.initial)
-  if (!(input.durationMs > 0) || input.selectors.length === 0) return css
-  const list = names.map(n => `${n} ${input.durationMs}ms ${input.easing}`).join(',')
-  return `${css}${input.selectors.join(',')}{transition:${list}}`
+  if (!(input.durationMs > 0)) return css
+  const timing = (n: string): string => `${n} ${input.durationMs}ms ${input.easing}`
+  const rules = input.scopes
+    // Only what THIS element declares, and only what the host can answer for: a
+    // token with no registration cannot interpolate, so a transition on it would
+    // only lengthen the list. A scope left with nothing emits no rule at all.
+    .map(s => ({
+      selector: s.selector,
+      transitions: [
+        ...s.tokens.filter(n => names.includes(n)),
+        ...(s.properties ?? []),
+      ],
+    }))
+    .filter(s => s.transitions.length > 0)
+    .map(s => `${s.selector}{transition:${s.transitions.map(timing).join(',')}}`)
+    .join('')
+  return `${css}${rules}`
 }
 
 /**

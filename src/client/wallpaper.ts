@@ -5,6 +5,7 @@ import type { PartOpacities, PartBlurs } from './types'
 import { transitionPlan } from './transition'
 import type { LayerStyle } from './transition'
 import { paletteFadeAllowed, paletteFadeCss, paletteFadeInline } from './palette-fade'
+import type { PaletteFadeScope } from './palette-fade'
 import { genTokens, toRgba } from './utils/color'
 import { markOwnSheet } from './components/ui.css'
 
@@ -465,11 +466,12 @@ export const SETTINGS_STYLE_RULE =
 // button-floating-hover tokens: the settings panel's own controls (slider
 // thumbs, .dab-btn, segmented thumb) are painted from those same tokens, so
 // tinting them would bleach the panel's own UI.
+const CORDIS_PANEL_SEL = '[data-cordis-panel]'
 export const INPUT_BLUR_RULE =
-  '[data-composer-card],[data-cordis-panel]{' +
+  `[data-composer-card],${CORDIS_PANEL_SEL}{` +
   '-webkit-backdrop-filter:var(--dsh-any-input-blur,none);' +
   'backdrop-filter:var(--dsh-any-input-blur,none)}' +
-  '[data-cordis-panel]{--dsw-specific-menu:var(--dsh-any-op-menu-cordis)!important}'
+  `${CORDIS_PANEL_SEL}{--dsw-specific-menu:var(--dsh-any-op-menu-cordis)!important}`
 
 function applyInputBlur(px: number): void {
   if (px > 0) document.documentElement.style.setProperty('--dsh-any-input-blur', `blur(${px}px)`)
@@ -552,14 +554,45 @@ const TRAJECTORY_ROOT_SEL = '[data-conversation-composer-overlay]'
 
 /** Elements whose own token declarations change when the palette does: the body
  *  (which everything else inherits), and the two surfaces that RE-declare the
- *  layer tokens instead of inheriting them. */
-const FADE_SELECTORS: readonly string[] = ['body', SETTINGS_PANEL_SEL, TRAJECTORY_ROOT_SEL]
+ *  layer tokens instead of inheriting them.
+ *
+ *  The three layer tokens are also the ONLY ones those two surfaces may carry a
+ *  transition for. Handing them the full palette is not "more of the same": a
+ *  transition on an INHERITED token makes the element interpolate towards the
+ *  stale value it saw when the fade was armed, and everything under it rides that
+ *  lagged copy — the settings dialog's own controls (the holiday switch fill, the
+ *  active chips) then hold the previous theme colour for the whole switch and jump
+ *  at the end. See ./palette-fade for the measurement. */
+const FADE_LAYER_TOKENS: readonly string[] = [
+  '--dsw-alias-bg-layer-1', '--dsw-alias-bg-layer-2', '--dsw-alias-bg-layer-3',
+]
 
 /** The token names the plugin re-emits. One palette is enough: every branch
  *  defines the same set, and an unknown name would only be registered when the
  *  host can answer for it (see `fadeInitials`). */
 function fadeTokenNames(): string[] {
   return Object.keys(genTokens(220, 0.55, 0.25).tokens)
+}
+
+/** One `transition` list per element that DECLARES palette tokens, each carrying
+ *  only the tokens that element actually declares.
+ *
+ *  Two of the entries carry a STANDARD property instead, because those surfaces
+ *  are not painted from a registered token: the settings dialog's plate and the
+ *  file-preview panel read a colour the plugin owns as a plain variable
+ *  (`--dsh-any-bg-settings-surface`, `--dsh-any-bg-rightbar`) and would otherwise
+ *  snap in one frame while every surface around them fades. The Cordis panel is
+ *  the third case of the same kind — it re-declares `--dsw-specific-menu` from
+ *  `--dsh-any-op-menu-cordis`, which is also unregistered, but since the token it
+ *  re-declares IS one, naming the token is what reaches it. */
+function fadeScopes(): PaletteFadeScope[] {
+  return [
+    { selector: 'body', tokens: fadeTokenNames() },
+    { selector: SETTINGS_PANEL_SEL, tokens: FADE_LAYER_TOKENS, properties: ['background-color'] },
+    { selector: TRAJECTORY_ROOT_SEL, tokens: FADE_LAYER_TOKENS },
+    { selector: RIGHTBAR_SEL, tokens: [], properties: ['background-color'] },
+    { selector: CORDIS_PANEL_SEL, tokens: ['--dsw-specific-menu'] },
+  ]
 }
 
 let fadeStyleEl: HTMLStyleElement | null = null
@@ -635,7 +668,7 @@ function paletteFadeMs(): number {
 function applyPaletteFade(animate: boolean): void {
   const initials = fadeInitialsOf(fadeTokenNames())
   const css = paletteFadeCss({
-    selectors: FADE_SELECTORS,
+    scopes: fadeScopes(),
     initial: initials,
     durationMs: animate ? paletteFadeMs() : 0,
     easing: rTransition().easing,
@@ -683,10 +716,12 @@ function fadeInlineFor(animate: boolean): string {
 // put it, and it keeps the panel to a single filter pass — but only while the
 // panel is open: an always-on filter is what turned the collapsed panel into a
 // plate.
-export const RIGHTBAR_STYLE_RULE =
+export const RIGHTBAR_SEL =
   'div[data-sidebar-right-panel]:not(:has([data-dockkit-content],[data-dockkit-empty]))[data-sidebar-right-open],' +
   'div[data-sidebar-right-panel] [data-dockkit-content]:not([data-dockkit-float]),' +
-  'div[data-sidebar-right-panel] [data-dockkit-empty]{' +
+  'div[data-sidebar-right-panel] [data-dockkit-empty]'
+export const RIGHTBAR_STYLE_RULE =
+  `${RIGHTBAR_SEL}{` +
   'background:var(--dsh-any-bg-rightbar,var(--dsw-alias-bg-base))!important}' +
   'div[data-sidebar-right-panel][data-sidebar-right-open]{' +
   '-webkit-backdrop-filter:var(--dsh-any-blur-rightbar,none);' +
