@@ -349,9 +349,10 @@ check('a rule that names no image anywhere is still dropped',
 // holds EVERY write against a host that reports less than it writes (see
 // SCHEMA_VERSION in ./src/schema), because that host's sanitizer would drop the
 // rules it cannot read. 3 = a rule may keep an empty image list (0.7), 4 = a
-// theme color belongs to an image (`images[].color`, 0.7.1).
+// theme color belongs to an image (`images[].color`, 0.7.1), 5 = the global
+// switch transition (`transition`) is part of the config.
 const announced = (await call('read')).value.schema
-check('the host announces the shape it sanitizes with', announced === 4, String(announced))
+check('the host announces the shape it sanitizes with', announced === 5, String(announced))
 // An emptied rule keeps the color it had: that color is what it paints while it
 // has no wallpaper, so it is not a field to clean up.
 await call('writeConfig', {
@@ -389,6 +390,48 @@ console.warn = realWarn
 check('nested drift inside rules[].rotate is reported',
   nestedWarnings.some(w => w.includes('rules[].rotate.bogus')), JSON.stringify(nestedWarnings))
 check('and the unknown key is not persisted', !('bogus' in (await readConfig()).rules[0].rotate))
+
+// ── the global switch transition ───────────────────────────────────────────
+// A config written before this setting existed has no `transition` key at all,
+// and it has to come back as the cross-fade those releases already performed —
+// adding a global setting must not change what anybody was already seeing.
+await call('writeConfig', { config: { ...first, rules: [multiRule] } })
+const trDefault = (await readConfig()).transition
+check('a config without a transition gets the shipped one',
+  JSON.stringify(trDefault) === JSON.stringify({ effect: 'fade', easing: 'ease', durationMode: 'per-rule', durationMs: 320 }),
+  JSON.stringify(trDefault))
+// `durationMode: 'per-rule'` is what keeps every rule's own `rotate.fadeMs`
+// authoritative, so the global duration is NOT what a switch uses by default.
+await call('writeConfig', {
+  config: { ...first, transition: { effect: 'zoom', easing: 'linear', durationMode: 'unified', durationMs: 900 } },
+})
+const trSet = (await readConfig()).transition
+check('the chosen effect, easing and unified duration land on disk',
+  trSet.effect === 'zoom' && trSet.easing === 'linear' && trSet.durationMode === 'unified' && trSet.durationMs === 900,
+  JSON.stringify(trSet))
+// Hostile / stale values go through the same shared sanitizer as everything else.
+await call('writeConfig', {
+  config: { ...first, transition: { effect: 'warp', easing: 'bounce', durationMode: 'sometimes', durationMs: 999_999 } },
+})
+const trBad = (await readConfig()).transition
+check('an unknown effect falls back to the cross-fade', trBad.effect === 'fade', String(trBad.effect))
+check('an unknown easing falls back', trBad.easing === 'ease', String(trBad.easing))
+check('an unknown duration mode falls back to per-rule', trBad.durationMode === 'per-rule', String(trBad.durationMode))
+check('an absurd duration is clamped', trBad.durationMs === 3_000, String(trBad.durationMs))
+// 0 ms is a legal value (a hard cut), so it must not be read as "absent" — the
+// same trap `rotate.fadeMs` documents one level down.
+await call('writeConfig', { config: { ...first, transition: { ...trDefault, durationMs: 0 } } })
+check('a zero duration is kept, not defaulted', (await readConfig()).transition.durationMs === 0)
+// A field only the (newer) client knows about, inside the fixed-shape block:
+// `transition` is rebuilt by the sanitizer, so without the drift guard a typo
+// would disappear with nothing in the host log to explain it.
+const trWarnings = []
+console.warn = (...a) => { trWarnings.push(a.join(' ')) }
+await call('writeConfig', { config: { ...first, transition: { ...trDefault, bogus: 1 } } })
+console.warn = realWarn
+check('drift inside transition is reported',
+  trWarnings.some(w => w.includes('transition.bogus')), JSON.stringify(trWarnings))
+check('and the unknown transition key is not persisted', !('bogus' in (await readConfig()).transition))
 
 // Every image of one rule is independent bytes on disk — that is what makes a
 // per-image delete safe and a rotation possible at all.

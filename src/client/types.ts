@@ -103,17 +103,17 @@ export interface Ctx {
 
 // ── The persisted shape ────────────────────────────────────────────────────
 // BgState / BgImage / BgMode / BgRotation / PartOpacities / PartBlurs / BgRule /
-// ThemeConfig are declared ONCE in ../schema and shared with the node half, so a
-// field can never exist on one side only (that drift is what silently dropped a
-// setting before). They are re-exported here because every client module imports
-// them from this module.
+// ThemeConfig / TransitionConfig are declared ONCE in ../schema and shared with
+// the node half, so a field can never exist on one side only (that drift is what
+// silently dropped a setting before). They are re-exported here because every
+// client module imports them from this module.
 import type {
   BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs,
-  RotateOrder, ThemeConfig,
+  RotateOrder, ThemeConfig, TransitionConfig, TransitionDurationMode, TransitionEffect, TransitionEasing,
 } from '../schema'
 export type {
   BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs,
-  RotateOrder, ThemeConfig,
+  RotateOrder, ThemeConfig, TransitionConfig, TransitionDurationMode, TransitionEffect, TransitionEasing,
 }
 
 // The model-resolution facts the section shows for the active rule. Declared with
@@ -276,6 +276,13 @@ export interface ThemeSectionProps {
   setRightbarOpacity: (v: number | null) => void
   /** Fill a rule's theme color from its image when the rule has none yet. */
   setAutoExtract: (v: boolean) => void
+  /**
+   * Patch the GLOBAL wallpaper-switch transition — the effect every change uses,
+   * its easing, and whether the duration is each rule's own or one global value.
+   *
+   * It paints nothing on its own: it decides what the NEXT switch looks like.
+   */
+  setTransition: (patch: Partial<TransitionConfig>) => void
 
   // ── Holiday overrides ──────────────────────────────────────────────────────
   // ONE switch and nothing else. The per-holiday panels that used to live here

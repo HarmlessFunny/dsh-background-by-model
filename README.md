@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 > Forked from [`Tkingxiao/dsh-any-background`](https://github.com/Tkingxiao/dsh-any-background) and renamed to `dsh-background-by-model`.
 
-A **DeepSeek Harness** appearance plugin built around an **ordered list of model rules**. Each rule carries its own wallpaper, theme color, layout mode, framing, opacity and blur — switch the model, and the background switches with it.
+A **DeepSeek Harness** appearance plugin built around an **ordered list of model rules**. Each rule carries its own wallpaper, theme color, layout mode, framing, opacity and blur — switch the model, and the background switches with it, through the global [switch effect](#switch-effect-global) you choose on the Config page.
 
 > **v0.3.0 is a breaking release.** Video wallpapers, generated dynamic backgrounds and the single global theme color were removed. See the [v0.3.0 entry in CHANGELOG.md](./CHANGELOG.md#v030).
 
@@ -78,7 +78,7 @@ One interface, one config — only the current model differs:
 - **Live Match Readout** — The top of the Model Background tab shows the current state, e.g. `Current model deepseek-flash → matched · Rule 1`, so you can verify a rule on the spot. If the current model can't be detected, a hint is shown instead.
 - **Per-rule Appearance** — Every rule owns its wallpapers, layout mode, opacity and blur, and **every image owns its framing and its theme color**. Nothing is shared globally except the Interface tab.
 - **Several Images per Rule** — A rule holds an ordered set of images, shown as a filmstrip: add several at once (file picker, drag & drop, or a list of URLs, one per line), reorder them, promote one to first, **replace one in place** (which keeps its position in the rotation), or remove them one by one. The image a rule paints when nothing rotates is its **first**. Removing the last image simply leaves the rule empty — and empty is not the same as off: while the rule keeps a theme color of its own it still matches, still serves as the fallback, and paints the interface instead of a wallpaper; only a rule with neither (a freshly added one) is skipped by matching. So an emptied rule is a visible, reversible state rather than one you get stuck in. While it holds no picture the filmstrip is hidden and the big preview tile **is** the upload button, so there is exactly one obvious place to add one.
-- **Import / Export** — Export every rule **including all of its images** to a `dsh-background-by-model-theme.json` (format version 5, images inlined as base64) and restore it anywhere. Files written by earlier releases still import: each rule's single image is lifted into its image list, and a color written before per-image colors is lifted onto every image that has none — so an older theme file restores its look unchanged.
+- **Import / Export** — Export every rule **including all of its images** to a `dsh-background-by-model-theme.json` (format version 6, images inlined as base64) and restore it anywhere. Files written by earlier releases still import: each rule's single image is lifted into its image list, a color written before per-image colors is lifted onto every image that has none, and a file written before the [switch effect](#switch-effect-global) gets that setting's shipped default — so an older theme file restores its look unchanged.
 - **File-based Persistence** — All settings and images are stored on the filesystem under `~/.dsh/.dsh-background-by-model-data/`, not `localStorage`.
 - **Automatic Migration** — Old single-wallpaper configs are upgraded in place on first read. See the [v0.3.0 entry in CHANGELOG.md](./CHANGELOG.md#v030).
 - **Bilingual** — Full Chinese / English UI with automatic locale detection.
@@ -97,6 +97,19 @@ Per rule, and **off by default** — cycling spends real bandwidth, memory and b
 - **What follows a switch is the rule — except the color, which travels with the picture** — layout mode, opacity and blur belong to the rule and stay put. The theme color belongs to the **image**, so a rotation can move through a green picture, a red one and a system-themed one, and the interface palette changes with the wallpaper. The cross-fade between two images is the same one a model switch already used.
 - **Framing is per image, and so is the color** — a crop and an accent both belong to a picture, so each image keeps its own while sharing the rule's layout, opacity and blur. The filmstrip marks the images that carry a color of their own, and the color controls always say which image they are editing.
 - **Only the images it needs are loaded** — boot reads each rule's first image; the rest stream in when a card is expanded or when the rotation is about to need one. Ten images per rule therefore do not mean ten wallpapers transferred before the first frame.
+
+### Switch effect (global)
+
+What a wallpaper **change** looks like. It lives on the **Config** page, it is the same for every rule (a rule has no notion of a transition), and it covers every way the wallpaper changes: a model switch, a [rotation](#image-rotation) step, the manual **Next image**, and a [holiday](#holiday-backgrounds) taking over.
+
+- **Four effects** — **Cross-fade** (the blend every earlier release performed, and therefore the default), **Instant** (a hard cut), **Zoom in** (the incoming image settles from 6% larger) and **Slide in** (it pushes in from the side). Zoom and slide animate `transform`, which the wallpaper layer had never used, so neither costs a byte of extra transfer.
+- **Easing** — standard / linear / ease-out / ease-in-out. The row is not rendered while the effect is **Instant**: a hard cut has no curve to shape, and a control that does nothing is worse than no control.
+- **Where the duration comes from** — **Follow each rule** (the default) leaves every rule's own `rotate.fadeMs` authoritative, exactly as before this setting existed; **Unified** uses one duration for all of them. That is also why this release changes nothing on upgrade: the shipped default is the old cross-fade at the old 320 ms.
+- **`Instant` and `0` ms are the same hard cut** — two ways of asking for one thing, so both are honoured instead of one being read as "not set".
+- **A `0` duration stays `0`** rather than falling back to a default — the same trap `rotate.fadeMs` documents one level down.
+- **Reduced motion is a veto, not a shorter animation** — while `prefers-reduced-motion: reduce` is in force nothing animates at all, and the card says so rather than previewing something the interface will not do.
+- **A preview swatch, because a wallpaper fading into itself is invisible** — replaying the effect on the wallpaper already on screen would show nothing, which is exactly the "I changed it and nothing happened" this plugin keeps designing out. The swatch replays the chosen effect with the duration a real switch would use right now, and picking a different effect replays it at once.
+- **The per-rule duration is untouched** — `rotate.fadeMs` keeps its meaning and its default; the global card can take over, but it does not redefine it.
 
 ### Holiday backgrounds
 
@@ -135,7 +148,7 @@ Settings → **Theme** now has three tabs:
 | --- | --- | --- |
 | **Interface** | Global, shared by every model | Opacity & blur for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
 | **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's images (filmstrip), theme color, layout mode, per-image framing, opacity, blur and [rotation](#image-rotation) |
-| **Config** | — | Import / export the whole rule set (`dsh-background-by-model-theme.json`), plus the single [holiday background](#holiday-backgrounds) switch |
+| **Config** | — | The global [switch effect](#switch-effect-global), import / export of the whole rule set (`dsh-background-by-model-theme.json`), plus the single [holiday background](#holiday-backgrounds) switch |
 
 The old **Color** tab is gone — the theme color is now a property of each rule. The old **Background** tab became **Model Background**.
 
@@ -145,7 +158,7 @@ Data directory: `~/.dsh/.dsh-background-by-model-data/` (Windows: `C:\Users\<you
 
 | File | Contents |
 | --- | --- |
-| `theme-config.json` | The rule list (each rule with its image list and rotation) plus the global Interface settings and the holiday overrides |
+| `theme-config.json` | The rule list (each rule with its image list and rotation) plus the global Interface settings, the global switch effect and the holiday overrides |
 | `modelbg-<slot>` | One image, stored as raw bytes without a file extension — one file per image, so a rule with three images owns three slots |
 | `modelbg-h-midautumn` / `modelbg-h-nationalday` | Not used: both holiday wallpapers ship inside the package and are served straight out of it |
 
@@ -199,13 +212,14 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
-`pnpm test` builds, typechecks and runs five checks (`tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/repaint-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs`). None of them needs a dependency, a transformer or a browser, and each can be run alone with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:repaint` / `pnpm check:ui` / `pnpm check:node`:
+`pnpm test` builds, typechecks and runs six checks (`tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs`). None of them needs a dependency, a transformer or a browser, and each can be run alone with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:ui` / `pnpm check:node`:
 
 - **`check:holiday`** — the two holiday windows against known dates, the Beijing day boundary (23:59 vs 00:01), leap eighth months across 1900–2100, and the four gates `pickHoliday` applies before a holiday is allowed to take over the background.
 - **`check:rotation`** — the rotation's decisions (`nextIndex` / `isRotating`): no walking off the end of a list, shuffle never repeating the image already on screen (across the whole support of the roll), and "rotating" never claimed for a rule with nothing to rotate.
+- **`check:transition`** — the switch effect's decisions (`resolveFadeMs` / `transitionPlan`), which live in `src/client/transition.ts` and are the ones that fail without a sound: that the shipped default still produces **exactly** the transition string earlier releases wrote (`opacity 320ms ease`, opacity only — an unchanged property must not be put on the transition list), that `Instant`, a `0` duration, a `0` unified duration and a non-numeric duration each mean a hard cut, that reduced motion vetoes rather than shortens, that every effect starts somewhere other than where it ends (the "I picked the new effect and nothing happened" failure), and that every effect lands fully visible and **unscaled** — a zoom that never resets would crop every later wallpaper.
 - **`check:repaint`** — the decision that says whether an edit has to repaint the interface (`shouldRepaint`), including the case that kept failing in the field: an edit that **creates** the winner (a rule's first picture, its first or auto-extracted color) must repaint even though the edited rule was not the active one yet. It also fails if any of the write paths in `src/client/index.tsx` stops asking — so re-introducing the old `id === activeRuleId` test breaks the build's checks instead of the user's next upload — and if a rotation step stops re-emitting the interface palette (a theme color belongs to the image, so a step changes it).
 - **`check:ui`** — every `t('…')` key exists in both dictionaries, both dictionaries carry the same key set, every `dab-…` class has a rule in the stylesheet, and no dictionary entry has gone unreferenced.
-- **`check:node`** — the built node half driven through its real RPC handler with `DSH_HOME` redirected to a throwaway directory: the holiday block through the shared sanitizer, the packaged wallpapers served from an empty slot (without being copied into the data directory), a holiday slot refusing writes, deletes and URL fetches while a file dropped into it is ignored, an ordinary rule slot still writing, listing and deleting, a hand-edited config unable to redirect a holiday at another rule's image, and the per-image color shape: the read-time lift in both directions (an absent key inherits the rule's color, an explicit `null` does not), independent colors through the file, and a `null` written as a key rather than omitted.
+- **`check:node`** — the built node half driven through its real RPC handler with `DSH_HOME` redirected to a throwaway directory: the holiday block through the shared sanitizer, the packaged wallpapers served from an empty slot (without being copied into the data directory), a holiday slot refusing writes, deletes and URL fetches while a file dropped into it is ignored, an ordinary rule slot still writing, listing and deleting, a hand-edited config unable to redirect a holiday at another rule's image, the per-image color shape: the read-time lift in both directions (an absent key inherits the rule's color, an explicit `null` does not), independent colors through the file, and a `null` written as a key rather than omitted, and the global switch effect: the shipped default for a config that predates it, a chosen effect/easing/unified duration surviving the round trip, hostile values falling back while an absurd duration clamps, a `0` duration kept rather than defaulted, and drift inside `transition` reported instead of silently dropped.
 
 ## FAQ
 
@@ -250,6 +264,9 @@ Pressing it means leaving the system-theme state, so it has to hand out a starti
 
 **After switching back to "System theme" the interface stays light until I drag a slider — why?**
 The other half of the same hole: while it owns a color the plugin **forces** `body[data-ds-dark-theme]` (setting its marker for a dark palette, removing the attribute for a light one), and the host only rewrites that flag when it projects a **theme snapshot** — it does not watch the attribute. A flag dropped by a light skin therefore sticks, so the readback captured the host's light palette at the moment the color was cleared and nothing ever re-read it until an unrelated apply ran. Now the switch hands the flag back synchronously in the host's own boolean form, the scheme the host resolved (`ctx.theme`'s `active.colorScheme`, falling back to `html[data-ds-theme-source]` plus `prefers-color-scheme`) is pushed into the render layer, and the one-second watchdog re-reads the host palette while a rule has no color, repainting when it moved.
+
+**I picked a new switch effect and the wallpaper still cuts instantly.**
+Three things can hold it, and all three are on the card: the effect is **Instant**, or a duration of `0` is in force (an effect and a duration are two ways of asking for the same hard cut, and the effect wins), or your system asks for **reduced motion** — in which case nothing animates at all and the card says so. If none of those applies, check where the duration comes from: with **Follow each rule** the value that counts is that rule's own `rotate.fadeMs`, and **Unified** is what makes the number on this card the one in force.
 
 ## Recent Optimizations
 

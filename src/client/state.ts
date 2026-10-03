@@ -1,10 +1,14 @@
-import type { BgImage, BgRule, BgState, BgMode, HolidayRule, ThemeConfig, PartOpacities, PartBlurs } from './types'
+import type { BgImage, BgRule, BgState, BgMode, HolidayRule, ThemeConfig, PartOpacities, PartBlurs, TransitionConfig } from './types'
+// The switch's decision (which effect, how long, whether it runs at all) is pure
+// and lives in ./transition — it is checked without a browser by
+// `scripts/transition-check.ts`, so the render layer only has to apply it.
+import { resolveFadeMs } from './transition'
 // The persisted shape, its key lists, its defaults and its sanitizers all live in
 // ../schema, shared verbatim with the node half — a field declared on one side
 // only used to be silently dropped by the other side's sanitizer.
 import {
   DEFAULT_BG_STATE, DEFAULT_CHAT_TEXT_OPACITY, DEFAULT_PART_BLURS, DEFAULT_PART_OPACITIES,
-  DEFAULT_SETTINGS_OPACITY, DEFAULT_TRAJECTORY_OPACITY, PART_BLUR_KEYS, PART_OPACITY_KEYS,
+  DEFAULT_SETTINGS_OPACITY, DEFAULT_TRAJECTORY_OPACITY, DEFAULT_TRANSITION, PART_BLUR_KEYS, PART_OPACITY_KEYS,
   clamp, clamp01, defaultRotation, freshThemeConfig, normalizeConfig, normalizeRotation, normalizeRule,
   ruleSlots,
 } from '../schema'
@@ -262,8 +266,24 @@ export function rBl(): number { return clamp(activeRule()?.blur, 0, 60, 0) }
 export function rBgState(): BgState { return activeImage()?.bgState ?? DEFAULT_BG_STATE }
 /** Rotation of the active rule; the shipped default when nothing is active. */
 export function rRotation(): BgRule['rotate'] { return activeRule()?.rotate ?? defaultRotation() }
-/** Cross-fade duration the active rule asks for, in ms (0 = hard cut). */
-export function rFadeMs(): number { return rRotation().fadeMs }
+/**
+ * The GLOBAL wallpaper-switch transition (effect, easing, where the duration
+ * comes from).
+ *
+ * Read from the config on every apply rather than cached: the Config page edits
+ * it while a wallpaper is on screen, and the next switch has to use what the
+ * user just chose.
+ */
+export function rTransition(): TransitionConfig { return cfg.transition ?? DEFAULT_TRANSITION }
+/**
+ * Duration the next switch runs for, in ms (`0` = a hard cut).
+ *
+ * The two rungs are `resolveFadeMs`'s business (./transition): the global effect
+ * can veto the animation outright, the global duration can override every rule,
+ * and otherwise the rule's own `rotate.fadeMs` decides — which is what keeps this
+ * setting from changing anything for a config that predates it.
+ */
+export function rFadeMs(): number { return resolveFadeMs(rTransition(), rRotation().fadeMs) }
 /** Paintable URL of the active rule's CURRENT image, or null when it has none. */
 export function rWp(): string | null {
   const slot = activeSlot()
