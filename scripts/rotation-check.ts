@@ -10,7 +10,13 @@
  *   2. "shuffling" onto the image already on screen (indistinguishable from a
  *      missed tick, which is why `order: shuffle` must never repeat);
  *   3. reporting "rotating" for a rule that has nothing to rotate — the one
- *      failure that shows up as a badge claiming something untrue.
+ *      failure that shows up as a badge claiming something untrue;
+ *   4. the SWITCH staying on for a rule that lost a picture. `isRotating` above is
+ *      already false below two images, so the badge and the timer were right all
+ *      along; what stayed wrong was the stored setting, and the panel disables the
+ *      switch there — a control that reads "on" and cannot be turned off until
+ *      another picture arrives. Only the removal path can keep the setting and the
+ *      count apart, so that half is textual, like `scripts/repaint-check.ts`.
  *
  * Runs on plain `node` (≥ 22.6 strips the types itself), no dependency, no
  * transform — the same shape as `scripts/holiday-check.ts`.
@@ -20,7 +26,12 @@
  * plain node does not), and the sanitizer it owns is checked where it actually
  * runs — through the node half's RPC, in `scripts/node-half-check.mjs`.
  */
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { nextIndex, isRotating, ROTATE_PRESETS } from '../src/client/rotation.ts'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
 
 let failures = 0
 function check(label: string, got: unknown, want: unknown): void {
@@ -79,6 +90,19 @@ check('every preset is inside the clamp range',
 check('presets are ordered fastest first',
   ROTATE_PRESETS.every((p, i) => i === 0 || ROTATE_PRESETS[i - 1]!.ms < p.ms), true)
 check('preset keys are distinct', new Set(ROTATE_PRESETS.map(p => p.key)).size, ROTATE_PRESETS.length)
+
+console.log('\n--- a rule that loses a picture stops claiming it rotates ---')
+// The setting, not the decision: `isRotating` above already says false below two
+// images, so this is about the state the panel reads back.
+const entry = readFileSync(resolve(HERE, '../src/client/index.tsx'), 'utf8')
+check('removing the second-to-last image clears the switch',
+  /if \(rule\.images\.length < 2 && rule\.rotate\.enabled\) patchRotation\(rule, \{ enabled: false \}\)/.test(entry), true)
+// The same invariant at the layer every path goes through (load, import, persist):
+// the removal above is the interactive half, this is the one that also catches a
+// rule arriving from a file with `enabled` set and a single picture.
+const schemaSrc = readFileSync(resolve(HERE, '../src/schema.ts'), 'utf8')
+check('and a rule normalized with one picture never comes back rotating',
+  /if \(images\.length < 2\) rotate\.enabled = false/.test(schemaSrc), true)
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

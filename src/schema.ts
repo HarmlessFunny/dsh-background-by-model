@@ -688,6 +688,13 @@ export function normalizeRule(raw: unknown): BgRule | null {
   // Nothing usable anywhere: a pre-0.7 rule whose slot was empty or malformed.
   if (images.length === 0 && !hadList) return null
   const mode: BgMode = BG_MODES.includes(r.bgMode as BgMode) ? (r.bgMode as BgMode) : 'fit'
+  const rotate = normalizeRotation(r.rotate)
+  // One picture is not a rotation: the panel DISABLES the switch below two images,
+  // so a rule that keeps `enabled` set — arriving from an imported file, or written
+  // back after a picture was removed somewhere else — shows a switch that reads
+  // "on" and cannot be turned off until another picture arrives. The normalizer is
+  // the one place load, import and persist all pass through.
+  if (images.length < 2) rotate.enabled = false
   return {
     id,
     images,
@@ -697,7 +704,7 @@ export function normalizeRule(raw: unknown): BgRule | null {
     bgMode: mode,
     wallpaperOpacity: clamp01(r.wallpaperOpacity, 1),
     blur: clamp(r.blur, 0, 60, 0),
-    rotate: normalizeRotation(r.rotate),
+    rotate,
   }
 }
 

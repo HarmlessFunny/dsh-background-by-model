@@ -781,6 +781,12 @@ export function apply(ctx: Ctx): void {
         // entry behind, and that entry sat at position 1 — so the next upload
         // became image 2 of a rule that kept painting nothing, with no way back.
         rule.images.splice(idx, 1)
+        // One picture is not a rotation. The page disables the switch below two
+        // images, so leaving `enabled` set means a switch that reads "on" and
+        // cannot be turned off until another picture arrives — the setting and the
+        // picture count have to say the same thing. Re-adding an image finds the
+        // switch off: rotation is a decision, not a consequence of a count.
+        if (rule.images.length < 2 && rule.rotate.enabled) patchRotation(rule, { enabled: false })
         // The painted image may be the one that just went away, so the index has
         // to move with it — and `applyActive` below resets it when the rule itself
         // is the active one.

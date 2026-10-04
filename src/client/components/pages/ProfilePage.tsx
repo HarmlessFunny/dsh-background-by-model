@@ -7,6 +7,7 @@ import { normalizeTransition, TRANSITION_EASINGS, TRANSITION_EFFECTS } from '../
 import { transitionPlan } from '../../transition'
 import type { TransitionEffect, TransitionEasing } from '../../../schema'
 import { LiveSlider } from '../LiveSlider'
+import { REPO_URL } from '../../repo'
 import { DownloadIcon, SparkleIcon, UploadIcon } from '../icons'
 
 /** Chip labels, keyed by the value they set — so no chip can be built from a
@@ -160,8 +161,10 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
             "where does it come from" choice in front of it: the per-rule fade
             this could have deferred to had no control anywhere, so offering the
             choice would have been offering a real setting and a phantom one. */}
-        <div className="dab-swatch-title" style={{ marginTop: 12 }}>{t('trDuration')}</div>
-        <div style={{ marginTop: 2 }}>
+        {/* No heading of its own: this slider carries the label ("切换时长"), and a
+            title above it printed the same two words a line apart. The margin is
+            what that heading used to hold down, so the spacing survives it. */}
+        <div style={{ marginTop: 12 }}>
           <LiveSlider label={t('trDuration')} min={0} max={3000} step={50} def={tr.durationMs}
             fmt={v => `${v} ms`}
             onInput={v => {
@@ -209,7 +212,11 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
       </div>
 
       <footer className="dab-footer dab-rise" style={{ '--d': 4 } as CSSProperties}>
-        <span className="dab-footer-mono">dsh-background-by-model</span>
+        {/* The package name is the link: it is what you would search for, and the
+            name is what the plugin market lists. */}
+        <a className="dab-footer-mono" href={REPO_URL} target="_blank" rel="noreferrer noopener" title={t('repoLink')}>
+          dsh-background-by-model
+        </a>
         <span>{t('footerTag')}</span>
       </footer>
     </>

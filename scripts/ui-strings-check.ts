@@ -19,6 +19,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { zh, en } from '../src/client/i18n.ts'
+import { REPO_URL } from '../src/client/repo.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CLIENT = resolve(HERE, '../src/client')
@@ -120,6 +121,17 @@ for (const key of zhKeys) {
   if (!wanted.has(key)) fail('dead key', `"${key}" is defined but never referenced`)
 }
 console.log(`ok   no unreferenced dictionary entries`)
+
+// ── 5. the links the shell ships point where the package says ───────────────
+// The brand in the header and the package name in the profile footer both open
+// `REPO_URL`, while npm and the plugin market read `repository` from
+// package.json. A repository that moves would leave the interface linking
+// somewhere the package no longer claims — and a wrong link looks exactly like a
+// working one until someone clicks it.
+const pkg = JSON.parse(readFileSync(resolve(HERE, '../package.json'), 'utf8')) as { repository?: { url?: string } }
+const declared = (pkg.repository?.url ?? '').replace(/^git\+/, '').replace(/\.git$/, '')
+if (declared !== REPO_URL) fail('repo link', `REPO_URL is ${REPO_URL}, package.json declares ${declared}`)
+else console.log(`ok   REPO_URL matches package.json (${REPO_URL})`)
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

@@ -24,7 +24,11 @@ export const UI_CSS = `
 /* ── shell: nav rail + page body ─────────────────────────────────────────── */
 .dab-shell{display:grid;grid-template-columns:158px minmax(0,1fr);gap:26px;align-items:start;padding-bottom:8px;width:100%;max-width:980px;margin:0 auto}
 .dab-nav{position:sticky;top:0;display:flex;flex-direction:column;gap:18px}
-.dab-brand{display:flex;align-items:center;gap:10px;padding:2px 6px}
+/* The brand is an <a> (it opens the repository): an anchor brings its own colour
+   and underline, so both are reset here rather than left to the host's link
+   styles, which would repaint the tile's label. */
+.dab-brand{display:flex;align-items:center;gap:10px;padding:2px 6px;color:inherit;text-decoration:none}
+.dab-brand:hover .dab-brand-name{color:var(--dsw-alias-brand-primary)}
 .dab-brand-tile{width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;color:var(--dsw-alias-label-primary-inverted);background:var(--dsw-alias-brand-primary);box-shadow:0 4px 14px -4px var(--dsw-alias-brand-primary)}
 .dab-brand-name{font-size:13px;font-weight:650;letter-spacing:.01em;line-height:1.25}
 .dab-brand-tag{font-size:9px;letter-spacing:.16em;font-weight:600;color:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-tertiary));text-transform:uppercase}
@@ -173,6 +177,10 @@ export const UI_CSS = `
 .dab-profile-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.55;margin:5px 0 15px}
 .dab-footer{margin-top:6px;padding:14px 4px 0;border-top:1px solid var(--dsw-alias-border-l2);display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .dab-footer-mono{font-family:var(--dab-mono);letter-spacing:.02em}
+/* Same reset as the brand: the package name links to the repository, and the
+   underline appears on hover where it reads as an affordance instead of chrome. */
+.dab-footer a{color:inherit;text-decoration:none}
+.dab-footer a:hover{color:var(--dsw-alias-brand-primary);text-decoration:underline}
 
 /* ── toast ───────────────────────────────────────────────────────────────── */
 .dab-toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;height:38px;padding:0 16px;border-radius:99px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));border:1px solid var(--dsw-alias-border-l2);box-shadow:0 10px 30px -8px rgba(0,0,0,.38);font-size:12.5px;z-index:10001;animation:dab-toast-in .32s cubic-bezier(.22,1,.36,1) both}
