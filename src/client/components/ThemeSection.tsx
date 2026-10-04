@@ -14,6 +14,7 @@ import { ensureUiCss, NAV_ITEM_H, NAV_GAP } from './ui.css'
 import { SunIcon, LayersIcon, PhotoIcon, SlidersIcon, AlertIcon, CheckIcon } from './icons'
 import { ErrorBoundary } from './ErrorBoundary'
 import { Portal } from './Portal'
+import { REPO_URL } from '../repo'
 import { InterfacePage } from './pages/InterfacePage'
 import { ModelBgPage } from './pages/ModelBgPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -44,13 +45,16 @@ export function ThemeSection(props: ThemeSectionProps) {
       <div className="dab-root">
         <div className="dab-shell">
           <nav className="dab-nav">
-            <div className="dab-brand">
+            {/* The brand doubles as the way back to the project: the profile
+                page's footer says the same thing in words, and both open the one
+                address in `REPO_URL`. */}
+            <a className="dab-brand" href={REPO_URL} target="_blank" rel="noreferrer noopener" title={t('repoLink')}>
               <div className="dab-brand-tile"><SunIcon size={15} /></div>
               <div>
                 <div className="dab-brand-name">{t('nav')}</div>
                 <div className="dab-brand-tag">{t('brandTag')}</div>
               </div>
-            </div>
+            </a>
             <div className="dab-nav-list">
               <div className="dab-nav-ind" style={{ transform: `translateY(${page * (NAV_ITEM_H + NAV_GAP)}px)` }} />
               {pages.map((pg, i) => (

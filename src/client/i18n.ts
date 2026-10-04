@@ -126,6 +126,7 @@ export const zh: Record<string, string> = {
   importDone: '已导入配置',
   importFail: '导入失败，文件格式不正确',
   footerTag: '按模型换背景插件',
+  repoLink: '在 GitHub 上打开仓库',
 
   // ── 节日特殊背景（默认开启；界面上只有一行开关）───────────────────────────
   holidayTitle: '节日特殊背景',
@@ -273,6 +274,7 @@ export const en: Record<string, string> = {
   importDone: 'Profile imported',
   importFail: 'Import failed — invalid file',
   footerTag: 'Per-model wallpaper plugin',
+  repoLink: 'Open the repository on GitHub',
 
   // ── Holiday overrides (on by default; one switch, no cards) ───────────────
   holidayTitle: 'Holiday backgrounds',
