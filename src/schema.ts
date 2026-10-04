@@ -129,14 +129,19 @@ export function defaultRotation(): BgRotation { return { ...DEFAULT_ROTATION } }
  *   `sidebar` sidebar (`--dsw-specific-sidebar-fill`)
  *   `card`    cards/panels (`--dsw-alias-bg-layer-1/2/3`, `--dsw-specific-menu`
  *             and its 0.1.7 alias `--dsw-menu-surface-fill`)
+ *   `code`    code blocks, banner included (`--dsw-alias-markdown-code-block`,
+ *             `--dsw-alias-markdown-code-block-banner`)
  *   `input`   input/control surfaces (`--dsw-specific-input-major`)
  */
-export const PART_OPACITY_KEYS = ['bg', 'sidebar', 'card', 'input'] as const
+export const PART_OPACITY_KEYS = ['bg', 'sidebar', 'card', 'code', 'input'] as const
 
 /** Per-part main interface opacities (0..1), keyed BY the list above. */
 export type PartOpacities = Record<(typeof PART_OPACITY_KEYS)[number], number>
 
-export const DEFAULT_PART_OPACITIES: PartOpacities = { bg: 0.85, sidebar: 0.93, card: 1, input: 1 }
+// `code` starts opaque, like the other surfaces that carry text on top of a
+// deliberate surface (`card`, `input`): a code block is read, not looked through,
+// and anyone who wants the wallpaper inside it has a slider for exactly that.
+export const DEFAULT_PART_OPACITIES: PartOpacities = { bg: 0.85, sidebar: 0.93, card: 1, code: 1, input: 1 }
 
 /**
  * Interface blur (px, 0..60), global (Interface page):

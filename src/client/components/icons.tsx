@@ -118,3 +118,8 @@ export const InputIcon = ({ size, className }: { size?: number; className?: stri
   <Glyph size={size} className={className}><rect x="2.2" y="4" width="11.6" height="8" rx="2" /><path d="M8 6.6v2M7 8h2" /></Glyph>
 )
 
+/** Angle brackets: the code-block surface on the Interface page. */
+export const CodeIcon = ({ size, className }: { size?: number; className?: string }) => (
+  <Glyph size={size} className={className}><path d="M5.7 4.3 2.4 8l3.3 3.7M10.3 4.3 13.6 8l-3.3 3.7" /></Glyph>
+)
+

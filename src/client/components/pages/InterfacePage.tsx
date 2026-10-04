@@ -4,7 +4,7 @@ import { cfg, rOps, rSop, rBlurs, rChatTextOpacity, rTrajectoryOpacity, rRightba
 import { saveConfig } from '../../rpc'
 import { applyCustomTokens, applySettingsOverrides, setPartBlur, applyViewCards, applyTrajectoryOverrides, applyRightbarOverrides } from '../../wallpaper'
 import { LiveSlider } from '../LiveSlider'
-import { CanvasIcon, SidebarIcon, ChatIcon, GearIcon, TextIcon, TrajectoryIcon, PreviewIcon, InputIcon } from '../icons'
+import { CanvasIcon, SidebarIcon, ChatIcon, GearIcon, TextIcon, TrajectoryIcon, PreviewIcon, InputIcon, CodeIcon } from '../icons'
 
 interface PartDef {
   labelKey: string
@@ -18,6 +18,9 @@ interface PartDef {
   isTrajectory?: boolean
   /** File-preview panel: the right sidebar a file click opens. */
   isRightbar?: boolean
+  /** Opacity only, deliberately no blur: a code block carries text, and frosting
+   *  the wallpaper behind it only softens the plate under the syntax. */
+  noBlur?: boolean
 }
 
 const PARTS: PartDef[] = [
@@ -25,6 +28,7 @@ const PARTS: PartDef[] = [
   { opKey: 'sidebar', labelKey: 'uiOpacitySide', Icon: SidebarIcon },
   { isRightbar: true, labelKey: 'uiPreview', Icon: PreviewIcon },
   { opKey: 'card', labelKey: 'uiOpacityCard', Icon: ChatIcon },
+  { opKey: 'code', labelKey: 'uiOpacityCode', Icon: CodeIcon, noBlur: true },
   { opKey: 'input', labelKey: 'uiOpacityInput', Icon: InputIcon },
   { isSettings: true, labelKey: 'uiSop', Icon: GearIcon },
   { isChat: true, labelKey: 'uiChatRegion', Icon: TextIcon },
@@ -44,7 +48,7 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
 
       <div className="dab-grid-parts">
         {PARTS.map((part, i) => {
-          const { labelKey, Icon, isSettings, isChat, isTrajectory, isRightbar } = part
+          const { labelKey, Icon, isSettings, isChat, isTrajectory, isRightbar, noBlur } = part
           const opKey = part.opKey
           // Homepage parts (bg/sidebar/card/input) bind to their own part only;
           // the settings panel (isSettings) binds exclusively to the 'settings'
@@ -57,20 +61,24 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
           // column's backdrop through the same deal. Every homepage opKey is
           // also a PartBlurs key (input included), so the shared blur slider
           // dereferences it directly.
-          const blurKey: keyof PartBlurs = isChat
+          // `null` means this row has no blur of its own (see `noBlur`), which is
+          // why the slider below is conditional rather than merely zero. The cast
+          // states what `noBlur` already guarantees at runtime: the only opKey
+          // without a PartBlurs twin is the code block's.
+          const blurKey: keyof PartBlurs | null = isChat
             ? 'chat'
             : isTrajectory
               ? 'trajectory'
               : isRightbar
                 ? 'rightbar'
-                : isSettings ? 'settings' : opKey!
+                : isSettings ? 'settings' : noBlur ? null : (opKey! as keyof PartBlurs)
           const opacity = isChat
             ? rChatTextOpacity()
             : isTrajectory
               ? rTrajectoryOpacity()
               : isRightbar ? rRightbarOpacity() : isSettings ? rSop() : rOps()[opKey!]
           return (
-            <section key={blurKey} className="dab-card dab-card-hover dab-rise" style={{ '--d': i + 1 } as CSSProperties}>
+            <section key={blurKey ?? opKey} className="dab-card dab-card-hover dab-rise" style={{ '--d': i + 1 } as CSSProperties}>
               <div className="dab-part-head">
                 <div className="dab-part-ico"><Icon size={16} /></div>
                 <div className="dab-part-name">{t(labelKey)}</div>
@@ -124,20 +132,22 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
                   }
                 }} />
 
-              <LiveSlider label={t('uiBlur')} min={0} max={60} step={1} def={rBlurs()[blurKey]}
-                fmt={v => `${v}px`}
-                onInput={v => {
-                  const blurs = { ...rBlurs() }
-                  blurs[blurKey] = v
-                  cfg.blurs = blurs
-                  setPartBlur(blurKey, v)
-                  saveConfig()
-                }}
-                onChange={v => {
-                  const blurs = { ...rBlurs() }
-                  blurs[blurKey] = v
-                  setBlurs(blurs)
-                }} />
+              {blurKey !== null && (
+                <LiveSlider label={t('uiBlur')} min={0} max={60} step={1} def={rBlurs()[blurKey]}
+                  fmt={v => `${v}px`}
+                  onInput={v => {
+                    const blurs = { ...rBlurs() }
+                    blurs[blurKey] = v
+                    cfg.blurs = blurs
+                    setPartBlur(blurKey, v)
+                    saveConfig()
+                  }}
+                  onChange={v => {
+                    const blurs = { ...rBlurs() }
+                    blurs[blurKey] = v
+                    setBlurs(blurs)
+                  }} />
+              )}
             </section>
           )
         })}

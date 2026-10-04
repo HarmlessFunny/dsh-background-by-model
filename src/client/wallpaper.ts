@@ -78,6 +78,11 @@ const OPACITY_TOKEN_GROUPS: Array<{ part: keyof PartOpacities; names: string[] }
   { part: 'bg', names: ['--dsw-alias-bg-base'] },
   { part: 'sidebar', names: ['--dsw-specific-sidebar-fill'] },
   { part: 'card', names: ['--dsw-alias-bg-layer-1', '--dsw-alias-bg-layer-2', '--dsw-alias-bg-layer-3', '--dsw-specific-menu', '--dsw-menu-surface-fill'] },
+  // The code block: the plate the syntax sits on AND the banner above it. One
+  // slider for both, because a card's header is painted from the PLATE token
+  // (`--dsl-code-block-background`) rather than from the banner's — two separate
+  // alphas would put a solid strip on a see-through box.
+  { part: 'code', names: ['--dsw-alias-markdown-code-block', '--dsw-alias-markdown-code-block-banner'] },
   { part: 'input', names: ['--dsw-specific-input-major'] },
 ]
 
@@ -97,6 +102,12 @@ const OPACITY_VARS: Record<string, string> = {
   // plugin-owned variable — one slider, one alpha, no seam between them.
   '--dsw-specific-menu': '--dsh-any-op-menu',
   '--dsw-menu-surface-fill': '--dsh-any-op-menu',
+  // The two code-block surfaces cannot share ONE variable: the writer below sets
+  // one plugin-owned variable per token NAME, so a shared name would leave the
+  // second one (the banner) painting both — a plate in the banner's tint. Two
+  // variables, both fed by the same `code` slider, so the alphas still agree.
+  '--dsw-alias-markdown-code-block': '--dsh-any-op-code',
+  '--dsw-alias-markdown-code-block-banner': '--dsh-any-op-code-banner',
 }
 
 // Fingerprint of the non-alpha token base (palette source + color pick +
@@ -401,7 +412,18 @@ function applyCustomTokensNow(ops: PartOpacities): void {
         const opVar = OPACITY_VARS[name]
         decls.push(`${name}:${opVar !== undefined ? `var(${opVar})` : value}!important`)
       }
-      ensureTokenStyle().textContent = `body{${decls.join(';')}}`
+      // `:root` as well as `body`, and not for symmetry: the host declares a few
+      // of its OWN variables on `:root` as `var()` references into our tokens, and
+      // a custom property is substituted where it is DECLARED. So
+      // `:root{--shiki-background:var(--dsw-alias-markdown-code-block)}` is computed
+      // ONCE, on <html>, out of whatever the root element had at that moment — and
+      // with a body-only rule that was nothing but the registration's
+      // `initial-value`, i.e. the host's own colour as read while our sheet was
+      // muted. The code plate therefore stayed on the host's DARK value (#1b1b1c)
+      // through every light palette while the host's shiki INK flipped with the
+      // scheme, which is exactly the "代码块背景有点问题" report: dark ink, dark
+      // plate, and a plate that ignored the palette (and could never fade).
+      ensureTokenStyle().textContent = `:root,body{${decls.join(';')}}`
       if (own) {
         // Drop inline tokens left by earlier builds so the stylesheet is the single source of truth.
         for (const name of appliedTokenNames) document.body.style.removeProperty(name)
@@ -587,6 +609,13 @@ function fadeTokenNames(): string[] {
  *  re-declares IS one, naming the token is what reaches it. */
 function fadeScopes(): PaletteFadeScope[] {
   return [
+    // `:root` as well as the body, because the palette is declared on both (see
+    // `applyCustomTokensNow`) and only the element that DECLARES a token animates
+    // it. The host computes a couple of its own variables on the root element —
+    // `--shiki-background` / `--shiki-foreground`, i.e. the code plate and its
+    // default ink — so without this scope a palette change would slide everything
+    // around the code block while the block itself jumped to the new tint.
+    { selector: ':root', tokens: fadeTokenNames() },
     { selector: 'body', tokens: fadeTokenNames() },
     { selector: SETTINGS_PANEL_SEL, tokens: FADE_LAYER_TOKENS, properties: ['background-color'] },
     { selector: TRAJECTORY_ROOT_SEL, tokens: FADE_LAYER_TOKENS },

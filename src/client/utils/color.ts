@@ -110,6 +110,16 @@ function buildTokens(hue: number, sat: number, lit: number): { colorScheme: 'lig
         '--dsw-alias-interactive-bg-hover-accent': 'rgba(255,255,255,0.24)',
         '--dsw-alias-interactive-bg-hover-danger': 'rgba(242,90,90,0.15)',
         '--dsw-alias-interactive-bg-active': rgba(h(0), s(0), Math.max(l(0.15), 0.4), 0.2),
+        // The code plate wears the palette's tint, like every other surface. That
+        // is only safe because the palette rule now reaches `:root` as well (see
+        // `applyCustomTokensNow`): the host's shiki INK flips with the scheme
+        // (`body[data-ds-dark-theme]{--shiki-token-*}`) while the plate used to be
+        // frozen at the root element — which is how dark green ink ended up on a
+        // near-black plate. With both reading the same branch they flip together,
+        // and the plate's alpha is a slider (`--dsh-any-op-code`, the `code` part).
+        // The banner sits one step off the plate so the language label keeps a
+        // surface of its own; the light branch emits it too instead of silently
+        // borrowing the host's near-white.
         '--dsw-alias-markdown-code-block': hsl(h(0), s(0), l(-0.06)),
         '--dsw-alias-markdown-code-block-banner': hsl(h(0), s(0), l(-0.02)),
         '--dsw-alias-markdown-inline-code': hsl(h(0), s(0), l(0.04)),
@@ -186,7 +196,10 @@ function buildTokens(hue: number, sat: number, lit: number): { colorScheme: 'lig
       '--dsw-alias-button-floating-hover': hsl(h(0), s(-0.1), l(0.16)),
       '--dsw-alias-interactive-bg-hover': rgba(h(0), s(0), l(-0.3), 0.08),
       '--dsw-alias-interactive-bg-active': rgba(h(0), s(0), l(-0.3), 0.14),
+      // Mirror of the dark branch: the same palette tint, and the banner emitted
+      // here too instead of falling through to the host's own near-white.
       '--dsw-alias-markdown-code-block': hsl(h(0), s(-0.1), l(-0.03)),
+      '--dsw-alias-markdown-code-block-banner': hsl(h(0), s(-0.1), l(-0.06)),
       '--dsw-alias-markdown-inline-code': hsl(h(0), s(-0.08), l(0.04)),
       '--dsw-specific-sidebar-fill': hsl(h(0), s(-0.1), l(-0.03)),
       '--dsw-specific-sidebar-nav-item-active': hsl(h(0), s(-0.08), l(0.05)),

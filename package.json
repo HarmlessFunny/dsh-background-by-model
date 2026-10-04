@@ -60,9 +60,10 @@
     "check:rotation": "node scripts/rotation-check.ts",
     "check:transition": "node scripts/transition-check.ts",
     "check:repaint": "node scripts/repaint-check.ts",
+    "check:code-plate": "node scripts/code-plate-check.ts",
     "check:ui": "node scripts/ui-strings-check.ts",
     "check:node": "node scripts/node-half-check.mjs",
-    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs"
+    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/code-plate-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6",
