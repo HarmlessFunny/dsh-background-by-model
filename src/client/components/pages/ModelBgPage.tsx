@@ -786,6 +786,29 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                   </button>
                   <span className="dab-hint" style={{ padding: 0 }}>{t('rotEnable')}</span>
                   {!rotatable ? <span className="dab-hint" style={{ padding: 0 }}>{t('rotNeedTwo')}</span> : null}
+                  {/* The manual step stands with the switch and OUTSIDE the
+                      `enabled` test, because walking the pictures by hand is what
+                      a rule with two of them can always do — and the readout
+                      beside it is the only place the card says which one is on
+                      screen. Inside the panel it vanished with the rotation, so
+                      turning the timer off also hid the answer to "which image am
+                      I looking at". */}
+                  <button type="button" className="dab-btn"
+                    disabled={!active || !rotatable} onClick={() => p.rotateNow(rule.id)}>
+                    {t('rotNext')}
+                  </button>
+                  {/* A rule with fewer than two pictures has nowhere to step: the
+                      need-two hint above already says that, and "0 / 0" would be a
+                      number about nothing. */}
+                  {rotatable ? (
+                    <span className="dab-hint" style={{ padding: 0 }}>
+                      {/* "On screen" rather than "image N": the strip's own readout
+                          already reads "image N" for the picture being EDITED, and
+                          two numbers under the same wording would be the one place
+                          this card could mislead. */}
+                      {active ? `${t('rotShowing')} ${Math.min(liveIndex + 1, rule.images.length)} / ${rule.images.length}` : t('rotNextInactive')}
+                    </span>
+                  ) : null}
                 </div>
 
                 {rotatable && rule.rotate.enabled ? (
@@ -813,7 +836,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                     </div>
 
                     <div className="dab-rule-section-title" style={{ marginTop: 12 }}>{t('rotOrder')}</div>
-                    <div className="dab-chip-row">
+                    <div className="dab-chip-row" style={{ alignItems: 'center' }}>
                       <button type="button" className={`dab-chip${rule.rotate.order === 'order' ? ' is-active' : ''}`}
                         onClick={() => p.setRuleRotation(rule.id, { order: 'order' })}>
                         {t('rotOrderSeq')}
@@ -822,28 +845,16 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                         onClick={() => p.setRuleRotation(rule.id, { order: 'shuffle' })}>
                         {t('rotOrderShuffle')}
                       </button>
-                    </div>
-
-                    <div className="dab-chip-row" style={{ marginTop: 12, alignItems: 'center' }}>
+                      {/* The "also step on a model switch" switch shares the order
+                          row instead of taking one of its own: both decide WHEN a
+                          picture is swapped, and 按顺序/随机 alone left the row
+                          looking like the whole story of the rotation. */}
                       <button type="button" className={`dab-toggle${rule.rotate.advanceOnSwitch ? ' is-on' : ''}`}
                         role="switch" aria-checked={rule.rotate.advanceOnSwitch} title={t('rotOnSwitch')}
                         onClick={() => p.setRuleRotation(rule.id, { advanceOnSwitch: !rule.rotate.advanceOnSwitch })}>
                         <span className="dab-toggle-knob" />
                       </button>
                       <span className="dab-hint" style={{ padding: 0 }}>{t('rotOnSwitch')}</span>
-                    </div>
-
-                    <div className="dab-chip-row" style={{ marginTop: 12, alignItems: 'center' }}>
-                      <button type="button" className="dab-btn" disabled={!active} onClick={() => p.rotateNow(rule.id)}>
-                        {t('rotNext')}
-                      </button>
-                      <span className="dab-hint" style={{ padding: 0 }}>
-                        {/* "On screen" rather than "image N": the row above
-                            already reads "image N" for the image being EDITED,
-                            and two numbers under the same wording would be the
-                            one place this panel could mislead. */}
-                        {active ? `${t('rotShowing')} ${rule.images.length === 0 ? 0 : Math.min(liveIndex + 1, rule.images.length)} / ${rule.images.length}` : t('rotNextInactive')}
-                      </span>
                     </div>
                   </div>
                 ) : null}

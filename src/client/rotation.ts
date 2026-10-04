@@ -17,7 +17,6 @@ export const ROTATE_PRESETS: ReadonlyArray<{ ms: number; key: string }> = [
   { ms: 60_000, key: 'rotEvery1m' },
   { ms: 5 * 60_000, key: 'rotEvery5m' },
   { ms: 30 * 60_000, key: 'rotEvery30m' },
-  { ms: 60 * 60_000, key: 'rotEvery1h' },
 ]
 
 /**

@@ -99,7 +99,7 @@ export const zh: Record<string, string> = {
   rotDragHint: '拖动排序',
   rotDblHint: '双击切换',
   rotEvery10s: '10 秒', rotEvery30s: '30 秒', rotEvery1m: '1 分钟',
-  rotEvery5m: '5 分钟', rotEvery30m: '30 分钟', rotEvery1h: '1 小时',
+  rotEvery5m: '5 分钟', rotEvery30m: '30 分钟',
 
 
   bgModeFit: '适应', bgModeFill: '填充', bgModeStretch: '拉伸', bgModeTile: '平铺', bgModeCenter: '居中',
@@ -248,7 +248,7 @@ export const en: Record<string, string> = {
   rotDragHint: 'drag to reorder',
   rotDblHint: 'double-click to show',
   rotEvery10s: '10 s', rotEvery30s: '30 s', rotEvery1m: '1 min',
-  rotEvery5m: '5 min', rotEvery30m: '30 min', rotEvery1h: '1 h',
+  rotEvery5m: '5 min', rotEvery30m: '30 min',
 
 
   bgModeFit: 'Fit', bgModeFill: 'Fill', bgModeStretch: 'Stretch', bgModeTile: 'Tile', bgModeCenter: 'Center',

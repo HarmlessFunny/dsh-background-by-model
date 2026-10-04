@@ -89,11 +89,11 @@ One interface, one config — only the current model differs:
 Per rule, and **off by default** — cycling spends real bandwidth, memory and battery, so nothing turns it on for you.
 
 - **Enable it per rule** — the switch appears in the rule card and only becomes usable once the rule holds two or more images.
-- **Dwell time** — 10 s / 30 s / 1 min / 5 min / 30 min / 1 h, or any custom value in seconds (clamped to 5 s – 24 h).
+- **Dwell time** — 10 s / 30 s / 1 min / 5 min / 30 min, or any custom value in seconds (clamped to 5 s – 24 h).
 - **Order** — **In order** walks the list top-down and wraps around; **Shuffle** picks uniformly among every image *except* the one on screen, so a tick never looks like it was missed.
 - **Also step on a model switch** — an optional second trigger: every time the model changes and lands on that rule, it steps once. That is the whole feature for a rule meant to show "a different picture every time" without any timer running.
 - **Only the active rule rotates** — one timer for the whole plugin, aimed at whichever rule the current model resolved to. It stops while the tab is hidden and resumes on a fresh interval; a single-image rule (and every [holiday](#holiday-backgrounds)) never schedules anything.
-- **Next image** — steps the wallpaper immediately, for when you want to check the set.
+- **Next image** — steps the wallpaper immediately, for when you want to check the set. It sits with the rotation switch (beside *which image is on screen*) and works whether or not the timer is running.
 - **What follows a switch is the rule — except everything that belongs to the picture** — opacity and blur belong to the rule and stay put. The **layout mode**, the **framing** and the **theme color** belong to the image, so a rotation can letterbox a tall screenshot and fill the landscape photo next to it, and can move through a green picture, a red one and a system-themed one with the interface palette following the wallpaper. The cross-fade between two images is the same one a model switch already used.
 - **Layout mode, framing and color are per image** — 适应/填充 decides how *this* picture meets the viewport, a crop and an accent belong to it too, so each image keeps its own while sharing the rule's opacity and blur. The filmstrip marks the images that carry a color of their own, and the color controls always say which image they are editing.
 - **Only the images it needs are loaded** — boot reads each rule's first image; the rest stream in when a card is expanded or when the rotation is about to need one. Ten images per rule therefore do not mean ten wallpapers transferred before the first frame.
