@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { BgMode, BgRule, ThemeSectionProps, ThemeStoreState } from '../../types'
-import { cfg, PALETTE } from '../../state'
+import { cfg } from '../../state'
 import { matchRule } from '../../modelbg'
 import { ROTATE_PRESETS } from '../../rotation'
 import { readImg } from '../../utils/image'
@@ -646,81 +646,6 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                 <p className="dab-hint" style={{ marginTop: 8 }}>{t('ruleImagePendingHint')}</p>
               ) : null}
 
-              {/* ── rotation ──────────────────────────────────────────────── */}
-              <div style={{ marginTop: 14 }}>
-                <div className="dab-rule-section-title">{t('rotTitle')}</div>
-                <div className="dab-chip-row" style={{ alignItems: 'center' }}>
-                  <button type="button" className={`dab-toggle${rule.rotate.enabled ? ' is-on' : ''}`}
-                    role="switch" aria-checked={rule.rotate.enabled} title={t('rotEnable')}
-                    disabled={!rotatable}
-                    onClick={() => p.setRuleRotation(rule.id, { enabled: !rule.rotate.enabled })}>
-                    <span className="dab-toggle-knob" />
-                  </button>
-                  <span className="dab-hint" style={{ padding: 0 }}>{t('rotEnable')}</span>
-                  {!rotatable ? <span className="dab-hint" style={{ padding: 0 }}>{t('rotNeedTwo')}</span> : null}
-                </div>
-
-                {rotatable && rule.rotate.enabled ? (
-                  <div className="dab-rot-panel">
-                    <div className="dab-rule-section-title">{t('rotEvery')}</div>
-                    <div className="dab-chip-row">
-                      {ROTATE_PRESETS.map(item => (
-                        <button key={item.ms} type="button"
-                          className={`dab-chip${item.ms === rule.rotate.intervalMs ? ' is-active' : ''}`}
-                          onClick={() => p.setRuleRotation(rule.id, { intervalMs: item.ms })}>
-                          {t(item.key)}
-                        </button>
-                      ))}
-                      <input
-                        type="number" className="dab-num dab-num-sec" min={5} max={86_400} step={5}
-                        // The draft is what is being typed; without it the field
-                        // would fight the user on every keystroke (and "5" on the
-                        // way to "50" is a legal value nobody meant).
-                        value={secDraft ?? (preset === undefined ? Math.round(rule.rotate.intervalMs / 1000) : '')}
-                        placeholder={t('rotCustom')}
-                        onChange={e => setSecDraft(e.target.value)}
-                        onBlur={commitSeconds}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitSeconds() } }} />
-                      <span className="dab-hint" style={{ padding: 0 }}>{t('rotSeconds')}</span>
-                    </div>
-
-                    <div className="dab-rule-section-title" style={{ marginTop: 12 }}>{t('rotOrder')}</div>
-                    <div className="dab-chip-row">
-                      <button type="button" className={`dab-chip${rule.rotate.order === 'order' ? ' is-active' : ''}`}
-                        onClick={() => p.setRuleRotation(rule.id, { order: 'order' })}>
-                        {t('rotOrderSeq')}
-                      </button>
-                      <button type="button" className={`dab-chip${rule.rotate.order === 'shuffle' ? ' is-active' : ''}`}
-                        onClick={() => p.setRuleRotation(rule.id, { order: 'shuffle' })}>
-                        {t('rotOrderShuffle')}
-                      </button>
-                    </div>
-
-                    <div className="dab-chip-row" style={{ marginTop: 12, alignItems: 'center' }}>
-                      <button type="button" className={`dab-toggle${rule.rotate.advanceOnSwitch ? ' is-on' : ''}`}
-                        role="switch" aria-checked={rule.rotate.advanceOnSwitch} title={t('rotOnSwitch')}
-                        onClick={() => p.setRuleRotation(rule.id, { advanceOnSwitch: !rule.rotate.advanceOnSwitch })}>
-                        <span className="dab-toggle-knob" />
-                      </button>
-                      <span className="dab-hint" style={{ padding: 0 }}>{t('rotOnSwitch')}</span>
-                    </div>
-
-                    <div className="dab-chip-row" style={{ marginTop: 12, alignItems: 'center' }}>
-                      <button type="button" className="dab-btn" disabled={!active} onClick={() => p.rotateNow(rule.id)}>
-                        {t('rotNext')}
-                      </button>
-                      <span className="dab-hint" style={{ padding: 0 }}>
-                        {/* "On screen" rather than "image N": the row above
-                            already reads "image N" for the image being EDITED,
-                            and two numbers under the same wording would be the
-                            one place this panel could mislead. */}
-                        {active ? `${t('rotShowing')} ${rule.images.length === 0 ? 0 : Math.min(liveIndex + 1, rule.images.length)} / ${rule.images.length}` : t('rotNextInactive')}
-                      </span>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
               <div style={{ marginTop: 14 }}>
                 {/* The layout mode belongs to the SELECTED image, like the framing
                     below it and the theme color beside it: 适应/填充 decides how one
@@ -829,15 +754,6 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                       <SunIcon size={13} />{t('ruleColorNone')}
                     </button>
                   </div>
-                  <div className="dab-swatches" style={{ marginTop: 12 }}>
-                    {PALETTE.map(([sh, ss, sl], i) => (
-                      <button
-                        key={i} type="button" className="dab-swatch"
-                        style={{ background: `hsl(${sh} ${Math.round(ss * 100)}% ${Math.round(sl * 100)}%)` }}
-                        title={toHex(hslToRgb(sh, ss, sl)).toUpperCase()}
-                        onClick={() => setColor([sh, ss, sl])} />
-                    ))}
-                  </div>
                 </>
               )}
 
@@ -851,6 +767,86 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                   def={rule.blur} fmt={v => `${v}px`}
                   onChange={v => p.setRule(rule.id, { blur: v })} />
                 <p className="dab-hint" style={{ marginTop: 10 }}>{t('ruleBlurHint')}</p>
+              </div>
+
+              {/* ── rotation ──────────────────────────────────────────────── */}
+              {/* Below the theme color and the wallpaper sliders — not between
+                  the strip and the layout mode, where it used to sit: this is the
+                  tallest block of the card and the one touched least often, and in
+                  the collapsed single-column panel it pushed the color controls
+                  away from the strip that feeds them. */}
+              <div style={{ marginTop: 14 }}>
+                <div className="dab-rule-section-title">{t('rotTitle')}</div>
+                <div className="dab-chip-row" style={{ alignItems: 'center' }}>
+                  <button type="button" className={`dab-toggle${rule.rotate.enabled ? ' is-on' : ''}`}
+                    role="switch" aria-checked={rule.rotate.enabled} title={t('rotEnable')}
+                    disabled={!rotatable}
+                    onClick={() => p.setRuleRotation(rule.id, { enabled: !rule.rotate.enabled })}>
+                    <span className="dab-toggle-knob" />
+                  </button>
+                  <span className="dab-hint" style={{ padding: 0 }}>{t('rotEnable')}</span>
+                  {!rotatable ? <span className="dab-hint" style={{ padding: 0 }}>{t('rotNeedTwo')}</span> : null}
+                </div>
+
+                {rotatable && rule.rotate.enabled ? (
+                  <div className="dab-rot-panel">
+                    <div className="dab-rule-section-title">{t('rotEvery')}</div>
+                    <div className="dab-chip-row">
+                      {ROTATE_PRESETS.map(item => (
+                        <button key={item.ms} type="button"
+                          className={`dab-chip${item.ms === rule.rotate.intervalMs ? ' is-active' : ''}`}
+                          onClick={() => p.setRuleRotation(rule.id, { intervalMs: item.ms })}>
+                          {t(item.key)}
+                        </button>
+                      ))}
+                      <input
+                        type="number" className="dab-num dab-num-sec" min={5} max={86_400} step={5}
+                        // The draft is what is being typed; without it the field
+                        // would fight the user on every keystroke (and "5" on the
+                        // way to "50" is a legal value nobody meant).
+                        value={secDraft ?? (preset === undefined ? Math.round(rule.rotate.intervalMs / 1000) : '')}
+                        placeholder={t('rotCustom')}
+                        onChange={e => setSecDraft(e.target.value)}
+                        onBlur={commitSeconds}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitSeconds() } }} />
+                      <span className="dab-hint" style={{ padding: 0 }}>{t('rotSeconds')}</span>
+                    </div>
+
+                    <div className="dab-rule-section-title" style={{ marginTop: 12 }}>{t('rotOrder')}</div>
+                    <div className="dab-chip-row">
+                      <button type="button" className={`dab-chip${rule.rotate.order === 'order' ? ' is-active' : ''}`}
+                        onClick={() => p.setRuleRotation(rule.id, { order: 'order' })}>
+                        {t('rotOrderSeq')}
+                      </button>
+                      <button type="button" className={`dab-chip${rule.rotate.order === 'shuffle' ? ' is-active' : ''}`}
+                        onClick={() => p.setRuleRotation(rule.id, { order: 'shuffle' })}>
+                        {t('rotOrderShuffle')}
+                      </button>
+                    </div>
+
+                    <div className="dab-chip-row" style={{ marginTop: 12, alignItems: 'center' }}>
+                      <button type="button" className={`dab-toggle${rule.rotate.advanceOnSwitch ? ' is-on' : ''}`}
+                        role="switch" aria-checked={rule.rotate.advanceOnSwitch} title={t('rotOnSwitch')}
+                        onClick={() => p.setRuleRotation(rule.id, { advanceOnSwitch: !rule.rotate.advanceOnSwitch })}>
+                        <span className="dab-toggle-knob" />
+                      </button>
+                      <span className="dab-hint" style={{ padding: 0 }}>{t('rotOnSwitch')}</span>
+                    </div>
+
+                    <div className="dab-chip-row" style={{ marginTop: 12, alignItems: 'center' }}>
+                      <button type="button" className="dab-btn" disabled={!active} onClick={() => p.rotateNow(rule.id)}>
+                        {t('rotNext')}
+                      </button>
+                      <span className="dab-hint" style={{ padding: 0 }}>
+                        {/* "On screen" rather than "image N": the row above
+                            already reads "image N" for the image being EDITED,
+                            and two numbers under the same wording would be the
+                            one place this panel could mislead. */}
+                        {active ? `${t('rotShowing')} ${rule.images.length === 0 ? 0 : Math.min(liveIndex + 1, rule.images.length)} / ${rule.images.length}` : t('rotNextInactive')}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

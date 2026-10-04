@@ -62,10 +62,6 @@ export const UI_CSS = `
 
 /* ── swatches ────────────────────────────────────────────────────────────── */
 .dab-swatch-title{font-size:12px;font-weight:600;margin-bottom:10px;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
-.dab-swatches{display:flex;flex-wrap:wrap;gap:9px}
-.dab-swatch{width:25px;height:25px;border-radius:50%;border:0;padding:0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1);transition:transform .22s cubic-bezier(.34,1.56,.64,1),box-shadow .22s ease}
-.dab-swatch:hover{transform:scale(1.2)}
-.dab-swatch.is-on{box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-1),0 0 0 4px var(--dsw-alias-brand-primary)}
 
 /* ── wheel card ──────────────────────────────────────────────────────────── */
 .dab-wheel-card{position:relative;display:flex;align-items:center;justify-content:center;gap:28px;flex-wrap:wrap;padding:24px 18px}
@@ -115,7 +111,7 @@ export const UI_CSS = `
 .dab-btn-danger{color:var(--dsw-alias-state-error-primary)}
 .dab-btn-ghost{background:transparent;border-color:transparent;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
 .dab-btn-ghost:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);box-shadow:none}
-.dab-btn:focus-visible,.dab-nav-item:focus-visible,.dab-seg-item:focus-visible,.dab-swatch:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.dab-btn:focus-visible,.dab-nav-item:focus-visible,.dab-seg-item:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 .dab-chip-row{display:flex;flex-wrap:wrap;gap:8px}
 .dab-chip{height:30px;padding:0 14px;border-radius:99px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary));font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .22s ease}
 .dab-chip:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}

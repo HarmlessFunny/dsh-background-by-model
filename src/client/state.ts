@@ -15,12 +15,6 @@ import {
 
 export { DEFAULT_BG_STATE, normalizeRule, ruleSlots }
 
-const PALETTE: Array<[number, number, number]> = [
-  [356, 0.72, 0.55], [24, 0.78, 0.55], [44, 0.8, 0.55], [152, 0.62, 0.5],
-  [174, 0.68, 0.48], [208, 0.72, 0.55], [252, 0.68, 0.6], [300, 0.64, 0.58],
-]
-export { PALETTE }
-
 /** The defaults every accessor falls back to; the shape itself lives in ../schema. */
 export const DEFAULT_CONFIG: ThemeConfig = freshThemeConfig()
 
