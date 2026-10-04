@@ -204,7 +204,7 @@ export function newRule(id: string): BgRule {
     id,
     images: [],
     match: '', enabled: true, color: null,
-    bgMode: 'fit', wallpaperOpacity: 1, blur: 0,
+    wallpaperOpacity: 1, blur: 0,
     rotate: defaultRotation(),
   }
 }
@@ -259,7 +259,16 @@ export function normalizeRuleInPlace(rule: BgRule): void {
 // ── Accessors used by the render layer (they follow the ACTIVE rule) ───────
 export function rHasColor(): boolean { return activeColor() !== null }
 export function rColor(): [number, number, number] { return activeColor() ?? [220, 0.55, 0.25] }
-export function rBgMode(): BgMode { return activeRule()?.bgMode ?? 'fit' }
+/**
+ * Layout mode of the CURRENT image (per image, see BgImage).
+ *
+ * Read from the image and never from the rule, which no longer has a mode at all:
+ * a rotation through a photo and a screenshot has to be able to letterbox one and
+ * fill the other, and a rule-level answer would be the wrong one for half the
+ * list. A rule with no image has nothing to place, so it answers with the
+ * default — the renderer's null case, painted as "no wallpaper".
+ */
+export function rBgMode(): BgMode { return activeImage()?.bgMode ?? 'fit' }
 export function rWop(): number { return clamp01(activeRule()?.wallpaperOpacity, 1) }
 export function rBl(): number { return clamp(activeRule()?.blur, 0, 60, 0) }
 /** Framing of the CURRENT image (per image, see BgImage). */

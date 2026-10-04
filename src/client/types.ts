@@ -233,6 +233,15 @@ export interface ThemeSectionProps {
   /** Store one image's framing (the background editor's commit). */
   setImageFraming: (id: string, slot: string, bgState: BgState) => void
   /**
+   * Store one image's layout mode — how that picture meets the viewport.
+   *
+   * Addressed by SLOT exactly like the framing, because both place the picture:
+   * editing image 3's mode must not rewrite image 1's, and a rotation through a
+   * photo and a tall screenshot is the whole reason the mode lives here rather
+   * than on the rule.
+   */
+  setImageMode: (id: string, slot: string, mode: BgMode) => void
+  /**
    * Store one image's theme color; null = that image follows the system theme.
    *
    * Separate from `setRule` because the color belongs to the IMAGE: a rule with

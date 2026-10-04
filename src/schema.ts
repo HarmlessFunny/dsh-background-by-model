@@ -30,22 +30,40 @@ export const DEFAULT_BG_STATE: BgState = { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 }
 
 /**
  * One image of a rule: its slot, plus everything that belongs to THAT image —
- * its framing and its theme color.
+ * its layout mode, its framing and its theme color.
  *
- * The framing is per image rather than per rule because a crop is a property of
- * a picture: two wallpapers with different aspect ratios share the rule's
- * `bgMode`, opacity and blur, but a single `fit` framing computed for one of
- * them is simply wrong for the other.
+ * All three are per image because all three are properties of a picture. The
+ * layout mode is the newest of them, and the argument is the same one that moved
+ * the framing down: 适应/填充 decides how a picture meets the viewport, and two
+ * wallpapers in one rotation — a 3:2 photo and a tall phone screenshot — do not
+ * want the same answer. `fit` letterboxes the one that `fill` would crop, and one
+ * rule-level value meant every picture in a rotation had to accept the other
+ * one's compromise.
  *
- * The theme color is per image for the same reason one step further out: a rule
- * is a rotation through several pictures, and pictures that were collected for
- * different moods do not share one accent. A rule's own `color` therefore means
- * something narrower than it used to (see `BgRule.color`) — it is what a rule
- * with no image left paints.
+ * The theme color is per image one step further out: a rule is a rotation
+ * through several pictures, and pictures that were collected for different moods
+ * do not share one accent. A rule's own `color` therefore means something
+ * narrower than it used to (see `BgRule.color`) — it is what a rule with no image
+ * left paints.
+ *
+ * NULL IS NOT AN OPINION here, unlike the color: `bgMode` is always one of
+ * `BG_MODES`, and every entry that lacks the KEY is lifted from the rule-level
+ * value a pre-0.8 config carried (see `normalizeImage`). There is no "follow the
+ * rule" state to express, because the rule no longer has a mode at all.
  */
 export interface BgImage {
   /** Image slot; the bytes live in `modelbg-<slot>` under the data dir. */
   slot: string
+  /**
+   * How THIS image meets the viewport (see `BgMode`).
+   *
+   * Written by every release from 0.8 on. An entry that predates the field has no
+   * `bgMode` KEY, which is exactly how `normalizeImage` tells "this image never
+   * had a mode of its own" from "this image was explicitly set to 适应" — and why
+   * the rule's own mode is lifted onto it on read rather than being quietly
+   * replaced by the default.
+   */
+  bgMode: BgMode
   /** This image's framing (zoom + fractional center + intrinsic size). */
   bgState: BgState
   /**
@@ -264,7 +282,10 @@ export interface BgRule {
    * looking exactly the same (see `normalizeImage`).
    */
   color: [number, number, number] | null
-  bgMode: BgMode
+  // There is deliberately NO `bgMode` here any more: the layout mode belongs to
+  // each image (`BgImage.bgMode`), for the same reason the framing does — two
+  // pictures in one rotation do not want the same one. A config written by a
+  // release that had it here is lifted, image by image, on read.
   /** Wallpaper layer opacity (0..1). */
   wallpaperOpacity: number
   /** Wallpaper layer blur (px, 0..60) — NOT the interface part blur. */
@@ -434,7 +455,9 @@ export function hexToHsl(hex: string): [number, number, number] | null {
  *
  * Holidays default to `fill` rather than a rule's `fit`: these are full-bleed
  * festival wallpapers, and `fit` would letterbox them on every aspect ratio the
- * art was not cut for.
+ * art was not cut for. The mode now lives on the IMAGE (see `BgImage.bgMode`), so
+ * that default is written there — and `fill` is what a holiday's read-back
+ * sanitizer refuses to lose (see `normalizeHolidayRule`).
  */
 export function defaultHolidayRule(def: HolidayDef): HolidayRule {
   // The definition's own color, never an extracted one — see hexToHsl. It is
@@ -447,11 +470,10 @@ export function defaultHolidayRule(def: HolidayDef): HolidayRule {
     id: def.id,
     // Exactly one image: a holiday's art is the package's, so there is nothing
     // for a second entry to point at and nothing for a rotation to walk.
-    images: [{ slot: def.slot, bgState: { ...DEFAULT_BG_STATE }, color }],
+    images: [{ slot: def.slot, bgMode: 'fill', bgState: { ...DEFAULT_BG_STATE }, color }],
     match: '',
     enabled: true,
     color,
-    bgMode: 'fill',
     wallpaperOpacity: 1,
     blur: 0,
     rotate: defaultRotation(),
@@ -488,10 +510,11 @@ export function freshThemeConfig(): ThemeConfig {
 export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
- * The persisted SHAPE this build writes: 5 = the global wallpaper-switch
- * transition (`transition`) is part of the config; 4 = a theme color belongs to
- * an IMAGE (`images[].color`), and a rule's own color is what an image-less rule
- * paints.
+ * The persisted SHAPE this build writes: 6 = the layout mode belongs to an IMAGE
+ * (`images[].bgMode`) and a rule has no mode of its own; 5 = the global
+ * wallpaper-switch transition (`transition`) is part of the config; 4 = a theme
+ * color belongs to an IMAGE (`images[].color`), and a rule's own color is what an
+ * image-less rule paints.
  *
  * Declared here, with the shape itself, and published by the node half on every
  * `read`. The browser half compares it before it writes anything: a client bundle
@@ -501,7 +524,7 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  * Knowing the shape up front is what lets the client hold its writes and say so
  * instead.
  *
- * Both bumps so far were of that kind, not cosmetic. 2 → 3 was "an empty image
+ * Every bump so far was of that kind, not cosmetic. 2 → 3 was "an empty image
  * list is legal": a schema-2 host refuses one, so once this bundle could PRODUCE
  * an empty rule, every write was at risk of erasing the user's rule list — the
  * failure mode is data loss, and it arrived on the first slider drag after
@@ -514,10 +537,16 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  * duration would all be dropped on the first write after a refresh paired a new
  * client bundle with an older host process — and 5 also carries the removal of
  * the per-rule `rotate.fadeMs`, whose value is lifted into that global duration
- * on read (see `legacyFadeMs`). The check is a plain `>=`, so an older host
+ * on read (see `legacyFadeMs`). 5 → 6 is `images[].bgMode`, which cuts both ways
+ * and is the first bump that does: a schema-5 sanitizer rebuilds each image entry
+ * from the keys it knows, so every image's mode would be dropped on the first
+ * write after such a pairing (the visible failure: a rotation where one picture
+ * was set to 拉伸 comes back 适应), and a schema-6 one has to LIFT the mode a
+ * schema-5 config carries at the RULE level onto every image or each existing
+ * wallpaper would land on the default. The check is a plain `>=`, so an older host
  * lands in the hold-writes path automatically.
  */
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 export function clamp(n: unknown, lo: number, hi: number, def: number): number {
   return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
@@ -627,12 +656,25 @@ export function normalizeTransition(raw: unknown, legacyMs?: number): Transition
  * same as absent: an entry with `color: null` is an image the user explicitly set
  * to "follow the system theme", and re-inheriting the rule's color over that
  * would undo a deliberate choice on every load.
+ *
+ * `inheritMode` is the same one-shot lift for the layout mode, and it is the
+ * caller's to resolve because the two callers answer differently: a user rule
+ * passes the mode its config carried at the RULE level (a schema-5 config, where
+ * 适应/填充 was one choice for the whole rotation), a holiday passes `fill` (its
+ * own default, which is not up for the lift to change). An entry that HAS a
+ * `bgMode` key keeps it — including one that has just been set to a value equal
+ * to the default, which is a decision and not an absence.
  */
-export function normalizeImage(raw: unknown, inherit: [number, number, number] | null = null): BgImage | null {
+export function normalizeImage(
+  raw: unknown,
+  inherit: [number, number, number] | null = null,
+  inheritMode: BgMode = 'fit',
+): BgImage | null {
   const i = (raw ?? {}) as Partial<BgImage>
   if (typeof i.slot !== 'string' || !SLOT_RE.test(i.slot)) return null
   return {
     slot: i.slot,
+    bgMode: BG_MODES.includes(i.bgMode as BgMode) ? (i.bgMode as BgMode) : inheritMode,
     bgState: normalizeBgState(i.bgState as Partial<BgState> | undefined),
     color: hasOwn(i, 'color') ? normalizeHsl(i.color) : inherit,
   }
@@ -653,6 +695,14 @@ export function normalizeImage(raw: unknown, inherit: [number, number, number] |
  * it as well: it is not a default for its images at paint time any more, but it
  * is still what the rule paints once its last picture is gone.
  *
+ * The layout mode makes the same trip in the other direction, and this is the
+ * last release that has to: a config written before 0.8 keeps `bgMode` at the RULE
+ * level, where one value covered every picture of a rotation, so it is read here
+ * once and handed to each image as its inherited mode. What the user chose
+ * therefore survives the move the same way it survived the color's — the mode is
+ * not reset to the default on upgrade, and the field it used to live on is simply
+ * not written back.
+ *
  * An EMPTY list is a legitimate rule, not a broken one: removing a rule's last
  * picture has to be expressible, and forcing an entry back in is what produced a
  * phantom blank image that took slot 1 and could never be deleted again (the next
@@ -663,16 +713,26 @@ export function normalizeImage(raw: unknown, inherit: [number, number, number] |
  * no legacy slot, or a slot that could never be a filename — is dropped.
  */
 export function normalizeRule(raw: unknown): BgRule | null {
-  const r = (raw ?? {}) as Partial<BgRule> & { slot?: unknown; bgState?: unknown }
+  // `slot` / `bgState` / `bgMode` are read but not declared on `BgRule` any more:
+  // they are the shapes earlier releases wrote, and this function is where they are
+  // lifted (the first two into the image entry, the third into every entry's own
+  // mode). Typing them here is what keeps the rest of the codebase free of
+  // "old config" branches.
+  const r = (raw ?? {}) as Partial<BgRule> & { slot?: unknown; bgState?: unknown; bgMode?: unknown }
   const id = typeof r.id === 'string' && r.id !== '' ? r.id : null
   if (id === null) return null
   const color = normalizeHsl(r.color)
+  // The rule-level mode a config written before 0.8 carries, resolved ONCE here
+  // and handed to every image entry below. `fit` when the field is absent or
+  // unusable — the same default a fresh rule's first picture gets, so a config
+  // that never named a mode cannot tell this lift apart from a new rule.
+  const mode: BgMode = BG_MODES.includes(r.bgMode as BgMode) ? (r.bgMode as BgMode) : 'fit'
   const images: BgImage[] = []
   const seen = new Set<string>()
   const hadList = Array.isArray(r.images)
   if (hadList) {
     for (const entry of r.images as unknown[]) {
-      const image = normalizeImage(entry, color)
+      const image = normalizeImage(entry, color, mode)
       if (image === null || seen.has(image.slot)) continue
       seen.add(image.slot)
       images.push(image)
@@ -681,13 +741,17 @@ export function normalizeRule(raw: unknown): BgRule | null {
   const legacySlot = typeof r.slot === 'string' && SLOT_RE.test(r.slot) ? r.slot : null
   if (images.length === 0 && legacySlot !== null) {
     // Synthesized, not read: the pre-0.7 pair has no image entry of its own, so
-    // the rule's color is what this image starts out with (the same lift as
-    // above, for the shape that has no `color` key to be absent from).
-    images.push({ slot: legacySlot, bgState: normalizeBgState(r.bgState as Partial<BgState> | undefined), color })
+    // the rule's color and the rule's mode are what this image starts out with
+    // (the same lift as above, for the shape that has no key to be absent from).
+    images.push({
+      slot: legacySlot,
+      bgMode: mode,
+      bgState: normalizeBgState(r.bgState as Partial<BgState> | undefined),
+      color,
+    })
   }
   // Nothing usable anywhere: a pre-0.7 rule whose slot was empty or malformed.
   if (images.length === 0 && !hadList) return null
-  const mode: BgMode = BG_MODES.includes(r.bgMode as BgMode) ? (r.bgMode as BgMode) : 'fit'
   const rotate = normalizeRotation(r.rotate)
   // One picture is not a rotation: the panel DISABLES the switch below two images,
   // so a rule that keeps `enabled` set — arriving from an imported file, or written
@@ -701,7 +765,6 @@ export function normalizeRule(raw: unknown): BgRule | null {
     match: typeof r.match === 'string' ? r.match : '',
     enabled: r.enabled !== false,
     color,
-    bgMode: mode,
     wallpaperOpacity: clamp01(r.wallpaperOpacity, 1),
     blur: clamp(r.blur, 0, 60, 0),
     rotate,
@@ -716,9 +779,12 @@ export function normalizeRule(raw: unknown): BgRule | null {
  * its bytes, and its theme color is a fixed part of what that holiday looks like —
  * so a stale or hand-edited value would either orphan the wallpaper, point the
  * holiday at a rule's image, or paint a festival in a color it does not have.
- * Everything else is sanitized exactly like a rule's field — except the image
- * list and the rotation, which stay the definition's own single image and stay
- * off, so a festival can never be swapped or cycled.
+ * Everything else is sanitized exactly like a rule's field — except three things
+ * that stay the definition's own: the image list and the rotation (so a festival
+ * can never be swapped or cycled), and the layout mode, which is the definition's
+ * `fill` for the same reason the color is its own — full-bleed art letterboxed by
+ * a stale `fit` is the one thing this feature must not do, and the mode is not
+ * editable for a holiday anywhere in the panel.
  */
 export function normalizeHolidayRule(def: HolidayDef, raw: unknown): HolidayRule {
   const r = (raw ?? {}) as Partial<HolidayRule> & { bgState?: unknown }
@@ -728,16 +794,19 @@ export function normalizeHolidayRule(def: HolidayDef, raw: unknown): HolidayRule
     // Only an explicit `false` disables the entry, so a config written before
     // this feature existed starts with every holiday usable.
     enabled: r.enabled !== false,
-    bgMode: BG_MODES.includes(r.bgMode as BgMode) ? (r.bgMode as BgMode) : base.bgMode,
     wallpaperOpacity: clamp01(r.wallpaperOpacity, base.wallpaperOpacity),
     blur: clamp(r.blur, 0, 60, base.blur),
     // A holiday's own framing is still the user's: which part of the festival art
-    // fills the screen is a taste question, and the editor allows it. Its COLOR is
-    // not — it comes from `base` (the definition), like the slot beside it, so the
-    // `hasOwn` lift in normalizeImage can never reach a holiday and a hand-edited
-    // per-image color cannot repaint a festival.
+    // fills the screen is a taste question, and the editor allows it. Its MODE and
+    // COLOR are not — both come from `base` (the definition), like the slot beside
+    // them, so the `hasOwn` lift in normalizeImage can never reach a holiday and a
+    // hand-edited per-image color cannot repaint a festival. The old rule-level
+    // `bgMode` a schema-5 config may carry is deliberately NOT lifted here: a
+    // holiday has exactly one picture, so there is nothing for a mode to differ
+    // from, and the definition's own value is the one that was always meant.
     images: base.images.map(image => ({
       slot: image.slot,
+      bgMode: image.bgMode,
       bgState: normalizeBgState((r.images?.[0]?.bgState ?? r.bgState) as Partial<BgState> | undefined),
       color: image.color,
     })),

@@ -83,15 +83,20 @@ async function migrateLegacy(raw: unknown): Promise<unknown> {
   const next = {
     rules: [{
       id: 'm1',
-      // The 0.7 image list, written in the new shape directly: the sanitizer
-      // would lift an old `slot`/`bgState` pair anyway, but leaving a legacy
-      // shape on disk until the first write means the file no longer describes
-      // what the plugin actually holds.
-      images: [{ slot: 'm1', bgState: (r.bgState ?? {}) as Partial<BgState> }],
+      // The image list, written in the new shape directly: the sanitizer would
+      // lift an old `slot`/`bgState` pair anyway, but leaving a legacy shape on
+      // disk until the first write means the file no longer describes what the
+      // plugin actually holds. The mode travels with the picture now — the old
+      // rule-level value is what this image's own mode starts as, which is the
+      // same lift `normalizeRule` performs for every other rule.
+      images: [{
+        slot: 'm1',
+        bgMode: typeof r.bgMode === 'string' ? r.bgMode : 'fit',
+        bgState: (r.bgState ?? {}) as Partial<BgState>,
+      }],
       match: '',
       enabled: true,
       color: Array.isArray(r.color) ? r.color : null,
-      bgMode: typeof r.bgMode === 'string' ? r.bgMode : 'fit',
       wallpaperOpacity: typeof r.wallpaperOpacity === 'number' ? r.wallpaperOpacity : 1,
       blur: typeof r.blur === 'number' ? r.blur : 0,
     }],
@@ -138,9 +143,11 @@ async function readConfig(): Promise<ThemeConfig> {
 // next load quietly falls back to the default. Warn once per key so the drift
 // shows up in the host log instead.
 const LEGACY_CONFIG_KEYS = new Set(['color', 'bgMode', 'wallpaperOpacity', 'blur', 'bgState'])
-// Pre-0.7 rule fields: `normalizeRule` deliberately LIFTS these into the image
-// list, so they are not drift and must not be reported as such.
-const LEGACY_RULE_KEYS = new Set(['slot', 'bgState'])
+// Pre-0.7 / pre-0.8 rule fields: `normalizeRule` deliberately LIFTS these into
+// the image list, so they are not drift and must not be reported as such. `bgMode`
+// joined them in 0.8: the rule-level layout mode a schema-5 config carries is read
+// once and handed to every image entry, which is a migration, not a mismatch.
+const LEGACY_RULE_KEYS = new Set(['slot', 'bgState', 'bgMode'])
 // Nested fields an older shape carried and the sanitizer consumes on purpose:
 // the per-rule `rotate.fadeMs` is folded into the global transition duration on
 // read (`legacyFadeMs` in ./schema), so a config that still has it is being
