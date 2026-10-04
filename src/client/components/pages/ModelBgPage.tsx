@@ -323,6 +323,11 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
   const rotatable = rule.images.length >= 2
   const preset = ROTATE_PRESETS.find(x => x.ms === rule.rotate.intervalMs)
   const selSlot = image?.slot ?? null
+  // The layout chip row reads and writes the SELECTED image's mode. `fit` is the
+  // answer only while there is no image to ask — the row is disabled then, so the
+  // value is a placeholder on a control nobody can press, not a claim about a
+  // picture. It is deliberately NOT read from the rule: the rule has no mode.
+  const bgMode: BgMode = image?.bgMode ?? 'fit'
 
   // ── Reordering by dragging a tile ──────────────────────────────────────────
   /** How far the pointer must travel before a click turns into a drag. */
@@ -717,12 +722,26 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
               </div>
 
               <div style={{ marginTop: 14 }}>
+                {/* The layout mode belongs to the SELECTED image, like the framing
+                    below it and the theme color beside it: 适应/填充 decides how one
+                    picture meets the viewport, and a rotation through a landscape
+                    photo and a tall screenshot needs one of them letterboxed and
+                    the other filled. The row therefore edits `image`, not `rule`,
+                    which no longer has a mode at all — and on a rule with no
+                    picture it is disabled rather than hidden, so the card that says
+                    "点这个上传" still shows what will become editable.
+                    No target sentence above the row (the color section next door has
+                    one): the row directly under the strip reads as belonging to the
+                    selected tile, and a second "第 N 张" a few centimetres from the
+                    first would be the panel saying one thing twice. */}
                 <div className="dab-rule-section-title">{t('ruleLayout')}</div>
-                <div className="dab-chip-row">
+                <div className="dab-chip-row" style={{ marginTop: 8 }}>
                   {BG_MODES.map(m => (
                     <button key={m.mode} type="button"
-                      className={`dab-chip${rule.bgMode === m.mode ? ' is-active' : ''}`}
-                      onClick={() => p.setRule(rule.id, { bgMode: m.mode })}>
+                      className={`dab-chip${bgMode === m.mode ? ' is-active' : ''}`}
+                      disabled={image === undefined}
+                      title={image === undefined ? t('ruleLayoutNoImage') : undefined}
+                      onClick={() => { if (image !== undefined) p.setImageMode(rule.id, image.slot, m.mode) }}>
                       {t(m.key)}
                     </button>
                   ))}
@@ -734,7 +753,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                       the area — the row it now shares with 适应/填充/…. It stays
                       conditional on `fit`: dragging the framing is what "适应"
                       means, and the other four modes have nothing to drag. */}
-                  {url !== null && rule.bgMode === 'fit' ? (
+                  {url !== null && bgMode === 'fit' ? (
                     <button type="button" className="dab-btn" onClick={() => setEditorOpen(true)}>
                       <EditIcon size={13} />{t('ruleFramingEdit')}
                     </button>

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 > Forked from [`Tkingxiao/dsh-any-background`](https://github.com/Tkingxiao/dsh-any-background) and renamed to `dsh-background-by-model`.
 
-A **DeepSeek Harness** appearance plugin built around an **ordered list of model rules**. Each rule carries its own wallpaper, theme color, layout mode, framing, opacity and blur — switch the model, and the background switches with it, through the global [switch effect](#switch-effect-global) you choose on the Config page.
+A **DeepSeek Harness** appearance plugin built around an **ordered list of model rules**. Each rule carries its own wallpapers and opacity and blur, and **each image carries its own layout mode, framing and theme color** — switch the model, and the background switches with it, through the global [switch effect](#switch-effect-global) you choose on the Config page.
 
 > **v0.3.0 is a breaking release.** Video wallpapers, generated dynamic backgrounds and the single global theme color were removed. See the [v0.3.0 entry in CHANGELOG.md](./CHANGELOG.md#v030).
 
@@ -63,7 +63,7 @@ One interface, one config — only the current model differs:
 <p align="center">
   <img src="example_img/rule-editor.webp" alt="One rule's editor" width="660">
   <br/>
-  <em>One rule on the Model Background tab · image, layout mode, theme color (wheel / HSL / RGB / extract from this image / pick from image), background opacity and background blur are all properties of that rule alone</em>
+  <em>One rule on the Model Background tab · the wallpaper, its opacity and its blur belong to the rule; the layout mode, the framing and the theme color (wheel / HSL / RGB / extract from this image / pick from image) belong to the image it is editing</em>
 </p>
 
 <p align="center">
@@ -76,11 +76,11 @@ One interface, one config — only the current model differs:
 
 - **Ordered Rule List** — Add, remove, reorder and name rules. Each rule is matched by its own match string; the first hit wins and rule 1 is the fallback.
 - **Live Match Readout** — The top of the Model Background tab shows the current state, e.g. `Current model deepseek-flash → matched · Rule 1`, so you can verify a rule on the spot. If the current model can't be detected, a hint is shown instead.
-- **Per-rule Appearance** — Every rule owns its wallpapers, layout mode, opacity and blur, and **every image owns its framing and its theme color**. Nothing is shared globally except the Interface tab.
+- **Per-rule Appearance** — Every rule owns its wallpapers, opacity and blur, and **every image owns its layout mode, its framing and its theme color**. Nothing is shared globally except the Interface tab.
 - **Several Images per Rule** — A rule holds an ordered set of images, shown as a filmstrip: add several at once (file picker, drag & drop, or a list of URLs, one per line), reorder them, promote one to first, **replace one in place** (which keeps its position in the rotation), or remove them one by one. The image a rule paints when nothing rotates is its **first**. Removing the last image simply leaves the rule empty — and empty is not the same as off: while the rule keeps a theme color of its own it still matches, still serves as the fallback, and paints the interface instead of a wallpaper; only a rule with neither (a freshly added one) is skipped by matching. So an emptied rule is a visible, reversible state rather than one you get stuck in. While it holds no picture the filmstrip is hidden and the big preview tile **is** the upload button, so there is exactly one obvious place to add one.
-- **Import / Export** — Export every rule **including all of its images** to a `dsh-background-by-model-theme.json` (format version 6, images inlined as base64) and restore it anywhere. Files written by earlier releases still import: each rule's single image is lifted into its image list, a color written before per-image colors is lifted onto every image that has none, and a file written before the [switch effect](#switch-effect-global) gets that setting's shipped default — so an older theme file restores its look unchanged.
+- **Import / Export** — Export every rule **including all of its images** to a `dsh-background-by-model-theme.json` (format version 6, images inlined as base64) and restore it anywhere. Files written by earlier releases still import: each rule's single image is lifted into its image list, a color written before per-image colors is lifted onto every image that has none, a layout mode written when it was the rule's is lifted onto each of its images, and a file written before the [switch effect](#switch-effect-global) gets that setting's shipped default — so an older theme file restores its look unchanged.
 - **File-based Persistence** — All settings and images are stored on the filesystem under `~/.dsh/.dsh-background-by-model-data/`, not `localStorage`.
-- **Automatic Migration** — Old single-wallpaper configs are upgraded in place on first read. See the [v0.3.0 entry in CHANGELOG.md](./CHANGELOG.md#v030).
+- **Automatic Migration** — Old single-wallpaper configs are upgraded in place on first read, and so is a layout mode that used to live on the rule. See the [v0.3.0 entry in CHANGELOG.md](./CHANGELOG.md#v030).
 - **Bilingual** — Full Chinese / English UI with automatic locale detection.
 - **Theme Watchdog** — Re-asserts the custom theme if the host resets it.
 
@@ -94,8 +94,8 @@ Per rule, and **off by default** — cycling spends real bandwidth, memory and b
 - **Also step on a model switch** — an optional second trigger: every time the model changes and lands on that rule, it steps once. That is the whole feature for a rule meant to show "a different picture every time" without any timer running.
 - **Only the active rule rotates** — one timer for the whole plugin, aimed at whichever rule the current model resolved to. It stops while the tab is hidden and resumes on a fresh interval; a single-image rule (and every [holiday](#holiday-backgrounds)) never schedules anything.
 - **Next image** — steps the wallpaper immediately, for when you want to check the set.
-- **What follows a switch is the rule — except the color, which travels with the picture** — layout mode, opacity and blur belong to the rule and stay put. The theme color belongs to the **image**, so a rotation can move through a green picture, a red one and a system-themed one, and the interface palette changes with the wallpaper. The cross-fade between two images is the same one a model switch already used.
-- **Framing is per image, and so is the color** — a crop and an accent both belong to a picture, so each image keeps its own while sharing the rule's layout, opacity and blur. The filmstrip marks the images that carry a color of their own, and the color controls always say which image they are editing.
+- **What follows a switch is the rule — except everything that belongs to the picture** — opacity and blur belong to the rule and stay put. The **layout mode**, the **framing** and the **theme color** belong to the image, so a rotation can letterbox a tall screenshot and fill the landscape photo next to it, and can move through a green picture, a red one and a system-themed one with the interface palette following the wallpaper. The cross-fade between two images is the same one a model switch already used.
+- **Layout mode, framing and color are per image** — 适应/填充 decides how *this* picture meets the viewport, a crop and an accent belong to it too, so each image keeps its own while sharing the rule's opacity and blur. The filmstrip marks the images that carry a color of their own, and the color controls always say which image they are editing.
 - **Only the images it needs are loaded** — boot reads each rule's first image; the rest stream in when a card is expanded or when the rotation is about to need one. Ten images per rule therefore do not mean ten wallpapers transferred before the first frame.
 
 ### Switch effect (global)
@@ -121,14 +121,14 @@ A small one, not a settings block: **one switch on the Config page and nothing e
 - **Mid-Autumn wins the overlap** — the two do collide (2025-10-06 was both); the single precise day is the better answer.
 - **A holiday with no image falls through** to the model rules rather than blanking the wallpaper.
 - **Built-in wallpapers** — Both holidays ship with a compressed wallpaper (228 KB and 500 KB at native resolution, against 8.37 MB of source art). Only the holiday that can paint *today* is ever fetched, so a profile that is not on a holiday transfers none of it.
-- **Neither the art nor the palette is swappable, by design** — an easter egg that asks to be configured is not an easter egg. A holiday slot is read-only: a file dropped into `modelbg-h-midautumn` / `modelbg-h-nationalday` is ignored by every read, and the plugin refuses to write, fetch into or delete those slots. The theme colors are constants in the holiday definition and are forced on every read — on the holiday **and on its image**, since a theme color lives on the image now — so a hand-edited `color` in `theme-config.json` cannot repaint a festival either. Theme exports therefore carry your rules only.
+- **Neither the art nor the palette is swappable, by design** — an easter egg that asks to be configured is not an easter egg. A holiday slot is read-only: a file dropped into `modelbg-h-midautumn` / `modelbg-h-nationalday` is ignored by every read, and the plugin refuses to write, fetch into or delete those slots. The theme colors are constants in the holiday definition and are forced on every read — on the holiday **and on its image**, since a theme color lives on the image now — so a hand-edited `color` in `theme-config.json` cannot repaint a festival either. Its layout mode is the definition's **Fill** for the same reason (the art is full-bleed, and a stale `fit` would letterbox it), while the **framing** next to it stays yours. Theme exports therefore carry your rules only.
 - **Turning it off** — the switch on the Config page, or `"holidays": { "enabled": false }` in the same file.
 
-### Per-rule settings
+### Per-rule and per-image settings
 
 - **Wallpaper** — Give a rule one or more images; each image is its own file. The filmstrip picks which one you are editing, and the "first" one is what the rule paints when no rotation is running. A rule may also hold **no** image: it then paints no wallpaper, but as long as it has a theme color of its own it still matches and still serves as the fallback (painting the interface alone), and only with neither is it skipped by matching until you give it something.
 - **Theme Color** — HSL wheel plus numeric input and an inspiration palette, with **Extract from this image** and an **eyedropper**. **The color belongs to the image**: those controls edit the one selected in the filmstrip, the strip shows which images already carry a color of their own, and an image that has none follows the system theme rather than inheriting its rule's. A rule with **no image at all** has only its own color left to edit — and that is exactly what such a rule paints. Generates the full CSS design-token set in real time. Following the system theme hands the palette back to the host while the wallpaper and the Interface-tab opacity/blur sliders keep working — the surface colors are read back from the host's own tokens and re-emitted with your alpha, so the wallpaper is never buried under an opaque plate.
-- **Layout Mode** — Fit / Fill / Stretch / Tile / Center.
+- **Layout Mode** — Fit / Fill / Stretch / Tile / Center, and it is stored **per image**: a rotation can letterbox one picture and fill the next. On a rule that holds no picture the row is disabled (there is nothing to lay out) rather than hidden, so the card shows what becomes editable once you add one.
 - **Framing** — Drag to pan and scroll to zoom inside a viewport-proportional editor; **only editable in Fit mode**, and the committed framing stays consistent across window resizes and cross-monitor moves. Stored per image.
 - **Background Opacity** — `0–100%` for the rule's wallpaper layer.
 - **Background Blur** — `0–60 px`, applied to the wallpaper layer.
@@ -147,7 +147,7 @@ Settings → **Theme** now has three tabs:
 | Tab | Scope | Contents |
 | --- | --- | --- |
 | **Interface** | Global, shared by every model | Opacity & blur for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
-| **Model Background** | Per rule | The ordered rule list, the live match readout, and each rule's images (filmstrip), theme color, layout mode, per-image framing, opacity, blur and [rotation](#image-rotation) |
+| **Model Background** | Per rule, per image | The ordered rule list, the live match readout, and each rule's images (filmstrip), **per-image layout mode, framing and theme color**, plus the rule's opacity, blur and [rotation](#image-rotation) |
 | **Config** | — | The global [switch effect](#switch-effect-global), import / export of the whole rule set (`dsh-background-by-model-theme.json`), plus the single [holiday background](#holiday-backgrounds) switch |
 
 The old **Color** tab is gone — the theme color is now a property of each rule. The old **Background** tab became **Model Background**.

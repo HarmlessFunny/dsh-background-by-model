@@ -8,7 +8,7 @@
  */
 import { defineStore } from './runtime'
 import type {
-  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgImage, BgRule, BgState, HolidayRule,
+  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgImage, BgMode, BgRule, BgState, HolidayRule,
   FetchResult, ModelFacts, TransitionConfig,
 } from './types'
 import { NS, zh, en } from './i18n'
@@ -745,7 +745,11 @@ export function apply(ctx: Ctx): void {
           // the auto-extraction below is what fills it. An absent key would mean
           // "written before 0.7.1" instead, and would be lifted from the rule's color
           // on the next read — which is the opposite of what a new picture wants.
-          const image = { slot, bgState: { ...DEFAULT_BG_STATE }, color: null }
+          // `bgMode: 'fit'` IS written, because a mode has no such lift waiting for
+          // it any more: the rule-level lift only reaches an entry that lacks the
+          // key, and a fresh picture must start from the shipped default rather
+          // than from whatever the last config in the file happened to carry.
+          const image = { slot, bgMode: 'fit' as const, bgState: { ...DEFAULT_BG_STATE }, color: null }
           rule.images.push(image)
           added.push(slot)
           setImage(slot, dataUrl)
@@ -847,6 +851,29 @@ export function apply(ctx: Ctx): void {
         // is painted, which is this image only while it is the current one.
         repaintIfMoved(id, winner)
       },
+      /**
+       * Store ONE image's layout mode. Addressed by slot like `setImageFraming`,
+       * for the same reason: how a picture meets the viewport is a property of the
+       * picture, and 适应 on a tall screenshot says nothing about the landscape
+       * photo beside it in the rotation.
+       *
+       * A mode is a placement, not a paint: it changes nothing about WHICH image is
+       * on screen, only how it is laid out. So the patch is written, sanitized, and
+       * the layer repainted through the same `repaintIfMoved` the framing commit
+       * uses — that call repaints the current image whether or not the winner
+       * moved, which is what makes the chips feel live.
+       */
+      setImageMode: (id: string, slot: string, mode: BgMode): void => {
+        const rule = ruleById(id)
+        const image = rule?.images.find(i => i.slot === slot)
+        if (rule === null || image === undefined) return
+        const winner = winnerId()
+        image.bgMode = mode
+        normalizeRuleInPlace(rule)
+        rulesRev++
+        saveConfig()
+        repaintIfMoved(id, winner)
+      },
       setRuleRotation: (id: string, patch: Partial<BgRule['rotate']>): void => {
         const rule = ruleById(id)
         if (rule === null) return
@@ -924,7 +951,7 @@ export function apply(ctx: Ctx): void {
         if (!res.ok) return res
         // Sampled here, not before the download: the list is only touched now.
         const winner = winnerId()
-        rule.images.push({ slot, bgState: { ...DEFAULT_BG_STATE }, color: null })
+        rule.images.push({ slot, bgMode: 'fit', bgState: { ...DEFAULT_BG_STATE }, color: null })
         setImage(slot, res.dataUrl ?? null)
         rulesRev++
         persistConfig()

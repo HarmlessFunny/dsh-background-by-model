@@ -119,6 +119,11 @@ export const UI_CSS = `
 .dab-chip-row{display:flex;flex-wrap:wrap;gap:8px}
 .dab-chip{height:30px;padding:0 14px;border-radius:99px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary));font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .22s ease}
 .dab-chip:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}
+/* A mode chip on a rule with no picture: there is nothing to lay out. It reads
+   as unavailable rather than as an active choice, and the hover that would
+   promise otherwise is dropped with it. */
+.dab-chip:disabled{opacity:.45;cursor:not-allowed}
+.dab-chip:disabled:hover{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))}
 .dab-chip.is-active{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-inverted);border-color:transparent}
 
 /* ── sliders ─────────────────────────────────────────────────────────────── */

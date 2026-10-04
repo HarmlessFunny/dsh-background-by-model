@@ -78,7 +78,13 @@ check('one entry per built-in holiday, in HOLIDAYS order',
   JSON.stringify(h.items.map(i => i.id)))
 check('slots are the fixed holiday slots, not rule slots',
   JSON.stringify(h.items.map(i => i.images[0].slot)) === JSON.stringify(['h-midautumn', 'h-nationalday']))
-check('bgMode defaults to fill, not a rule default', h.items.every(i => i.bgMode === 'fill'))
+// The mode belongs to the IMAGE since 0.8: one value per rule could not letterbox
+// a tall screenshot without also letterboxing the landscape photo beside it, and a
+// holiday is the case where the picture's own answer is the only one there is.
+check('the layout mode is the IMAGE\'s now, and a holiday image is full-bleed',
+  h.items.every(i => i.images[0].bgMode === 'fill'))
+check('and no holiday carries a rule-level mode any more', h.items.every(i => !('bgMode' in i)),
+  JSON.stringify(Object.keys(h.items[0])))
 check('each entry is switched on by default', h.items.every(i => i.enabled === true))
 check('color starts filled in — it is a constant, not derived from the art',
   h.items.every(i => Array.isArray(i.color) && i.color.length === 3))
@@ -190,7 +196,10 @@ await call('writeConfig', {
     holidays: {
       enabled: true,
       items: [
-        { ...first.holidays.items[0], images: [{ slot: 'm1' }], slot: 'm1', id: 'mid-autumn' },
+        // The `bgMode` pair is the part that moved in 0.8: the rule-level one is a
+        // stale duplicate of a field the shape no longer has, and the per-image one
+        // is the temptation to letterbox a full-bleed festival. Neither may win.
+        { ...first.holidays.items[0], images: [{ slot: 'm1', bgMode: 'fit' }], slot: 'm1', id: 'mid-autumn', bgMode: 'fit' },
         { ...first.holidays.items[1], images: [{ slot: 'm1' }, { slot: 'm2' }], id: 'national-day' },
         { id: 'not-a-real-holiday', images: [{ slot: 'm2' }], enabled: true },
       ],
@@ -204,6 +213,9 @@ check('a lying slot is replaced by the definition slot',
 check('a holiday can never end up with more than its one packaged image',
   repaired.items.every(i => i.images.length === 1))
 check('an unknown holiday id is dropped', repaired.items.length === 2)
+check('a hand-edited layout mode cannot letterbox a festival wallpaper',
+  repaired.items.every(i => i.images[0].bgMode === 'fill'),
+  JSON.stringify(repaired.items.map(i => i.images[0].bgMode)))
 
 // The switch is an off-ramp, so only an explicit `false` takes it down: this is
 // the same "absent means on" rule the per-holiday switch already uses.
@@ -228,7 +240,7 @@ console.log('\n--- a rule owns a LIST of images (0.7), and old configs still loa
 // its wallpaper on upgrade.
 const legacyRule = {
   id: 'r-legacy', slot: 'm7', match: 'legacy', enabled: true, color: null,
-  bgMode: 'fit', wallpaperOpacity: 0.8, blur: 3, bgState: { zoom: 2.5, x: 0.25, y: 0.75, iw: 1920, ih: 1080 },
+  bgMode: 'fill', wallpaperOpacity: 0.8, blur: 3, bgState: { zoom: 2.5, x: 0.25, y: 0.75, iw: 1920, ih: 1080 },
 }
 const legacyWarnings = []
 const realWarn = console.warn
@@ -240,11 +252,17 @@ check('the legacy slot became the rule\'s only image', lifted.images.length === 
   JSON.stringify(lifted.images))
 check('and its framing came along', lifted.images[0].bgState.zoom === 2.5 && lifted.images[0].bgState.iw === 1920,
   JSON.stringify(lifted.images[0].bgState))
-check('the legacy fields are gone from the shape', !('slot' in lifted) && !('bgState' in lifted),
+check('the legacy fields are gone from the shape',
+  !('slot' in lifted) && !('bgState' in lifted) && !('bgMode' in lifted),
   JSON.stringify(Object.keys(lifted)))
 check('and are not reported as drift (the sanitizer lifts them on purpose)',
-  !legacyWarnings.some(w => w.includes('rules[].slot') || w.includes('rules[].bgState')),
+  !legacyWarnings.some(w => w.includes('rules[].slot') || w.includes('rules[].bgState') || w.includes('rules[].bgMode')),
   JSON.stringify(legacyWarnings))
+// 0.8 moved the layout mode onto the image as well, and this is the lift that
+// keeps a 填充 wallpaper from quietly letterboxing on the next load: the
+// synthesized image has to carry what the rule-level field said.
+check('the rule-level layout mode became the image\'s own',
+  lifted.images[0].bgMode === 'fill', JSON.stringify(lifted.images[0].bgMode))
 check('a legacy rule gets the shipped rotation defaults',
   lifted.rotate.enabled === false && lifted.rotate.intervalMs === 60_000
   && lifted.rotate.order === 'order' && lifted.rotate.advanceOnSwitch === false,
@@ -273,7 +291,9 @@ check('the lift reaches the pre-0.7 single-slot shape too',
 check('an image explicitly set to the system theme does NOT inherit the rule color',
   liftedTwice[1].images[0].color === null, JSON.stringify(liftedTwice[1].images[0].color))
 
-// The list itself: order, dedupe, and what an unusable entry does.
+// The list itself: order, dedupe, and what an unusable entry does. Note the
+// rule-level `bgMode` below: this whole block is the OLD shape, which is why the
+// images leave without one and have to come back with the rule's value.
 const multiRule = {
   id: 'r-multi', match: 'multi', enabled: true, color: null, bgMode: 'fill',
   wallpaperOpacity: 1, blur: 0,
@@ -295,6 +315,11 @@ check('an unusable slot is dropped', !rules[1].images.some(i => i.slot.startsWit
 check('each image keeps its OWN framing',
   rules[1].images[1].bgState.zoom === 1.5 && rules[1].images[2].bgState.zoom === 0.5,
   JSON.stringify(rules[1].images.map(i => i.bgState.zoom)))
+check('and the rule-level layout mode reached each one of them',
+  rules[1].images.every(i => i.bgMode === 'fill'),
+  JSON.stringify(rules[1].images.map(i => i.bgMode)))
+check('the rule itself kept no mode to disagree with them', !('bgMode' in rules[1]),
+  JSON.stringify(Object.keys(rules[1])))
 check('the rotation block survives as written',
   JSON.stringify(rules[1].rotate) === JSON.stringify(multiRule.rotate), JSON.stringify(rules[1].rotate))
 
@@ -323,6 +348,24 @@ const tintedImages = (await readConfig()).rules[0].images
 check('per-image colors survive independently, in order, null included',
   JSON.stringify(tintedImages.map(i => i.color)) === JSON.stringify([[10, 0.5, 0.5], null, [200, 0.6, 0.5]]),
   JSON.stringify(tintedImages.map(i => i.color)))
+// The same round trip for the layout mode, which is now a per-image field with an
+// inheritance path behind it: each entry keeps its own, and one of them is allowed
+// to be a value the OTHER entries do not share — that is the point of the move, and
+// a sanitizer that normalized them to the first entry's value would pass every test
+// above and still collapse the feature.
+const mixedModes = {
+  ...multiRule, id: 'r-mixed-modes',
+  images: [
+    { slot: 'm2', bgMode: 'stretch', bgState: {} },
+    { slot: 'm3', bgMode: 'center', bgState: {} },
+    { slot: 'm4', bgState: {} },
+  ],
+}
+await call('writeConfig', { config: { ...first, rules: [mixedModes] } })
+check('per-image layout modes survive independently and in order',
+  JSON.stringify((await readConfig()).rules[0].images.map(i => i.bgMode))
+    === JSON.stringify(['stretch', 'center', 'fill']),
+  JSON.stringify((await readConfig()).rules[0].images.map(i => i.bgMode)))
 
 // An EMPTY image list is a legitimate rule, and it has to survive the round trip
 // as an empty list: forcing an entry back in is what produced a phantom blank
@@ -335,7 +378,7 @@ check('a rule the user emptied stays empty (nothing is conjured back in)',
   empty.length === 1 && Array.isArray(empty[0].images) && empty[0].images.length === 0,
   JSON.stringify(empty[0]?.images))
 check('an emptied rule keeps its identity and settings',
-  empty[0].id === 'r-empty' && empty[0].match === 'multi' && empty[0].bgMode === 'fill')
+  empty[0].id === 'r-empty' && empty[0].match === 'multi' && !('bgMode' in empty[0]))
 // A list whose entries are ALL unusable is the same state, not a broken rule.
 await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, id: 'r-junk', images: [{ slot: 'no good' }] }] } })
 const junk = (await readConfig()).rules
@@ -350,9 +393,10 @@ check('a rule that names no image anywhere is still dropped',
 // SCHEMA_VERSION in ./src/schema), because that host's sanitizer would drop the
 // rules it cannot read. 3 = a rule may keep an empty image list (0.7), 4 = a
 // theme color belongs to an image (`images[].color`, 0.7.1), 5 = the global
-// switch transition (`transition`) is part of the config.
+// switch transition (`transition`) is part of the config, 6 = the layout mode
+// belongs to an image (`images[].bgMode`) instead of to the rule.
 const announced = (await call('read')).value.schema
-check('the host announces the shape it sanitizes with', announced === 5, String(announced))
+check('the host announces the shape it sanitizes with', announced === 6, String(announced))
 // An emptied rule keeps the color it had: that color is what it paints while it
 // has no wallpaper, so it is not a field to clean up.
 await call('writeConfig', {
