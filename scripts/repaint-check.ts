@@ -206,7 +206,22 @@ if (nowAt >= 0) {
 // asserted here because the call site is where a later edit would drop one.
 check('the palette fade is gated on the palette having moved AND the scheme holding',
   /const fadeable = paletteChanged && paletteFadeAllowed\(paletteScheme, scheme\)/.test(wall), true)
-check('and that answer is what the writer receives', /applyPaletteFade\(fadeable\)/.test(wall), true)
+// ...and the transition list is handed the palette's OWN token set: the third
+// question, and the one that was missing. A registered token is not necessarily a
+// token this palette writes — the light branch emits ~30 fewer aliases than the
+// dark one — and every name outside the written set still belongs to the host,
+// whose own scheme flips (on mount, on settings adoption, and for the length of
+// the plugin's own theme dispose/re-register). Handing it a transition animates
+// that flip at this plugin's duration: "白色色块会渐变为黑色色块…白色渐变完黑色后立马切
+// 到白色" (the user-message bubble, #edf3fe light / #2c2c2e dark).
+check('and that answer is what the writer receives', /applyPaletteFade\(fadeable, Object\.keys\(tokens\)\)/.test(wall), true)
+check('the fade is armed with the keys of the block being written',
+  /const \{ own, tokens \} = src[\s\S]{0,4000}?applyPaletteFade\(fadeable, Object\.keys\(tokens\)\)/.test(wall), true)
+// One call site, so "every arming names the palette's own keys" is a statement
+// about one line rather than a hope about the next one added.
+check('there is exactly one place the fade is armed', (wall.match(/applyPaletteFade\(/g) ?? []).length, 2)
+check('and it takes the written set as an argument',
+  /function applyPaletteFade\(animate: boolean, written: readonly string\[\]\)/.test(wall), true)
 check('the scheme of the new palette is remembered', /paletteScheme = scheme/.test(wall), true)
 check('and it is the same answer the inline-painted surfaces get',
   /applyPartOpacities\(ops, fadeable\)/.test(wall), true)
@@ -245,6 +260,33 @@ for (const p of PLUGIN_PAINTED) {
 // above would pass a rename on one side only.
 check('the shared selectors are declared once each',
   [/const CORDIS_PANEL_SEL =/g, /const RIGHTBAR_SEL =/g].map(re => (wall.match(re) ?? []).length), [1, 1])
+
+console.log('\n--- and the host skin is not rebuilt when its scheme already holds ---')
+// The half of the same report that made the flip happen at all. The skin was
+// disposed and re-registered on EVERY colour change, and the host's disposer
+// resets the preference to the default when the theme backing it goes away
+// ("resets the preference to the default so the UI never keeps tokens of an
+// unregistered theme" — ui-theme's own `register()`), which is `system`: on a dark
+// desktop that hands the whole interface to the host's dark palette for the length
+// of that call, and every token this plugin does not re-emit follows it. What the
+// skin contributes is its `colorScheme` (the tokens are re-emitted by our own
+// `!important` rule), so a skin that already carries the scheme being asked for is
+// kept — and the preference is still re-asserted on that path, because a settings
+// adoption can drop it.
+const skinAt = source.indexOf('const registerCustom = ')
+const skinBody = skinAt < 0 ? '' : source.slice(skinAt, source.indexOf('const dropCustom = ', skinAt))
+check('the skin the plugin owns is found in the host snapshot, not assumed',
+  /const registeredScheme = \(\): string \| null => \{[\s\S]{0,240}?themes\.find\(t => t\.id === CUSTOM_ID\)/.test(source), true)
+check('a skin that already carries the scheme returns before anything is disposed',
+  /skinScheme === colorScheme && registeredScheme\(\) !== null[\s\S]*?return[\s\S]*?customDispose\?\.\(\)/.test(skinBody), true)
+check('the preference is still re-asserted on that path',
+  /skinScheme === colorScheme[\s\S]{0,500}?if \(ctx\.theme\.getTheme\(\)\.preference !== CUSTOM_ID\) ctx\.theme\.setTheme\(CUSTOM_ID\)/.test(skinBody), true)
+check('a scheme that moved still disposes and re-registers',
+  /customDispose\?\.\(\)[\s\S]{0,300}?ctx\.theme\.register\(\{ id: CUSTOM_ID, colorScheme, tokens \}\)/.test(skinBody), true)
+check('what was registered is what the next call compares against',
+  /skinScheme = registeredScheme\(\) \?\? colorScheme/.test(skinBody), true)
+check('and handing the palette back forgets it',
+  /const dropCustom = \(\): void => \{[\s\S]{0,200}?skinScheme = null/.test(source), true)
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

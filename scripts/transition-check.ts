@@ -128,7 +128,7 @@ const fade = paletteFadeCss({
     { selector: 'body', tokens: ['--dsw-alias-bg-base', '--dsw-alias-label-primary'] },
     { selector: '.dlg', tokens: ['--dsw-alias-bg-base'] },
   ],
-  initial: INIT, durationMs: 320, easing: 'ease',
+  initial: INIT, written: Object.keys(INIT), durationMs: 320, easing: 'ease',
 })
 check('each token is registered as an interpolable colour',
   (fade.match(/@property --dsw-alias-[a-z-]+\{syntax:'<color>';inherits:true;initial-value:rgb\(/g) ?? []).length, 2)
@@ -151,19 +151,63 @@ check('a scope is never given a token it only inherits',
 check('a scope with nothing of its own emits no rule',
   paletteFadeCss({
     scopes: [{ selector: '.empty', tokens: ['--dsw-alias-not-published'] }, { selector: 'body', tokens: ['--dsw-alias-bg-base'] }],
-    initial: INIT, durationMs: 320, easing: 'ease',
+    initial: INIT, written: Object.keys(INIT), durationMs: 320, easing: 'ease',
   }).includes('.empty'), false)
+
+console.log('\n--- and only a token the palette IN FORCE writes may animate ---')
+// The other half of "does this element declare it": does the palette being painted
+// actually WRITE it? The registrations cover every name some palette can write —
+// they have to, or a later light→dark change would find the dark names
+// unregistered — and that is a strictly larger set than the palette in force
+// writes: the light branch emits roughly thirty fewer aliases than the dark one
+// (the bubble, the selector, the tip, tooltip/toast, toolbar and markdown state
+// tokens). A name outside the written set still takes its value from the HOST, and
+// the host changes those on a schedule of its own: it re-asserts its own scheme on
+// mount and on settings adoption, and the plugin's own theme dispose/re-register
+// makes the host reset the preference to `system` for the length of that call. A
+// transition on such a name is this plugin animating a decision it does not own,
+// at its own duration — reported as "白色色块会渐变为黑色色块…白色渐变完黑色后立马切到
+// 白色": the user message bubble is `#edf3fe` in the host's light scheme and
+// `#2c2c2e` in its dark one, and the fade sheet had registered that very name.
+const SPLIT_INIT = { ...INIT, '--dsw-specific-bubble': 'rgb(237, 243, 254)' }
+const narrowed = paletteFadeCss({
+  scopes: [
+    { selector: 'body', tokens: ['--dsw-alias-bg-base', '--dsw-specific-bubble'] },
+    { selector: '.plate', tokens: ['--dsw-specific-bubble'], properties: ['background-color'] },
+  ],
+  initial: SPLIT_INIT,
+  written: ['--dsw-alias-bg-base'],
+  durationMs: 320, easing: 'ease',
+})
+check('a registered token the palette does not write is still registered',
+  narrowed.includes('@property --dsw-specific-bubble'), true)
+check('but it is not animated by the plugin', narrowed.includes('--dsw-specific-bubble 320ms'), false)
+check('while the token the palette does write still fades',
+  narrowed.includes('body{transition:--dsw-alias-bg-base 320ms ease}'), true)
+check('a scope left with only unwritten tokens keeps its standard property',
+  narrowed.includes('.plate{transition:background-color 320ms ease}'), true)
+check('and none of those tokens reaches its transition list',
+  narrowed.includes('.plate{transition:--dsw'), false)
+// The written set is intersected with the registrations, never unioned into them:
+// a name the palette writes but the host cannot answer for cannot interpolate
+// either, and a transition on it would only lengthen the list.
+check('a written name the host does not publish still gets no transition',
+  paletteFadeCss({
+    scopes: [{ selector: 'body', tokens: ['--dsw-specific-bubble', '--dsw-alias-bg-base'] }],
+    initial: INIT, written: ['--dsw-specific-bubble', '--dsw-alias-bg-base'],
+    durationMs: 320, easing: 'ease',
+  }).includes('--dsw-specific-bubble 320ms'), false)
 // 0 ms is "do not animate", not "animate for no time": the registrations stay
 // (they cost nothing and are what makes a LATER fade possible) and no transition
 // rule is emitted at all — which is also what keeps a slider drag instant, since
 // a drag rewrites the same token block on every frame.
-const fadeOff = paletteFadeCss({ scopes: [{ selector: 'body', tokens: Object.keys(INIT) }], initial: INIT, durationMs: 0, easing: 'ease' })
+const fadeOff = paletteFadeCss({ scopes: [{ selector: 'body', tokens: Object.keys(INIT) }], initial: INIT, written: Object.keys(INIT), durationMs: 0, easing: 'ease' })
 check('a zero duration emits no transition rule', fadeOff.includes('transition:'), false)
 check('but still registers the tokens', fadeOff.includes('@property'), true)
 check('no tokens means no CSS (nothing is invented)',
-  paletteFadeCss({ scopes: [{ selector: 'body', tokens: ['--dsw-alias-bg-base'] }], initial: {}, durationMs: 320, easing: 'ease' }), '')
+  paletteFadeCss({ scopes: [{ selector: 'body', tokens: ['--dsw-alias-bg-base'] }], initial: {}, written: [], durationMs: 320, easing: 'ease' }), '')
 check('a name that is not a custom property is ignored',
-  paletteFadeCss({ scopes: [{ selector: 'body', tokens: ['color'] }], initial: { color: 'rgb(0,0,0)' }, durationMs: 320, easing: 'ease' }), '')
+  paletteFadeCss({ scopes: [{ selector: 'body', tokens: ['color'] }], initial: { color: 'rgb(0,0,0)' }, written: ['color'], durationMs: 320, easing: 'ease' }), '')
 // The elements the plugin paints INLINE do not read the registered tokens, so
 // they carry the standard property instead — and 0 must be `none`, never an empty
 // value that would leave the host's own transition in place.
@@ -185,7 +229,7 @@ const own = paletteFadeCss({
     { selector: '.chip', tokens: ['--dsw-alias-bg-base'], properties: ['background-color'] },
     { selector: '.empty', tokens: [], properties: [] },
   ],
-  initial: INIT, durationMs: 320, easing: 'ease',
+  initial: INIT, written: Object.keys(INIT), durationMs: 320, easing: 'ease',
 })
 check('a scope with only a standard property still emits its rule',
   own.includes('.plate{transition:background-color 320ms ease}'), true)
@@ -196,14 +240,14 @@ check('a standard property is never registered as a colour', own.includes('@prop
 check('and a scope whose only token is unregistered keeps its property',
   paletteFadeCss({
     scopes: [{ selector: '.plate', tokens: ['--dsw-alias-not-published'], properties: ['background-color'] }],
-    initial: INIT, durationMs: 320, easing: 'ease',
+    initial: INIT, written: [], durationMs: 320, easing: 'ease',
   }).includes('.plate{transition:background-color 320ms ease}'), true)
 // 0 ms disarms this half too: a slider drag rewrites the same variables, and a
 // live transition on them would make the plate lag behind the slider.
 check('a zero duration disarms the standard property as well',
   paletteFadeCss({
     scopes: [{ selector: '.plate', tokens: [], properties: ['background-color'] }],
-    initial: INIT, durationMs: 0, easing: 'ease',
+    initial: INIT, written: Object.keys(INIT), durationMs: 0, easing: 'ease',
   }).includes('transition:'), false)
 
 console.log('\n--- but a light/dark FLIP is not a tint, so it does not fade ---')

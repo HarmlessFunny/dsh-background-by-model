@@ -23,6 +23,9 @@
  *      caller passes the same decision the wallpaper layer uses, so "instant", a
  *      0 ms duration and `prefers-reduced-motion` mean the same thing on both
  *      halves of a switch, and there is only one place to change them.
+ *   3. **Only a token the palette in force WRITES may be transitioned.** A
+ *      transition on a token someone else owns animates that someone else's
+ *      change, at this plugin's duration: see `written`.
  *
  * Pure: it takes resolved values and returns CSS, so `scripts/transition-check.ts`
  * can pin the shape down without a browser.
@@ -78,6 +81,34 @@ export interface PaletteFadeInput {
   scopes: readonly PaletteFadeScope[]
   /** Registered colour token -> the value it must never be without. */
   initial: Readonly<Record<string, string>>
+  /**
+   * The token names the palette IN FORCE actually writes.
+   *
+   * The third filter, and the one this shape was missing. `initial` covers every
+   * name SOME palette can write — it has to, or the registrations a later fade
+   * needs would not be in place — but the palette being painted writes fewer of
+   * them: the plugin's light branch emits roughly thirty fewer aliases than its
+   * dark one, and the host-palette readback emits only the surfaces the host can
+   * answer for. Every name outside this set still takes its value from the HOST,
+   * and the host changes those on its own schedule: the plugin forces
+   * `data-ds-dark-theme` for its own palette, the host re-asserts its own scheme
+   * on mount and on settings adoption, and the plugin itself disposes and
+   * re-registers its theme on a colour change — which the host answers by
+   * resetting the preference to `system` for the length of that call. A token
+   * that belongs to one of those flips goes from the host's light value to its
+   * dark one (and back) inside a single switch.
+   *
+   * A transition on such a token is the plugin animating a decision it does not
+   * own and cannot correct — reported as "白色色块会渐变为黑色色块…白色渐变完黑色后
+   * 立马切到白色". The block is the user message bubble: `#edf3fe` in the host's
+   * light scheme (that is `--dsw-static-deepseek-50`, the value measured off the
+   * screen) and `#2c2c2e` in its dark one, a name the fade sheet had registered
+   * while the palette in force — a light one — never writes it. Nothing about that
+   * surface is ours: the host's own flip is the whole story, and our duration is
+   * what turned it into a 3 s ramp (the reported session runs its switch at
+   * 3000 ms) instead of a frame.
+   */
+  written: readonly string[]
   /** Transition length in ms; `0` emits the registrations alone (no animation). */
   durationMs: number
   easing: string
@@ -119,15 +150,21 @@ export function paletteFadeCss(input: PaletteFadeInput): string {
   if (names.length === 0) return ''
   const css = registrations(names, input.initial)
   if (!(input.durationMs > 0)) return css
+  // The palette's own token set, as a lookup: a scope may only animate what this
+  // apply actually rewrites (see `written`).
+  const written = new Set(input.written)
   const timing = (n: string): string => `${n} ${input.durationMs}ms ${input.easing}`
   const rules = input.scopes
-    // Only what THIS element declares, and only what the host can answer for: a
-    // token with no registration cannot interpolate, so a transition on it would
-    // only lengthen the list. A scope left with nothing emits no rule at all.
+    // Only what THIS element declares, only what the host can answer for, and
+    // only what the palette in force writes: a token with no registration cannot
+    // interpolate, so a transition on it would only lengthen the list, and a
+    // token this palette does not write keeps the HOST's value — which the host
+    // is free to change on a schedule of its own. A scope left with nothing
+    // emits no rule at all.
     .map(s => ({
       selector: s.selector,
       transitions: [
-        ...s.tokens.filter(n => names.includes(n)),
+        ...s.tokens.filter(n => names.includes(n) && written.has(n)),
         ...(s.properties ?? []),
       ],
     }))

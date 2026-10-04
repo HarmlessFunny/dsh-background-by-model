@@ -55,10 +55,38 @@ export function apply(ctx: Ctx): void {
   // would otherwise dispose + re-register + re-activate the host theme on every
   // pointer move.
   let skinTimer: number | null = null
+  /** Colour scheme of the skin this plugin has registered, or null when none is. */
+  let skinScheme: string | null = null
+  /** Scheme the host currently holds for our theme id; null when it is not there. */
+  const registeredScheme = (): string | null => {
+    const theme = ctx.theme.getTheme().themes.find(t => t.id === CUSTOM_ID)
+    return theme === undefined ? null : theme.colorScheme
+  }
   const registerCustom = (h: number, s: number, l: number): void => {
+    const { colorScheme, tokens } = genTokens(h, s, l)
+    // A skin whose SCHEME is already in force is not re-registered, and that is a
+    // fix rather than an optimisation. The host's disposer resets the preference
+    // to `system` when the theme backing it goes away (ui-theme: "resets the
+    // preference to the default so the UI never keeps tokens of an unregistered
+    // theme"), so a dispose→register→activate cycle walks the interface through
+    // the SYSTEM palette — dark, on a dark desktop — for the length of that call.
+    // Under a light palette the plugin does not re-emit every token (see
+    // `--dsw-specific-bubble` and friends in ./utils/color), so those surfaces
+    // take the host's dark values for that moment, and the fade sheet's armed
+    // transition is what turns the frame into a ramp: a white block fading to
+    // black on a switch between two light wallpapers. What the skin contributes is
+    // its colorScheme (the tokens are re-emitted by our own `!important` rule, and
+    // a same-scheme skin carries the same NAMES either way), so keeping the one
+    // that already carries it loses nothing.
+    if (skinScheme === colorScheme && registeredScheme() !== null) {
+      // Still asserted, because the host drops the preference on a settings
+      // adoption: the skin is ours to keep active, it just does not have to be
+      // rebuilt to say so.
+      if (ctx.theme.getTheme().preference !== CUSTOM_ID) ctx.theme.setTheme(CUSTOM_ID)
+      return
+    }
     customDispose?.()
     try {
-      const { colorScheme, tokens } = genTokens(h, s, l)
       customDispose = ctx.theme.register({ id: CUSTOM_ID, colorScheme, tokens })
     } catch {
       // A live registration from an earlier HMR apply pass cannot be torn down
@@ -66,6 +94,9 @@ export function apply(ctx: Ctx): void {
       // throw would abort apply and skip the wallpaper/opacity restore.
       customDispose = null
     }
+    // Whichever registration is in force now, its scheme is the one to compare
+    // against next time — a leftover id is the same id this call asked for.
+    skinScheme = registeredScheme() ?? colorScheme
     // Only activate the custom theme if it is actually registered.
     if (ctx.theme.getTheme().themes.some(t => t.id === CUSTOM_ID)) {
       ctx.theme.setTheme(CUSTOM_ID)
@@ -75,6 +106,7 @@ export function apply(ctx: Ctx): void {
   const dropCustom = (): void => {
     customDispose?.()
     customDispose = null
+    skinScheme = null
     try {
       if (ctx.theme.getTheme().preference === CUSTOM_ID) ctx.theme.setTheme('system')
     } catch {

@@ -391,8 +391,10 @@ function applyCustomTokensNow(ops: PartOpacities): void {
     // BEFORE the tokens are written: whether a colour change may fade at all, and
     // for how long, is decided here for both halves of a switch. A palette change
     // arms the transition; every other pass (a slider moving the alphas) DISARMS
-    // it in the same task, so a drag stays glued to the pointer.
-    applyPaletteFade(fadeable)
+    // it in the same task, so a drag stays glued to the pointer. The transition
+    // list is this palette's OWN token set — the exact keys the block below is
+    // about to write — so no host-owned surface is ever animated by us.
+    applyPaletteFade(fadeable, Object.keys(tokens))
     if (paletteChanged) {
       paletteScheme = scheme
       // Drive the base-palette switch with a plugin-specific value so the
@@ -589,15 +591,27 @@ const FADE_LAYER_TOKENS: readonly string[] = [
   '--dsw-alias-bg-layer-1', '--dsw-alias-bg-layer-2', '--dsw-alias-bg-layer-3',
 ]
 
-/** The token names the plugin re-emits. One palette is enough: every branch
- *  defines the same set, and an unknown name would only be registered when the
- *  host can answer for it (see `fadeInitials`). */
+/** The token names a palette CAN carry — deliberately the widest branch.
+ *
+ *  `genTokens(220, 0.55, 0.25)` resolves to the DARK branch (l = 0.25), and that
+ *  branch is the superset: the light one emits roughly thirty fewer aliases (no
+ *  bubble, selector, tip, tooltip/toast, toolbar and markdown state tokens). This
+ *  list is therefore what the REGISTRATIONS are emitted for — a later light→dark
+ *  change has to find the dark names already registered — and NOT the transition
+ *  list, which is narrowed per apply to the palette in force (`written` in
+ *  ./palette-fade). Assuming the two branches carry the same set is exactly the
+ *  mistake that let the fade animate host-owned tokens: a name only the dark
+ *  branch declares is, under a light palette, the HOST's value.
+ *
+ *  An unknown name is only registered when the host can answer for it (see
+ *  `fadeInitials`). */
 function fadeTokenNames(): string[] {
   return Object.keys(genTokens(220, 0.55, 0.25).tokens)
 }
 
 /** One `transition` list per element that DECLARES palette tokens, each carrying
- *  only the tokens that element actually declares.
+ *  only the tokens that element actually declares — and, at emission, only those
+ *  the palette in force writes (see `written`).
  *
  *  Two of the entries carry a STANDARD property instead, because those surfaces
  *  are not painted from a registered token: the settings dialog's plate and the
@@ -614,7 +628,9 @@ function fadeScopes(): PaletteFadeScope[] {
     // it. The host computes a couple of its own variables on the root element —
     // `--shiki-background` / `--shiki-foreground`, i.e. the code plate and its
     // default ink — so without this scope a palette change would slide everything
-    // around the code block while the block itself jumped to the new tint.
+    // around the code block while the block itself jumped to the new tint. The
+    // list is the widest branch's, and the emission drops every name this
+    // palette does not write: a host-owned token must never be animated here.
     { selector: ':root', tokens: fadeTokenNames() },
     { selector: 'body', tokens: fadeTokenNames() },
     { selector: SETTINGS_PANEL_SEL, tokens: FADE_LAYER_TOKENS, properties: ['background-color'] },
@@ -693,12 +709,21 @@ function paletteFadeMs(): number {
  *
  * `animate` is false on every pass that only moves an alpha (a slider drag): the
  * tokens are rewritten there too, and a live transition would make the surface
- * lag behind the pointer. */
-function applyPaletteFade(animate: boolean): void {
+ * lag behind the pointer.
+ *
+ * `written` is the token set of the palette IN FORCE — `Object.keys(tokens)` of
+ * the very block this pass is about to write — and only those may carry a
+ * transition: a name the palette does not write still belongs to the host, and a
+ * transition on it animates the host's own scheme change at this plugin's
+ * duration (see ./palette-fade for the report that shape produced). The
+ * registrations stay on the full set, so a later palette of the other branch
+ * still has them in place. */
+function applyPaletteFade(animate: boolean, written: readonly string[]): void {
   const initials = fadeInitialsOf(fadeTokenNames())
   const css = paletteFadeCss({
     scopes: fadeScopes(),
     initial: initials,
+    written,
     durationMs: animate ? paletteFadeMs() : 0,
     easing: rTransition().easing,
   })
