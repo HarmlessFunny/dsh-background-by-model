@@ -69,7 +69,9 @@ for (const [file, src] of sources) {
  * than no rule at all.
  */
 const TABLE_KEYS: Array<[string, RegExp, string]> = [
-  ['components/pages/ModelBgPage.tsx', /'(statusNote[A-Za-z]+)'/g, 'MODEL_NOTE_KEYS'],
+  // The match tester — and with it this table — moved from the rules page to the
+  // profile page, so the keys are now reached from there.
+  ['components/pages/ProfilePage.tsx', /'(statusNote[A-Za-z]+)'/g, 'MODEL_NOTE_KEYS'],
   ['components/pages/ModelBgPage.tsx', /key:\s*'(bgMode[A-Za-z]+)'/g, 'BG_MODES'],
   ['components/pages/InterfacePage.tsx', /labelKey:\s*'(ui[A-Za-z]+)'/g, 'PARTS'],
   // The dwell-time presets are rendered from ROTATE_PRESETS, so their labels are

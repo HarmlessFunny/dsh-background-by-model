@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { ThemeSectionProps, ThemeStoreState } from '../../types'
 import { cfg, rFadeMs } from '../../state'
+import { matchRule } from '../../modelbg'
 import { saveConfig } from '../../rpc'
 import { normalizeTransition, TRANSITION_EASINGS, TRANSITION_EFFECTS } from '../../../schema'
 import { transitionPlan } from '../../transition'
@@ -19,6 +20,17 @@ const EASING_KEYS: Record<TransitionEasing, string> = {
   ease: 'trEasingEase', linear: 'trEasingLinear', 'ease-out': 'trEasingOut', 'ease-in-out': 'trEasingInOut',
 }
 
+/**
+ * Failing-hop codes the model watcher can report, mapped to their copy. Only
+ * these are rendered: `waiting` and `fallback` already have their own hints.
+ */
+const MODEL_NOTE_KEYS: Record<string, string | undefined> = {
+  'no-service': 'statusNoteNoService',
+  'no-session': 'statusNoteNoSession',
+  'no-projection': 'statusNoteNoProjection',
+  'empty-selection': 'statusNoteEmptySelection',
+}
+
 export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg: string, ok?: boolean) => void }) {
   const { t, exportTheme, importTheme, setTransition } = p
   const importRef = useRef<HTMLInputElement>(null)
@@ -29,6 +41,30 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
   p.useStore((s: ThemeStoreState) => s.rev + s.rulesRev)
   const holidays = cfg.holidays
   const tr = cfg.transition
+
+  // ── match tester ──────────────────────────────────────────────────────────
+  // Which rule a model name resolves to. It sits on the PROFILE page rather than
+  // above the rule list because it answers a question about the configuration as
+  // a whole — "what does this model get?" — and the answer is read once and kept,
+  // not consulted while editing a rule. The rules page is now only the editor.
+  //
+  // The field follows the detected model until the user types their own text, so
+  // the card is useful the moment it is looked at and never fights the watcher
+  // once it is not. It replaced the old "active now" readout — the same question
+  // one step earlier — and it does not go stale between switches.
+  const store = p.useStore((s: ThemeStoreState) => s)
+  const [text, setText] = useState('')
+  const [touched, setTouched] = useState(false)
+  useEffect(() => { if (!touched) setText(store.model) }, [store.model, touched])
+  const probe = text.trim()
+  const result = ((): string | null => {
+    if (probe === '') return null
+    const hit = matchRule(cfg.rules, probe)
+    const rule = hit.rule
+    if (rule === null) return null
+    const n = cfg.rules.findIndex(r => r.id === rule.id) + 1
+    return `${hit.matched ? t('tryoutHit') : t('tryoutFallback')} ${n}`
+  })()
 
   // ── switch effect ─────────────────────────────────────────────────────────
   // The decision itself (which effect runs, for how long, and whether it runs at
@@ -185,6 +221,45 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
 
         <p className="dab-hint" style={{ marginTop: 10 }}>{t('trHint')}</p>
         {reduced ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('trReducedHint')}</p> : null}
+      </section>
+
+      {/* The match tester. Its own card, directly above the export/import pair:
+          this page is where the settings as a whole are read and moved around,
+          and "which rule does this model land on" belongs to that, not to the
+          editor for one rule. */}
+      <section className="dab-card dab-rise" style={{ '--d': 2 } as CSSProperties}>
+        {/* A host process from before multi-image cannot read this bundle's config
+            shape, so writes are held (see canWriteConfig in ../../rpc). Saying it
+            out loud is the whole point: edits that silently do not persist are
+            worse than a line telling the user to restart DSH. */}
+        {store.hostStale ? (
+          <p className="dab-hint dab-stale" style={{ marginBottom: 10 }}>{t('hostStaleHint')}</p>
+        ) : null}
+        <div className="dab-swatch-title">{t('tryoutTitle')}</div>
+        <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <input
+            type="text" className="dab-urlinput" value={text}
+            placeholder={t('tryoutPlaceholder')}
+            onChange={e => { setTouched(true); setText(e.target.value) }} />
+          {store.model !== '' ? (
+            <button type="button" className="dab-btn" onClick={() => { setTouched(true); setText(store.model) }}>
+              {t('tryoutUseCurrent')}
+            </button>
+          ) : null}
+        </div>
+        <p className="dab-hint" style={{ marginTop: 9 }}>
+          {probe === '' ? t('tryoutEmpty') : result === null ? t('tryoutNone') : result}
+        </p>
+        {/* Why the pre-filled value is what it is: without these, a host default
+            passed off as this session's model, or a sessions service that simply
+            is not up yet, is indistinguishable from a correct read. */}
+        {store.model === '' ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('statusUnknownHint')}</p> : null}
+        {store.model !== '' && store.modelSource === 'default'
+          ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('statusSourceDefaultHint')}</p>
+          : null}
+        {MODEL_NOTE_KEYS[store.modelNote] !== undefined
+          ? <p className="dab-hint" style={{ marginTop: 6 }}>{t(MODEL_NOTE_KEYS[store.modelNote]!)}</p>
+          : null}
       </section>
 
       <div className="dab-profile-grid dab-rise" style={{ '--d': 3 } as CSSProperties}>

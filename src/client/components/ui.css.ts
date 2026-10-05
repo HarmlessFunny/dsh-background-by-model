@@ -20,6 +20,34 @@ export const UI_CSS = `
 .dab-root{position:relative;color:var(--dsw-alias-label-primary);animation:dab-fade-in .35s ease both;container-type:inline-size;display:flex;flex-direction:column;align-items:center;width:100%;min-width:0;--dab-mono:ui-monospace,"Cascadia Mono","SF Mono",Consolas,"Courier New",monospace}
 .dab-root *,.dab-root *::before,.dab-root *::after{box-sizing:border-box}
 .dab-root button{font-family:inherit}
+/* ── scrollbars: the same bar as the settings panel we sit inside ────────────
+ * The host styles scrollbars globally off its --dsh-scrollbar-* tokens, but those
+ * declarations describe the app shell and its own scroll containers; a strip
+ * nested this deep got the platform default instead — a thick light bar with
+ * arrows, which is what the tab strip used to show beside the panel's own slim
+ * vertical one.
+ *
+ * So the plugin declares the block for its OWN scroll containers. The values are
+ * the host theme package's, for the layer-2 surface this panel is painted in:
+ * 5px, rounded, layer-2 tint, transparent track. Two notes for whoever edits it:
+ *
+ *   - the tokens go ON THE SCROLLER (the selector that carries the overflow), not
+ *     on .dab-root. A container that declares scrollbar-width:thin (as the nav
+ *     rail does on narrow panels) paints its own standard bar regardless of the
+ *     webkit block, and the host's standard-property fallback reads the thumb
+ *     token from that same element.
+ *   - every selector here is scoped to a dab- class: the stylesheet is injected
+ *     into the host page once, so a bare webkit-scrollbar selector would restyle
+ *     the whole harness. */
+.dab-tabs,.dab-pick-menu{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);--dsh-scrollbar-width:5px}
+.dab-tabs::-webkit-scrollbar,.dab-pick-menu::-webkit-scrollbar{width:var(--dsh-scrollbar-width,5px);height:var(--dsh-scrollbar-width,5px)}
+.dab-tabs::-webkit-scrollbar-track,.dab-pick-menu::-webkit-scrollbar-track{background:transparent}
+.dab-tabs::-webkit-scrollbar-thumb,.dab-pick-menu::-webkit-scrollbar-thumb{background:var(--dsh-scrollbar-thumb);background-clip:content-box;border-radius:999px}
+.dab-tabs::-webkit-scrollbar-thumb:hover,.dab-pick-menu::-webkit-scrollbar-thumb:hover{background:var(--dsh-scrollbar-thumb-hover)}
+.dab-tabs::-webkit-scrollbar-corner,.dab-pick-menu::-webkit-scrollbar-corner{background:transparent}
+/* The host hides the platform's stepper arrows; without this the strip keeps the
+   little os arrows at both ends of the track while the panel's bar has none. */
+.dab-tabs::-webkit-scrollbar-button,.dab-pick-menu::-webkit-scrollbar-button{display:none}
 
 /* ── shell: nav rail + page body ─────────────────────────────────────────── */
 .dab-shell{display:grid;grid-template-columns:158px minmax(0,1fr);gap:26px;align-items:start;padding-bottom:8px;width:100%;max-width:980px;margin:0 auto}
@@ -45,7 +73,10 @@ export const UI_CSS = `
 .dab-head{margin:2px 0 5px}
 .dab-overline{font-size:10.5px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--dsw-alias-brand-primary);opacity:.9}
 .dab-h1{margin:4px 0 0;font-size:21px;font-weight:700;letter-spacing:-.01em}
-.dab-desc{margin:6px 0 0;font-size:12.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary);max-width:56ch}
+/* No max-width on the page description: it is a single line of context under the
+   title, and capping it at a prose measure left it wrapping early with dead space
+   to its right while the cards below ran the full width of the panel. */
+.dab-desc{margin:6px 0 0;font-size:12.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary)}
 .dab-card{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:16px;padding:18px}
 .dab-card-hover{transition:transform .28s ease,box-shadow .28s ease,border-color .28s ease}
 .dab-card-hover:hover{transform:translateY(-2px);box-shadow:0 10px 28px -12px rgba(0,0,0,.28)}
@@ -204,7 +235,74 @@ export const UI_CSS = `
 .dab-crash-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);text-align:center;line-height:1.5}
 
 /* ── model rules ─────────────────────────────────────────────────────────── */
-.dab-rules{display:flex;flex-direction:column;gap:12px}
+/* ── rule tab strip ──────────────────────────────────────────────────────────
+ * The rules are edited ONE at a time: every rule is a tab in a single sideways
+ * scrolling row, and the page renders exactly one editor under it. The height of
+ * this panel is therefore a function of one card, not of the rule count — which
+ * is what the stacked accordion could not promise.
+ *
+ * The strip scrolls instead of wrapping for the same reason: a wrapped strip
+ * would grow a row taller with every rule and hand the page height straight back
+ * to the list. Tabs are fixed-height and the match label elides, so switching
+ * rules can never reflow the row either. */
+/* Deliberately NOT sticky: the horizontal scroller above the tabs clips on BOTH
+   axes, so the "which rule" menu — an absolutely positioned child — would be cut
+   off at the strip's own bottom edge instead of floating over the page.
+   Switching rules stays a click near the top of the panel, which is one screen
+   away at every realistic rule count. */
+/* The tiles are aligned by their TOP edge, not by centering: the strip's box is
+   taller than a tab (its height includes the horizontal scrollbar, which no other
+   tile in the row has), so centering against the row would put the two icon
+   buttons a few pixels below the tabs they sit beside. Top alignment makes the
+   strip's top and the buttons' top the same line; the strip's own 3px top padding
+   is mirrored on the buttons, and everything below the bar comes from the strip's
+   bottom padding — so the bar keeps the same distance from the TAB bottoms and
+   from the icon tiles' bottoms. */
+.dab-tabs-row{display:flex;align-items:flex-start;gap:8px;padding-bottom:0;margin-bottom:6px}
+/* The strip is the scroller the scrollbar block above is written for. Its bottom
+   padding is the whole gap under the tiles: the bar is painted at the bottom of
+   this box, so this is what keeps it off the tabs (and, because the row adds
+   nothing here, off the icon buttons beside them too). */
+.dab-tabs{flex:1;min-width:0;display:flex;align-items:center;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;padding:3px 2px 8px}
+.dab-tab{height:34px;flex:none;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:12.5px;cursor:pointer;max-width:196px;transition:color .2s,border-color .2s,background .2s,opacity .2s}
+.dab-tab:hover{color:var(--dsw-alias-label-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,var(--dsw-alias-border-l2))}
+.dab-tab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
+/* The selected tab reads like the nav rail's own indicator: a brand tint, a
+   brand border, and the label lifted to full contrast. */
+.dab-tab.is-active{color:var(--dsw-alias-brand-primary);font-weight:600;border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 13%,transparent)}
+.dab-tab.is-off{opacity:.5}
+.dab-tab:not(.is-active).is-off:hover{opacity:.75}
+.dab-tab-thumb{width:20px;height:20px;flex:none;border-radius:5px;object-fit:cover;border:1px solid var(--dsw-alias-border-l2)}
+.dab-tab-num{font-family:var(--dab-mono);font-size:10.5px;font-weight:700;opacity:.8}
+.dab-tab-match{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dab-tab-live{width:6px;height:6px;flex:none;border-radius:50%;background:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 25%,transparent);animation:dab-pulse 1.8s ease-in-out infinite}
+.dab-tab-rot{flex:none;font-size:11px;line-height:1;opacity:.75}
+/* The strip's two actions — add a rule, open the rule list — are square icon
+   tiles beside the scroller rather than tiles inside it: inside, a long rule list
+   pushed them off the end, so the one control that ADDS a rule could only be
+   reached by scrolling to the bottom of the rules. They keep the tab's box so the
+   row stays one height, and the icon is the whole label (title + aria-label). */
+/* The top margin mirrors the strip's own padding-top, so the icon inside the tile
+   sits on the same line as the text inside the tabs. */
+.dab-tab-icon{width:34px;margin-top:3px;padding:0;justify-content:center;color:var(--dsw-alias-label-tertiary);max-width:none}
+.dab-tab-icon:hover{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent)}
+
+/* ── "which rule" picker (the strip's overflow menu) ───────────────────────── */
+.dab-pick{position:relative;flex:none}
+.dab-pick-scrim{position:fixed;inset:0;z-index:40;background:transparent}
+.dab-pick-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:41;min-width:220px;max-height:284px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:5px;border-radius:12px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 44px -14px rgba(0,0,0,.45);animation:dab-rise-in .18s ease both}
+.dab-pick-item{display:flex;align-items:center;gap:9px;padding:7px 9px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary));font-size:12.5px;text-align:left;cursor:pointer}
+.dab-pick-item:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.dab-pick-item.is-active{color:var(--dsw-alias-brand-primary);font-weight:600;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
+.dab-pick-match{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dab-pick-n{flex:none;font-family:var(--dsw-mono);font-size:10.5px;opacity:.7}
+
+/* ── one rule editor (the tab panel's content) ─────────────────────────────── */
+.dab-rule-panel{min-height:0}
+/* The armed delete button stops being a 28px icon box and says what the second
+   click will do — a worded state, not only a colour one. */
+.dab-icon-btn.is-armed{width:auto;padding:0 9px;color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent)}
+.dab-confirm-txt{font-size:11px;font-weight:600;white-space:nowrap}
 .dab-rule{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:16px;padding:14px;transition:border-color .25s,box-shadow .25s,opacity .25s}
 .dab-rule.is-active{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent)}
 .dab-rule.is-off{opacity:.55}

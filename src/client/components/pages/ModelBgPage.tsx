@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { BgMode, BgRule, ThemeSectionProps, ThemeStoreState } from '../../types'
 import { cfg } from '../../state'
-import { matchRule } from '../../modelbg'
+import { neighbourAfter, resolveTab } from '../../rules-view'
 import { ROTATE_PRESETS } from '../../rotation'
 import { readImg } from '../../utils/image'
 import { hslToHsv, hsvToHsl, hslToRgb } from '../../utils/color'
@@ -11,7 +11,7 @@ import { ColorInputs } from '../ColorInputs'
 import { ColorPicker } from '../ColorPicker'
 import { BgEditor } from '../BgEditor'
 import { LiveSlider } from '../LiveSlider'
-import { DropletIcon, EditIcon, LinkIcon, PipetteIcon, SparkleIcon, SunIcon, TrashIcon, UploadIcon } from '../icons'
+import { ChevronDownIcon, DropletIcon, EditIcon, LinkIcon, PipetteIcon, PlusIcon, SparkleIcon, SunIcon, TrashIcon, UploadIcon } from '../icons'
 
 const BG_MODES: Array<{ mode: BgMode; key: string }> = [
   { mode: 'fit', key: 'bgModeFit' },
@@ -24,17 +24,6 @@ const BG_MODES: Array<{ mode: BgMode; key: string }> = [
 /** Seed color a rule starts from when the user picks one for the first time. */
 const SEED_COLOR: [number, number, number] = [220, 0.55, 0.25]
 
-/**
- * Failing-hop codes the model watcher can report, mapped to their copy. Only
- * these are rendered: `waiting` and `fallback` already have their own hints.
- */
-const MODEL_NOTE_KEYS: Record<string, string | undefined> = {
-  'no-service': 'statusNoteNoService',
-  'no-session': 'statusNoteNoSession',
-  'no-projection': 'statusNoteNoProjection',
-  'empty-selection': 'statusNoteEmptySelection',
-}
-
 function toHex(rgb: [number, number, number]): string {
   return '#' + rgb.map(v => Math.round(v).toString(16).padStart(2, '0')).join('')
 }
@@ -44,23 +33,60 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
   const store = useStore((s: ThemeStoreState) => s)
   const rules = cfg.rules
 
-  // Match tester: the field follows the detected model until the user types
-  // their own text, so the card is useful the moment it is looked at and never
-  // fights the watcher once it is not. It replaced the old "active now" readout —
-  // the same question ("what does this model resolve to?") one step earlier, and
-  // it does not go stale between switches.
-  const [text, setText] = useState('')
-  const [touched, setTouched] = useState(false)
-  useEffect(() => { if (!touched) setText(store.model) }, [store.model, touched])
-  const probe = text.trim()
-  const result = ((): string | null => {
-    if (probe === '') return null
-    const hit = matchRule(rules, probe)
-    const rule = hit.rule
-    if (rule === null) return null
-    const n = rules.findIndex(r => r.id === rule.id) + 1
-    return `${hit.matched ? t('tryoutHit') : t('tryoutFallback')} ${n}`
-  })()
+  // ── Which rule is being EDITED ────────────────────────────────────────────
+  // Exactly one, because the rules are edited one at a time from the tab strip
+  // below. That is what keeps the page height independent of how many rules the
+  // user has: with a card per rule, five expanded rules were five editor panels
+  // stacked, and the page only stopped growing once they were collapsed by hand.
+  //
+  // The selection is NOT the active rule: which rule paints is decided by the
+  // model, and the two questions are answered at different times. So a model
+  // switch never steals the editor out from under the user (the tab only gains
+  // its "in use" dot) — but the FIRST selection does land on the rule in use,
+  // which is the one the user came here to look at.
+  const [selId, setSelId] = useState<string | null>(() => resolveTab(rules, null, store.activeRuleId)?.id ?? null)
+  /** True once the user has picked a tab themselves, which stops the follow above. */
+  const pickedRef = useRef(false)
+  // `rulesRev` is what makes this survive boot: the persisted rule list can land
+  // AFTER the first render (and its ids need not be the ids that were there), so
+  // "the selection is gone" has to be re-checked every time the list changes, not
+  // only when its length does.
+  useEffect(() => {
+    if (pickedRef.current) return
+    const held = resolveTab(rules, selId, store.activeRuleId)
+    if (held !== null && held.id !== selId) setSelId(held.id)
+  }, [store.rulesRev, store.activeRuleId, selId, rules])
+  /** The rule whose editor is mounting — never a stale id. */
+  const shown = resolveTab(rules, selId, store.activeRuleId)
+  const active = shown?.id ?? null
+
+  // ── Which IMAGE of each rule is being edited ──────────────────────────────
+  // Held here rather than inside the card because switching tabs unmounts the
+  // card: parked in the card, the selection was forgotten and every return to a
+  // rule jumped back to its first picture. Keyed by rule id so a removal cannot
+  // hand one rule's selection to another.
+  const [selImage, setSelImage] = useState<Record<string, number>>({})
+  const selIdxOf = (id: string): number => selImage[id] ?? 0
+  const setSelIdxOf = (id: string, i: number): void => setSelImage(m => (m[id] === i ? m : { ...m, [id]: i }))
+
+  /** Select a rule as the edited one; keyboard stepping shares this. */
+  const selectRule = (id: string): void => { pickedRef.current = true; setSelId(id) }
+  /** Delete a rule and land on its neighbour — never on the first rule. */
+  const removeRule = (id: string): void => {
+    if (id === active) {
+      const next = neighbourAfter(rules, id)
+      // Also counts as a deliberate pick: after a deletion the strip must not go
+      // chasing the active rule again.
+      pickedRef.current = true
+      setSelId(next?.id ?? null)
+    }
+    setSelImage(m => { const n = { ...m }; delete n[id]; return n })
+    p.removeRule(id)
+  }
+  const addRule = (): void => {
+    pickedRef.current = true
+    setSelId(p.addRule())
+  }
 
   return (
     <>
@@ -70,42 +96,12 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
         <p className="dab-desc">{t('descModelBg')}</p>
       </header>
 
-      <section className="dab-card dab-rise" style={{ '--d': 1 } as CSSProperties}>
-        {/* A host process from before multi-image cannot read this bundle's config
-            shape, so writes are held (see canWriteConfig in ../../rpc). Saying it
-            out loud is the whole point: edits that silently do not persist are
-            worse than a line telling the user to restart DSH. */}
-        {store.hostStale ? (
-          <p className="dab-hint dab-stale" style={{ marginBottom: 10 }}>{t('hostStaleHint')}</p>
-        ) : null}
-        <div className="dab-swatch-title">{t('tryoutTitle')}</div>
-        <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <input
-            type="text" className="dab-urlinput" value={text}
-            placeholder={t('tryoutPlaceholder')}
-            onChange={e => { setTouched(true); setText(e.target.value) }} />
-          {store.model !== '' ? (
-            <button type="button" className="dab-btn" onClick={() => { setTouched(true); setText(store.model) }}>
-              {t('tryoutUseCurrent')}
-            </button>
-          ) : null}
-        </div>
-        <p className="dab-hint" style={{ marginTop: 9 }}>
-          {probe === '' ? t('tryoutEmpty') : result === null ? t('tryoutNone') : result}
-        </p>
-        {/* Why the pre-filled value is what it is: without these, a host default
-            passed off as this session's model, or a sessions service that simply
-            is not up yet, is indistinguishable from a correct read. */}
-        {store.model === '' ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('statusUnknownHint')}</p> : null}
-        {store.model !== '' && store.modelSource === 'default'
-          ? <p className="dab-hint" style={{ marginTop: 6 }}>{t('statusSourceDefaultHint')}</p>
-          : null}
-        {MODEL_NOTE_KEYS[store.modelNote] !== undefined
-          ? <p className="dab-hint" style={{ marginTop: 6 }}>{t(MODEL_NOTE_KEYS[store.modelNote]!)}</p>
-          : null}
-      </section>
-
-      <section className="dab-rise" style={{ '--d': 2 } as CSSProperties}>
+      {/* No match tester above the rule list any more: it moved to the Profile
+          page. On this page it pushed the strip — the thing the panel is now
+          built around — a whole card down, and the question it answers ("which
+          rule does this model land on?") is read once, not consulted while
+          editing a rule. */}
+      <section className="dab-rise" style={{ '--d': 1 } as CSSProperties}>
         {/* No "rules" heading and no priority sentence above the list: the panel's
             own title already introduces the rules, and the two lines only pushed
             the first card further down. */}
@@ -120,27 +116,170 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
           <span className="dab-hint">{t('autoExtract')}</span>
         </div>
 
-        <div className="dab-rules">
-          {rules.map((rule, i) => (
-            <RuleCard
-              key={rule.id} p={p} rule={rule} index={i} total={rules.length}
-              // Which of THIS rule's images is on screen right now; -1 for every
-              // rule that is not the one painting, so a card can never claim to be
-              // showing something it is not.
-              liveIndex={rule.id === store.activeRuleId ? store.rotIndex : -1}
-              active={rule.id === store.activeRuleId} notify={notify} />
-          ))}
-        </div>
+        {/* One tab strip, one editor. The add button lives at the END of the
+            strip, where a new rule appears: the separate button below the list
+            used to sit a screen away from the list it appended to. */}
+        <RulesTabs
+          rules={rules} activeId={active} liveId={store.activeRuleId} p={p}
+          onSelect={selectRule} onAdd={addRule} />
 
-        <button type="button" className="dab-btn dab-btn-primary" style={{ marginTop: 12 }} onClick={() => { p.addRule() }}>
-          + {t('ruleAdd')}
-        </button>
+        <div className="dab-rule-panel" role="tabpanel" id={active === null ? undefined : `dab-rule-panel-${active}`}
+          aria-labelledby={active === null ? undefined : `dab-rule-tab-${active}`}>
+          {(() => {
+            const idx = rules.findIndex(r => r.id === active)
+            const rule = idx < 0 ? undefined : rules[idx]
+            if (rule === undefined) {
+              return <p className="dab-hint" style={{ padding: '4px 2px' }}>{t('ruleNoneHint')}</p>
+            }
+            return (
+              <RuleCard
+                key={rule.id} p={p} rule={rule} index={idx} total={rules.length}
+                // Which of THIS rule's images is on screen right now; -1 for a rule
+                // that is not the one painting, so a card can never claim to be
+                // showing something it is not.
+                liveIndex={rule.id === store.activeRuleId ? store.rotIndex : -1}
+                active={rule.id === store.activeRuleId} notify={notify}
+                // Editing state is owned by the page: the card unmounts when the
+                // user switches tabs, and this is what survives it. Removal goes
+                // through the page too, because it owns the selection the deleted
+                // rule may be holding.
+                sel={selIdxOf(rule.id)} onSel={i => setSelIdxOf(rule.id, i)}
+                onRemove={() => removeRule(rule.id)} />
+            )
+          })()}
+        </div>
       </section>
     </>
   )
 }
 
-function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
+/**
+ * The rule tab strip: every rule is one tab, and the tab at the end appends a
+ * new rule — so what the user browses and what they add to live in one row.
+ *
+ * A tab carries what the card head used to: its number, a thumbnail of the first
+ * image, the match string, and two states that are worth knowing WITHOUT opening
+ * it — whether the rule is the one in use, and whether it rotates or is off. The
+ * strip scrolls sideways rather than wrapping, because a wrapped strip would put
+ * the page height back in the hands of the rule count, which is the whole thing
+ * this layout exists to prevent.
+ */
+function RulesTabs({ rules, activeId, liveId, p, onSelect, onAdd }: {
+  rules: readonly BgRule[]
+  /** Rule whose editor is showing. */
+  activeId: string | null
+  /** Rule the current model resolved to ('' / null when nothing resolved). */
+  liveId: string | null
+  p: ThemeSectionProps
+  onSelect: (id: string) => void
+  onAdd: () => void
+}) {
+  const { t } = p
+  const items = useRef<Array<HTMLButtonElement | null>>([])
+  const [pick, setPick] = useState(false)
+
+  /** Select a rule and bring its tab into view — the strip is wider than the page. */
+  const go = (i: number): void => {
+    const rule = rules[i]
+    if (rule === undefined) return
+    onSelect(rule.id)
+    // `block: 'nearest'` is the important half: the default would also scroll the
+    // settings panel vertically to reach a tab that is already on screen.
+    items.current[i]?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }
+
+  const onKeys = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    const i = rules.findIndex(r => r.id === activeId)
+    if (i < 0) return
+    if (e.key === 'ArrowRight') { e.preventDefault(); go(Math.min(i + 1, rules.length - 1)) }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); go(Math.max(i - 1, 0)) }
+    else if (e.key === 'Home') { e.preventDefault(); go(0) }
+    else if (e.key === 'End') { e.preventDefault(); go(rules.length - 1) }
+  }
+
+  return (
+    <div className="dab-tabs-row">
+      <div className="dab-tabs" role="tablist" aria-label={t('tabListLabel')} onKeyDown={onKeys}>
+        {rules.map((rule, i) => {
+          const on = rule.id === activeId
+          const live = rule.id === liveId
+          const thumb = rule.images[0] === undefined ? null : p.imageOf(rule.images[0].slot)
+          const match = rule.match.trim()
+          // Everything the tab knows about the rule, in one sentence for the
+          // tooltip: the visible label is elided, the title is not.
+          const title = [
+            match === '' ? t('tabUnnamed') : match,
+            `${rule.images.length}`,
+            live ? t('tabLive') : null,
+            rule.images.length >= 2 && rule.rotate.enabled ? t('tabRotating') : null,
+            rule.enabled ? null : t('tabOff'),
+          ].filter((x): x is string => x !== null).join(' · ')
+          return (
+            <button
+              key={rule.id} type="button" role="tab" aria-selected={on}
+              id={`dab-rule-tab-${rule.id}`} aria-controls={`dab-rule-panel-${rule.id}`}
+              tabIndex={on ? 0 : -1}
+              ref={el => { items.current[i] = el }}
+              className={`dab-tab${on ? ' is-active' : ''}${rule.enabled ? '' : ' is-off'}${live ? ' is-live' : ''}`}
+              title={title} onClick={() => go(i)}>
+              {thumb === null ? null : <img className="dab-tab-thumb" src={thumb} alt="" draggable={false} />}
+              <span className="dab-tab-num">{i + 1}</span>
+              <span className="dab-tab-match">{match === '' ? t('tabUnnamed') : match}</span>
+              {rule.enabled && live ? <span className="dab-tab-live" title={t('tabLive')} /> : null}
+              {rule.enabled && rule.images.length >= 2 && rule.rotate.enabled
+                ? <span className="dab-tab-rot" title={t('tabRotating')}>⟳</span>
+                : null}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Both actions sit OUTSIDE the scroller, at its right edge: they act on the
+          strip as a whole, and inside it they would scroll away from the end of a
+          long list — the add tile could only be reached by scrolling to the
+          bottom of the rules. Icon-only (with a title and an aria-label) because
+          the strip's width belongs to the rules; the tab beside them says which
+          rule is being edited. */}
+      <button type="button" className="dab-tab dab-tab-icon" onClick={onAdd}
+        title={t('ruleAdd')} aria-label={t('ruleAdd')}>
+        <PlusIcon size={16} />
+      </button>
+
+      {/* Only worth a menu once the strip cannot show everything at a glance;
+          below that the tabs are all one click away already. */}
+      {rules.length > 3 ? (
+        <div className="dab-pick">
+          <button type="button" className="dab-tab dab-tab-icon" aria-haspopup="listbox"
+            aria-expanded={pick} title={t('tabPick')} aria-label={t('tabPick')}
+            onClick={() => setPick(o => !o)}>
+            <ChevronDownIcon size={16} />
+          </button>
+          {pick ? (
+            <>
+              {/* An overlay rather than a document listener: the menu is drawn
+                  under the cursor and closes on the very next click anywhere. */}
+              <div className="dab-pick-scrim" onClick={() => setPick(false)} />
+              <div className="dab-pick-menu" role="listbox" aria-label={t('tabMore')}>
+                {rules.map((rule, i) => (
+                  <button key={rule.id} type="button" role="option"
+                    aria-selected={rule.id === activeId}
+                    className={`dab-pick-item${rule.id === activeId ? ' is-active' : ''}`}
+                    onClick={() => { setPick(false); go(i) }}>
+                    <span className="dab-tab-num">{i + 1}</span>
+                    <span className="dab-pick-match">{rule.match.trim() === '' ? t('tabUnnamed') : rule.match}</span>
+                    <span className="dab-pick-n">{rule.images.length}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function RuleCard({ p, rule, index, total, active, liveIndex, notify, sel, onSel, onRemove }: {
   p: ThemeSectionProps
   rule: BgRule
   index: number
@@ -149,10 +288,13 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
   /** Index of the image on screen (only meaningful while `active`); -1 = none. */
   liveIndex: number
   notify: (msg: string, ok?: boolean) => void
+  /** Which of this rule's images is being EDITED (owned by the page, see above). */
+  sel: number
+  onSel: (i: number) => void
+  /** Delete this rule (the page moves the editor to a neighbour). */
+  onRemove: () => void
 }) {
   const { t } = p
-  // The active rule opens by default so the panel shows the live one first.
-  const [open, setOpen] = useState(active)
   const [dragOver, setDragOver] = useState(false)
   // ── Dragging a TILE to reorder the row ─────────────────────────────────────
   // Pointer events with capture rather than HTML5 drag-and-drop: the strip already
@@ -174,15 +316,17 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [secDraft, setSecDraft] = useState<string | null>(null)
+  /** Two-step delete: this card is the only place the rule can be removed from. */
+  const [confirmRemove, setConfirmRemove] = useState(false)
   /** Whether the next file picked replaces the selected image or is added. */
   const [replace, setReplace] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Which image this card is EDITING — deliberately independent of which image
   // the rule is PAINTING: picking image 3 in the strip to fix its framing must not
-  // change the background under the dialog. Clamped on read, because removing an
-  // image can leave the selection past the end.
-  const [sel, setSel] = useState(0)
+  // change the background under the dialog. The page owns the value (it has to
+  // outlive a tab switch); it is clamped here, because removing an image can leave
+  // the stored index past the end.
   const selIdx = rule.images.length === 0 ? 0 : Math.min(sel, rule.images.length - 1)
   const image = rule.images[selIdx]
   const url = image === undefined ? null : p.imageOf(image.slot)
@@ -205,12 +349,13 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
   const [h, s, l] = ownColor ?? SEED_COLOR
   const wheel = hslToHsv(h, s, l)
 
-  // Boot only reads a rule's FIRST image, so an expanded card pulls the rest in.
+  // This card IS the open one (the page mounts only the selected rule), so its
+  // images are pulled in on mount. Boot only reads a rule's FIRST image, and the
+  // count is in the deps on purpose: adding an image has to hydrate it too (the
+  // bytes are already in memory then, so this is a no-op).
   useEffect(() => {
-    if (open) void p.loadRuleImages(rule.id)
-    // The count is in the deps on purpose: adding an image to an open card has to
-    // hydrate it too (the bytes are already in memory then, so this is a no-op).
-  }, [open, rule.id, rule.images.length, p])
+    void p.loadRuleImages(rule.id)
+  }, [rule.id, rule.images.length, p])
 
   const onColor = (nh: number, ns: number, nl: number): void => {
     const [sh, ss, sl] = hsvToHsl(nh, ns, nl)
@@ -244,7 +389,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
         pending--
         if (pending === 0) {
           p.addRuleImages(rule.id, out.filter((x): x is string => typeof x === 'string'))
-          setSel(first)
+          onSel(first)
         }
       })
     })
@@ -283,7 +428,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
     setUrlOpen(false)
     setUrlVal('')
     // Same rule as the file picker: show the user what they just added.
-    setSel(first)
+    onSel(first)
   }
 
   const onExtract = async (): Promise<void> => {
@@ -383,7 +528,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
     p.moveRuleImageTo(rule.id, pen.slot, to)
     // Keep the preview on the picture the user just moved, which is where the drag
     // left their attention — the selection is an index, so it has to follow.
-    setSel(to)
+    onSel(to)
   }
   const removeSel = (): void => {
     if (selSlot === null) return
@@ -393,7 +538,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
     // removeRuleImage in ../../index.)
     const at = selIdx
     p.removeRuleImage(rule.id, selSlot)
-    setSel(Math.max(0, Math.min(at, rule.images.length - 2)))
+    onSel(Math.max(0, Math.min(at, rule.images.length - 2)))
   }
   /** Commit the custom dwell time the moment it is typed (seconds → ms). */
   const commitSeconds = (): void => {
@@ -408,11 +553,10 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
 
   return (
     <section className={cls}>
+      {/* The head, not a tab: collapse is gone (there is nothing to collapse —
+          only the selected rule is mounted), and the controls that act on the
+          whole rule live here, next to the name they act on. */}
       <div className="dab-rule-head">
-        <button type="button" className="dab-icon-btn" onClick={() => setOpen(o => !o)}
-          title={open ? 'Collapse' : 'Expand'} aria-expanded={open}>
-          {open ? '▾' : '▸'}
-        </button>
         <span className="dab-rule-num">{index + 1}</span>
         {index === 0 ? <span className="dab-rule-badge">{t('ruleFallbackBadge')}</span> : null}
         <input
@@ -428,14 +572,25 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
           title={t('ruleUp')} onClick={() => p.moveRule(rule.id, -1)}>↑</button>
         <button type="button" className="dab-icon-btn" disabled={index === total - 1}
           title={t('ruleDown')} onClick={() => p.moveRule(rule.id, 1)}>↓</button>
-        <button type="button" className="dab-icon-btn dab-icon-btn-danger"
-          title={t('ruleRemove')} onClick={() => p.removeRule(rule.id)}>
-          <TrashIcon size={13} />
+        {/* Two steps, because a rule carries its images: one click on a trash
+            icon next to a tab strip is one too few for something that cannot be
+            undone. The armed state says so in words rather than in colour. */}
+        <button type="button"
+          className={`dab-icon-btn dab-icon-btn-danger${confirmRemove ? ' is-armed' : ''}`}
+          title={confirmRemove ? t('ruleRemoveConfirm') : t('ruleRemove')}
+          onBlur={() => setConfirmRemove(false)}
+          onClick={() => {
+            if (!confirmRemove) { setConfirmRemove(true); return }
+            setConfirmRemove(false)
+            onRemove()
+          }}>
+          {confirmRemove ? <span className="dab-confirm-txt">{t('ruleRemoveConfirm')}</span> : <TrashIcon size={13} />}
         </button>
       </div>
 
-      {open ? (
-        <div className="dab-rule-body">
+      {/* No `open` test: this card is the tab panel, and the page mounts exactly
+          one of them. */}
+      <div className="dab-rule-body">
           <div className="dab-rule-cols">
             {/* ── image strip + layout ───────────────────────────────────── */}
             <div>
@@ -523,7 +678,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
                           // A drag ends with a click on the tile it started from,
                           // and that click is not a selection.
                           if (draggedRef.current) { draggedRef.current = false; return }
-                          setSel(i)
+                          onSel(i)
                         }}
                         // Double-click shows this picture: it is the one gesture that
                         // says "THIS one on screen", which reordering deliberately
@@ -862,7 +1017,6 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify }: {
             </div>
           </div>
         </div>
-      ) : null}
 
       {/* `multiple` because a rotation is built by picking a handful of pictures
           at once; the strip's drop zone and the URL box take batches too. A

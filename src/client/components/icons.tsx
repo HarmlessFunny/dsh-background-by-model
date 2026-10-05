@@ -123,3 +123,13 @@ export const CodeIcon = ({ size, className }: { size?: number; className?: strin
   <Glyph size={size} className={className}><path d="M5.7 4.3 2.4 8l3.3 3.7M10.3 4.3 13.6 8l-3.3 3.7" /></Glyph>
 )
 
+/** Appends a rule — the tab strip's own action, beside the strip it adds to. */
+export const PlusIcon = ({ size, className }: { size?: number; className?: string }) => (
+  <Glyph size={size} className={className}><path d="M8 3.4v9.2M3.4 8h9.2" /></Glyph>
+)
+
+/** Opens the "which rule" menu: down means a list drops out under the button. */
+export const ChevronDownIcon = ({ size, className }: { size?: number; className?: string }) => (
+  <Glyph size={size} className={className}><path d="M4.3 6.4 8 10.1l3.7-3.7" /></Glyph>
+)
+

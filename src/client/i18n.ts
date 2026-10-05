@@ -34,10 +34,20 @@ export const zh: Record<string, string> = {
   tryoutEmpty: '输入模型名即可试跑',
   autoExtract: '选图后自动取主题色',
   ruleAdd: '新增规则',
+  // Shown in the tab panel in the one moment the list has no rule at all.
+  ruleNoneHint: '还没有规则，点上面的「新增规则」新建一条',
   ruleFallbackBadge: '兜底',
   ruleMatchPlaceholder: '如 flash / glm（忽略大小写，留空则不参与匹配）',
   ruleEnabled: '启用',
   ruleUp: '上移', ruleDown: '下移', ruleRemove: '删除规则',
+  // The rules are edited one at a time, from a tab strip: these are its labels.
+  // "Pick a rule" is the overflow menu of the strip, which is the only reason it
+  // exists — the tabs beside it are reachable by a sideways scroll.
+  tabListLabel: '规则', tabPick: '选择规则', tabMore: '更多规则',
+  tabUnnamed: '未命名规则', tabLive: '正在使用', tabRotating: '轮换中', tabOff: '已停用',
+  // Deleting a rule takes its images with it, so the button asks once before it
+  // does anything: the arm state is the sentence below.
+  ruleRemoveConfirm: '再点一次删除',
   ruleNoImage: '尚未选择图片',
   ruleFromUrl: '从网址', ruleUrlPlaceholder: '粘贴图片网址 https://…',
   ruleUrlApply: '应用', ruleUrlCancel: '取消', ruleUrlApplying: '加载中…',
@@ -186,10 +196,17 @@ export const en: Record<string, string> = {
   tryoutEmpty: 'Type a model name to test the list',
   autoExtract: 'Extract the theme color when an image is chosen',
   ruleAdd: 'Add rule',
+  ruleNoneHint: 'No rules yet — use “Add rule” in the tab strip above',
   ruleFallbackBadge: 'fallback',
   ruleMatchPlaceholder: 'e.g. flash / glm (case-insensitive, empty never matches)',
   ruleEnabled: 'Enabled',
   ruleUp: 'Move up', ruleDown: 'Move down', ruleRemove: 'Remove rule',
+  // The rules are edited one at a time, from a tab strip: these are its labels.
+  tabListLabel: 'Rules', tabPick: 'Pick a rule', tabMore: 'More rules',
+  tabUnnamed: 'Unnamed rule', tabLive: 'In use', tabRotating: 'Rotating', tabOff: 'Disabled',
+  // Deleting a rule takes its images with it, so the button asks once before it
+  // does anything: the arm state is the sentence below.
+  ruleRemoveConfirm: 'Click again to delete',
   ruleNoImage: 'No image yet',
   ruleFromUrl: 'From URL', ruleUrlPlaceholder: 'Paste an image URL https://…',
   ruleUrlApply: 'Apply', ruleUrlCancel: 'Cancel', ruleUrlApplying: 'Loading…',
