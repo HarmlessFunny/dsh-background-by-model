@@ -53,6 +53,10 @@ let junkBody = false  // answer 200 with a non-image (a broken proxy, an error p
 let jsonBody = null      // when set, every mirror answers with these exact bytes
 let httpStatus = 200     // when not 2xx, every live mirror answers with this
 let claimedLength = null // when set, mirrors announce this content-length instead
+// A mirror having a BAD MOMENT: the next N requests answer 503, which is a status
+// the profile's retry policy treats as weather (see `presetRetryable`, ./src/preset)
+// — the only knob here that models a failure which goes away by itself.
+let flaky = 0
 // A whole directory served file by file, which is what the recommended profile
 // has become: the stub answers by FILE NAME, and a name it does not hold is a
 // 404 — which is how "the author renamed one wallpaper" is reproduced here.
@@ -62,6 +66,10 @@ globalThis.fetch = async (url) => {
   const target = String(url)
   fetchLog.push(target)
   if (downMirrors.some(d => target.includes(d))) throw new Error('mirror down')
+  if (flaky > 0) {
+    flaky--
+    return { ok: false, status: 503, headers: new Headers({}), async arrayBuffer() { return new ArrayBuffer(0) } }
+  }
   if (routes !== null) {
     const body = routes.get(target.slice(target.lastIndexOf('/') + 1))
     if (body === undefined) return { ok: false, status: 404, headers: new Headers({}), async arrayBuffer() { return new ArrayBuffer(0) } }
@@ -150,6 +158,27 @@ check('the rule color and the image color agree to the digit',
 check('nothing in the shape offers to swap the image',
   h.items.every(i => !('useBundled' in i) && !('image' in i) && !('asset' in i)),
   JSON.stringify(Object.keys(h.items[0])))
+
+console.log('\n--- a fresh store opens on one blank rule, and only a fresh one does ---')
+// `first` is this run's very first read, of a data directory with no config file
+// in it — the state a new install is in. It has to come back with the rule the
+// panel needs to show a drop target, not with an empty list and a "no rules yet"
+// hint the user has no control left to act on.
+check('a store with no config file reads as exactly one rule',
+  first.rules.length === 1, JSON.stringify(first.rules.map(r => r.id)))
+check('that rule is blank: no matching, no colour, nothing to paint',
+  first.rules[0].match === '' && first.rules[0].color === null
+  && first.rules[0].images.length === 0 && first.rules[0].enabled === true,
+  JSON.stringify(first.rules[0]))
+check('and it is rule 1, so it doubles as the fallback',
+  first.rules[0].id === 'r1', first.rules[0].id)
+// The distinction the seed rests on, and the reason it is not done by counting: a
+// MISSING rule list means nothing has ever been configured, while an EXPLICIT
+// empty one is a user who deleted every rule — only the first may be filled in.
+await call('writeConfig', { config: { ...first, rules: [] } })
+check('a rule list the user emptied stays empty (nothing is conjured back in)',
+  (await readConfig()).rules.length === 0)
+await call('writeConfig', { config: first })
 
 console.log('\n--- a fresh install starts on the published profile, not on per-key safety ---')
 // These are the Interface numbers the recommended profile on the asset host
@@ -822,9 +851,33 @@ check('a malformed slot name is refused before it downloads',
 // The strict half: a file the config names and the host does not have. It has to
 // be an error NAMING the slot rather than a profile that is quietly missing a
 // picture — that distinction is the whole reason a branch reference is allowed.
+// And it has to arrive FAST: the file is provably absent, so the retry rounds
+// below must not be spent on it — one request per mirror, and no waiting.
+const beforeMissing = fetchLog.length
 check('a named wallpaper the host does not have fails, and says which',
   JSON.stringify((await call('fetchPresetImage', { slot: 'm9' })).value)
-  === JSON.stringify({ ok: false, error: 'download failed' }))
+  === JSON.stringify({ ok: false, error: 'download failed' })
+  && fetchLog.length === beforeMissing + 2
+  && fetchLog.slice(beforeMissing).filter(u => u.includes('cdn.jsdelivr.net')).length === 1
+  && fetchLog.slice(beforeMissing).filter(u => u.includes('raw.githubusercontent.com')).length === 1,
+  JSON.stringify(fetchLog.slice(beforeMissing)))
+
+// The failure the retry exists for: BOTH mirrors have a bad moment at once, so the
+// round has not been answered — and the file is asked again after a delay instead
+// of the whole profile failing. Measured in requests, because "it worked" is not
+// the claim; "it worked because it asked again" is.
+flaky = 2
+const beforeFlaky = fetchLog.length
+check('a mirror that fails once is asked again, and the file still arrives',
+  (await call('fetchPresetImage', { slot: 'm2' })).value?.ok === true
+  && fetchLog.length === beforeFlaky + 3
+  && fetchLog[beforeFlaky].includes('cdn.jsdelivr.net')
+  && fetchLog[beforeFlaky + 1].includes('raw.githubusercontent.com')
+  && fetchLog[beforeFlaky + 2].includes('cdn.jsdelivr.net'),
+  JSON.stringify(fetchLog.slice(beforeFlaky)))
+// Hygiene rather than an assertion: a leaked counter here would make every later
+// check fail for a reason that has nothing to do with what it is checking.
+flaky = 0
 routes.set('modelbg-m3', Buffer.from('<html>not an image</html>'))
 check('a wallpaper that is not an image is refused, not written',
   (await call('fetchPresetImage', { slot: 'm3' })).value?.error === 'not an image')
@@ -851,8 +904,14 @@ check('with every mirror down there is no profile, and no exception',
   (await call('fetchPresetConfig')).value?.error === 'download failed')
 downMirrors = []
 httpStatus = 500
-check('a mirror answering 500 is not a profile',
-  (await call('fetchPresetConfig')).value?.error === 'download failed')
+// A permanently broken mirror is the other half of the retry: the budget is a
+// budget. Three rounds over two mirrors is six requests and then it is over — a
+// retry that kept going would leave the user watching a button that never answers.
+const beforeBroken = fetchLog.length
+check('a mirror answering 500 is not a profile, and the retries are finite',
+  (await call('fetchPresetConfig')).value?.error === 'download failed'
+  && fetchLog.length === beforeBroken + 6,
+  JSON.stringify(fetchLog.slice(beforeBroken).length))
 httpStatus = 200
 // The failure a status code cannot see, and the one that matters most now that
 // the reference is a branch: a CDN answering 200 with an error page.
@@ -924,8 +983,12 @@ check('and every rule image with it',
 // to no slot, and re-fetching it is a network round trip for nothing.
 check('but the downloaded festival art is left where it is',
   cached('mid-autumn.webp')?.equals(WEBP) === true && cached('national-day.webp')?.equals(WEBP) === true)
-check('and reading an emptied store is a fresh config, not an error',
-  (await readConfig()).rules.length === 0)
+// An emptied store is a fresh store, and a fresh store opens on the one blank
+// rule (see the top of this file) — the reset is not allowed to leave the panel
+// with no drop target either.
+const refilled = (await readConfig()).rules
+check('and reading an emptied store is a fresh install: one blank rule, not an error',
+  refilled.length === 1 && refilled[0].images.length === 0, JSON.stringify(refilled))
 // The user's own wallpapers are the thing this feature destroys, and the only
 // thing that has to be true afterwards is that it is honest about it: no bytes
 // may survive at a slot the profile is about to write. Nothing else is promised,

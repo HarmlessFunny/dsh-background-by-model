@@ -521,10 +521,56 @@ export function defaultHolidayRules(): HolidayRule[] {
   return HOLIDAYS.map(defaultHolidayRule)
 }
 
-/** A default config with independent nested objects (never hand out the shared ones). */
+/**
+ * The id the ONE rule a fresh install opens on carries.
+ *
+ * Deliberately the id `nextRuleId` (./client/state) would mint for an empty list:
+ * the seeded rule is not a special case anywhere downstream — it is rule 1, the
+ * fallback, the rule whose tab the panel selects — so nothing has to recognise it,
+ * and the "add rule" beside it starts at `r2` exactly as it would have.
+ */
+export const BLANK_RULE_ID = 'r1'
+
+/**
+ * A rule with nothing in it yet: no picture, no match string, no color.
+ *
+ * Two states need this factory and they are the same state — a fresh install
+ * (see `freshThemeConfig` and `normalizeConfig`), and the "add rule" tile one
+ * entry further down the list.
+ *
+ * Such a rule is deliberately valid rather than half-built: it is skipped by
+ * matching until it has something of its own to paint (`ruleCanPaint` — a picture,
+ * or a theme color), which is what makes a rule nobody has filled in yet invisible
+ * instead of letting an empty background steal the fallback from rule 1.
+ *
+ * It used to be born with an allocated slot and an empty image entry, which is
+ * what put a blank tile at position 1 of a new rule's strip — and, worse, stopped
+ * the picture the user added next from being the first one (a rule paints its
+ * FIRST image). The slot is allocated when the first picture arrives.
+ */
+export function blankRule(id: string): BgRule {
+  return {
+    id,
+    images: [],
+    match: '', enabled: true, color: null,
+    wallpaperOpacity: 1, blur: 0,
+    rotate: defaultRotation(),
+  }
+}
+
+/**
+ * A default config with independent nested objects (never hand out the shared ones).
+ *
+ * The rule list is seeded with one blank rule rather than left empty: "no rules at
+ * all" is not a state the panel should ever open in, because the first thing a new
+ * user has to do is name a match string and drop a picture in — and the drop target
+ * for that is the rule card, which an empty list has no way to show. The empty
+ * state is still reachable (deleting the last rule is a thing the user can mean),
+ * and is described by `ruleNoneHint`.
+ */
 export function freshThemeConfig(): ThemeConfig {
   return {
-    rules: [],
+    rules: [blankRule(BLANK_RULE_ID)],
     opacities: { ...DEFAULT_PART_OPACITIES },
     blurs: { ...DEFAULT_PART_BLURS },
     transition: defaultTransition(),
@@ -902,9 +948,22 @@ function normalizeRightbarOpacity(v: unknown): number | null {
 /** Coerce an unknown persisted value into a valid ThemeConfig, falling back per-field. */
 export function normalizeConfig(raw: unknown): ThemeConfig {
   const r = (raw ?? {}) as Partial<ThemeConfig>
+  // A MISSING rule list and an EMPTY one are two different answers, and this is
+  // the only place that can tell them apart:
+  //
+  //   - the key is not there at all — nothing has ever been configured here (a
+  //     fresh install, a file the user emptied to `{}`, or a config so old that
+  //     `migrateLegacy` had nothing to migrate). The list starts where the panel
+  //     starts: one blank rule, ready to be named and given a picture;
+  //   - the key IS there and the array is empty — a user who deleted every rule.
+  //     That is left alone, because seeding it would resurrect a rule on every
+  //     read, which is the one thing "delete" must not mean.
+  //
+  // Every write persists the array it was handed, so the first branch is
+  // reachable only from a store nothing has written yet.
   const rules = Array.isArray(r.rules)
     ? r.rules.map(normalizeRule).filter((x): x is BgRule => x !== null)
-    : []
+    : [blankRule(BLANK_RULE_ID)]
   const ops = (r.opacities ?? {}) as Partial<PartOpacities>
   const bl = (r.blurs ?? {}) as Partial<PartBlurs>
   const blurs = {} as PartBlurs

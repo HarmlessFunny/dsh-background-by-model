@@ -13,13 +13,18 @@ import type {
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
-  cfg, adoptConfig, imageOf, displayImageOf, setImage, newRule, nextSlot, nextRuleId, ruleById,
+  cfg, adoptConfig, imageOf, displayImageOf, setImage, nextSlot, nextRuleId, ruleById,
   holidayById, normalizeRuleInPlace, patchRotation, ruleSlots, setActive, setModelLabel,
   activeRule, activeColor, activeRuleId, activeMatched, modelLabel, imageIndexOf, setRotIndex, takenSlots,
   rWp, rRightbarOpacity, DEFAULT_BG_STATE, resetConfig,
 } from './state'
 import { activeHoliday, pickHoliday } from '../holiday'
-import { SCHEMA_VERSION, normalizeTransition } from '../schema'
+import { SCHEMA_VERSION, blankRule, normalizeTransition } from '../schema'
+// What a failed profile attempt keeps, and which files the next one still has to
+// ask for — the decision half of the download, shared with the node half (./preset
+// for why the retry policy and the resume live in one module).
+import { presetKey, presetMissing, presetResume } from '../preset'
+import type { PresetHeld } from '../preset'
 import { nextIndex, isRotating } from './rotation'
 import { shouldRepaint } from './repaint'
 import {
@@ -791,6 +796,21 @@ export function apply(ctx: Ctx): void {
     return true
   }
 
+  /**
+   * What the last FAILED profile attempt already had in hand.
+   *
+   * Only a failure leaves anything here — a download that completes is applied or
+   * thrown away whole, and holding megabytes of base64 for a re-click that a
+   * second re-download would settle is not a trade this makes. What it buys is the
+   * one case that had no answer at all before: a profile whose sixth of seven files
+   * failed now costs ONE file on the next press instead of seven.
+   *
+   * Held across section re-injections on purpose (it is declared here, in `apply`,
+   * not inside `sectionInject`): the retry is usually the next click of the same
+   * button, but the panel can be closed and reopened between them.
+   */
+  let presetHeld: PresetHeld | null = null
+
   const sectionInject = (actions: { sync: (...a: any[]) => void }): Omit<ThemeSectionProps, 'useStore'> => {
     bound = actions
     sync()
@@ -802,8 +822,8 @@ export function apply(ctx: Ctx): void {
       imageOf: (slot: string) => displayImageOf(slot),
       addRule: (): string => {
         // No slot is allocated here: a new rule holds no image, so the first free
-        // slot is taken when the first picture arrives (see newRule).
-        const rule = newRule(nextRuleId())
+        // slot is taken when the first picture arrives (see `blankRule`).
+        const rule = blankRule(nextRuleId())
         cfg.rules.push(rule)
         rulesRev++
         persistConfig()
@@ -1234,15 +1254,18 @@ export function apply(ctx: Ctx): void {
        * request, up to `PRESET_CONCURRENCY` of them at a time. What the fan-out
        * buys is wall-clock time — the real profile measured 8.3 s fetched one at
        * a time against 4.8 s with four in flight — while each file keeps its own
-       * mirror fallback, its own validation, and its own slot name in a failure.
+       * mirror fallback, its own retry rounds (the node half's business, see
+       * ./preset), its own validation, and its own slot name in a failure.
        *
        * STRICT, and the pool is what makes that a decision rather than a
        * formality: the first wallpaper that cannot be had stops the queue, so the
        * files nobody has asked for yet are never asked for. Whatever was already
-       * in flight finishes and is thrown away. Nothing has been touched at this
-       * point, so "the author renamed a file" arrives as an error naming the file
-       * rather than as a profile that is quietly missing a picture — and that
-       * loudness is the whole reason this feature is allowed to follow a branch.
+       * in flight finishes and is thrown away — but what it FETCHED is kept for the
+       * next press (`presetHeld` below), which is the difference between retrying
+       * one file and retrying the lot. Nothing has been touched at this point, so
+       * "the author renamed a file" arrives as an error naming the file rather
+       * than as a profile that is quietly missing a picture — and that loudness is
+       * the whole reason this feature is allowed to follow a branch.
        */
       fetchRecommended: async (
         onProgress?: (done: number, total: number) => void,
@@ -1250,13 +1273,28 @@ export function apply(ctx: Ctx): void {
         const head = await fetchPresetConfig()
         if (!head.ok) return { ok: false, error: head.error }
         const slots = head.slots
-        const images: Record<string, string> = {}
+        // The manifest and the config are fetched again on every attempt — two
+        // small files, and they are what the counts below are derived from — and
+        // the bytes a previous attempt held are reused only if this config comes
+        // back identical to the one they came from. The profile is served from a
+        // BRANCH, so that comparison is what makes the reuse a statement about the
+        // same revision rather than a lucky one (see `presetKey`, ../preset).
+        const key = presetKey(head.version, head.config)
+        const images: Record<string, string> = presetResume(presetHeld, key)
+        let bytes = 0
+        for (const url of Object.values(images)) bytes += url.length
+        const missing = presetMissing(slots, images)
+        /** Files already in hand from the attempt this one is resuming. */
+        const held = slots.length - missing.length
         let next = 0
         let done = 0
-        let bytes = 0
         /** Latched by the first worker to fail, so the rest stop asking. */
         let stopped = false
-        onProgress?.(0, slots.length)
+        // The counter describes the PROFILE, not this attempt's transfers: a retry
+        // that has six of seven files in hand opens on 6/7 and finishes on 7/7,
+        // which is the honest reading of a button that says it is downloading the
+        // setup. `done` counts only what this attempt had to ask for.
+        onProgress?.(held, slots.length)
         // A shared cursor rather than a fixed slice per worker: the files are not
         // the same size, so whoever finishes first takes the next one and the pool
         // stays busy to the end instead of idling on the largest file.
@@ -1264,32 +1302,41 @@ export function apply(ctx: Ctx): void {
           for (;;) {
             // Checked before taking a number, never after: a failure must not
             // start one more download on its way out. The transfers already in
-            // flight finish and are thrown away with the rest.
-            if (stopped || next >= slots.length) return null
-            const slot = slots[next++] as string
+            // flight finish and are kept with the rest.
+            if (stopped || next >= missing.length) return null
+            const slot = missing[next++] as string
             const got = await fetchPresetImage(slot)
             if (!got.ok) {
               stopped = true
               return { error: got.error, slot }
             }
-            images[slot] = got.dataUrl
-            bytes += got.dataUrl.length
             // The node half bounds ONE file and the COUNT; the running total can
             // only be bounded here, because these calls are independent and that
-            // side never sees more than one of them.
-            if (bytes > PRESET_TOTAL_MAX) {
+            // side never sees more than one of them. Checked BEFORE the file is
+            // taken, so what a failed attempt holds can never be over the cap —
+            // otherwise the resume would start life with nothing left to fetch and
+            // hand the oversized profile straight to the confirmation.
+            if (bytes + got.dataUrl.length > PRESET_TOTAL_MAX) {
               stopped = true
               return { error: 'too large' }
             }
-            onProgress?.(++done, slots.length)
+            images[slot] = got.dataUrl
+            bytes += got.dataUrl.length
+            onProgress?.(held + (++done), slots.length)
           }
         }
         const failure = (await Promise.all(
-          Array.from({ length: Math.min(PRESET_CONCURRENCY, slots.length) }, worker),
+          Array.from({ length: Math.min(PRESET_CONCURRENCY, missing.length) }, worker),
         )).find(r => r !== null) ?? null
-        // Whichever failure is reported, NOTHING has been touched: the store is
-        // emptied by `applyRecommended`, which never runs on this path.
-        if (failure !== null) return { ok: false, error: failure.error, slot: failure.slot }
+        if (failure !== null) {
+          // Hold what arrived so the next press only asks for the rest. Nothing
+          // has been touched: the store is emptied by `applyRecommended`, which
+          // never runs on this path.
+          presetHeld = { key, images }
+          return { ok: false, error: failure.error, slot: failure.slot }
+        }
+        // Complete: there is nothing left to resume.
+        presetHeld = null
         // Assembled into the shape `exportTheme` writes, so everything downstream
         // — the version gate, the sanitizer, the wipe — is the path a hand-picked
         // file already takes.

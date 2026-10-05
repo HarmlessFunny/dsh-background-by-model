@@ -59,7 +59,10 @@ export const UI_CSS = `
 .dab-brand:hover .dab-brand-name{color:var(--dsw-alias-brand-primary)}
 .dab-brand-tile{width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;color:var(--dsw-alias-label-primary-inverted);background:var(--dsw-alias-brand-primary);box-shadow:0 4px 14px -4px var(--dsw-alias-brand-primary)}
 .dab-brand-name{font-size:13px;font-weight:650;letter-spacing:.01em;line-height:1.25}
-.dab-brand-tag{font-size:9px;letter-spacing:.16em;font-weight:600;color:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-tertiary));text-transform:uppercase}
+/* The weak token was written as quaternary-WITH-a-fallback, so this tag has
+   always painted tertiary: the dead name is dropped rather than being kept as
+   decoration nothing resolves to (check:ui rejects the name outright now). */
+.dab-brand-tag{font-size:9px;letter-spacing:.16em;font-weight:600;color:var(--dsw-alias-label-tertiary);text-transform:uppercase}
 .dab-nav-list{position:relative;display:flex;flex-direction:column;gap:${NAV_GAP}px}
 .dab-nav-ind{position:absolute;left:0;right:0;top:0;height:${NAV_ITEM_H}px;border-radius:11px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 13%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 25%,transparent);transition:transform .38s cubic-bezier(.22,1,.36,1)}
 .dab-nav-item{position:relative;z-index:1;display:flex;align-items:center;gap:10px;height:${NAV_ITEM_H}px;padding:0 12px;border:0;background:none;border-radius:11px;color:var(--dsw-alias-label-tertiary);font-size:13px;cursor:pointer;text-align:left;transition:color .22s ease}
@@ -112,8 +115,20 @@ export const UI_CSS = `
 .dab-num::-webkit-outer-spin-button,.dab-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .dab-num{-moz-appearance:textfield;appearance:textfield}
 .dab-urlinput{flex:1;min-width:180px;height:34px;padding:0 12px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12.5px;outline:none;transition:border-color .2s}
-.dab-urlinput::placeholder{color:var(--dsw-alias-label-quaternary)}
 .dab-urlinput:focus{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent)}
+/* Placeholder text is the field's PREDICTION, never its content: the weak caption
+   token, one step below the text it sits in, so an empty box cannot read as a
+   filled one. All three inputs that carry one are listed here (the rule's match
+   field lives further down, in the rule card) rather than each deciding for
+   itself what "empty" looks like.
+   This used to name --dsw-alias-label-quaternary, which this harness defines
+   NOWHERE: an undefined token drops the declaration, and the placeholder then
+   INHERITS the input's own label-primary — the brightest text in the panel,
+   inside a field the user has not typed in. check:ui now fails on any --dsw-…
+   name the installed theme does not publish, so that one cannot come back.
+   label-caption is the token PLACEHOLDER_RULE (../wallpaper) already uses for the
+   composer, so the plugin answers this question in one voice. */
+.dab-num::placeholder,.dab-urlinput::placeholder,.dab-rule-match::placeholder{color:var(--dsw-alias-label-caption)}
 /* Prints the current hex on the color itself. Without the value this was an
  * empty bordered rectangle sitting in the same column as the H/S/L number
  * fields, which made it read as one more — blank — text input; nothing is ever
@@ -298,7 +313,7 @@ export const UI_CSS = `
 .dab-pick-item:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
 .dab-pick-item.is-active{color:var(--dsw-alias-brand-primary);font-weight:600;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
 .dab-pick-match{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dab-pick-n{flex:none;font-family:var(--dsw-mono);font-size:10.5px;opacity:.7}
+.dab-pick-n{flex:none;font-family:var(--dab-mono);font-size:10.5px;opacity:.7}
 
 /* ── one rule editor (the tab panel's content) ─────────────────────────────── */
 .dab-rule-panel{min-height:0}
@@ -313,7 +328,6 @@ export const UI_CSS = `
 .dab-rule-num{font-family:var(--dab-mono);font-size:11px;font-weight:700;color:var(--dsw-alias-label-tertiary);min-width:16px}
 .dab-rule-badge{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);border-radius:99px;padding:2px 8px}
 .dab-rule-match{flex:1;min-width:150px;height:32px;padding:0 11px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-family:var(--dab-mono);font-size:12.5px;outline:none;transition:border-color .2s,box-shadow .2s}
-.dab-rule-match::placeholder{color:var(--dsw-alias-label-quaternary)}
 .dab-rule-match:focus{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent)}
 .dab-icon-btn{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;transition:color .2s,border-color .2s,background .2s}
 .dab-icon-btn:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-brand-primary)}

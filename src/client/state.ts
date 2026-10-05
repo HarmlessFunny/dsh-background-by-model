@@ -183,25 +183,11 @@ export function holidayById(id: string): HolidayRule | null {
 }
 
 // ── Rule factories / allocation ────────────────────────────────────────────
-/**
- * A fresh rule, holding NO image yet.
- *
- * It used to be born with an allocated slot and an empty entry, which is what put
- * a blank tile at position 1 of a new rule's strip — and, worse, stopped the
- * picture the user added next from being the first one (a rule paints its first
- * image). A rule with no pictures is a valid state: `ruleCanPaint` (./schema) skips
- * it — it has no image and no color yet — until either arrives, and the slot is
- * allocated when the first picture does.
- */
-export function newRule(id: string): BgRule {
-  return {
-    id,
-    images: [],
-    match: '', enabled: true, color: null,
-    wallpaperOpacity: 1, blur: 0,
-    rotate: defaultRotation(),
-  }
-}
+// The factory itself lives in ../schema (`blankRule`): the config a fresh install
+// reads is built there too, and one rule shape with two definitions is two shapes
+// the moment either moves. What stays here is the allocation of the names — a
+// slot per picture, an id per rule — because those are questions about the list
+// the client is holding.
 
 /** Every slot any rule owns — the user's rules and the holiday entries alike. */
 export function takenSlots(): Set<string> {

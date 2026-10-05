@@ -23,6 +23,11 @@ import { HOLIDAYS } from './holiday'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
 import { SCHEMA_VERSION, SLOT_RE, normalizeConfig } from './schema'
 import type { BgState, ThemeConfig } from './schema'
+// Which download failures are worth another round, and how long to wait before
+// it — shared with the browser half, which owns what a failed attempt keeps (see
+// ./preset for why the two questions live in one module).
+import { PRESET_ATTEMPTS, presetRetryDelayMs, presetRetryable } from './preset'
+import type { FetchFailure } from './preset'
 
 export const name = 'dsh-background-by-model'
 export const inject = ['connection', 'webServer']
@@ -182,12 +187,18 @@ const exists = async (p: string): Promise<boolean> => { try { await access(p); r
  * layout mode, opacity, blur and framing, and the remaining legacy files
  * (background video, upload temp) are removed. Idempotent: the rewritten config
  * carries `rules`, so the next read short-circuits.
+ *
+ * The one case that is NOT a migration — a store with no config file at all — is
+ * handed through untouched rather than being filled in as `rules: []`. That empty
+ * list would be the same thing the sanitizer reads as "the user deleted every
+ * rule", and a fresh install is the opposite of that: `normalizeConfig` turns a
+ * config that names no rule list into the one blank rule the panel opens on.
  */
 async function migrateLegacy(raw: unknown): Promise<unknown> {
   const r = (raw ?? {}) as Record<string, unknown>
   if (Array.isArray(r.rules)) return r
   const hasWallpaper = await exists(legacyWallpaperPath())
-  if (Object.keys(r).length === 0 && !hasWallpaper) return { rules: [] }
+  if (Object.keys(r).length === 0 && !hasWallpaper) return {}
 
   if (hasWallpaper) {
     const target = imagePath('m1')
@@ -466,14 +477,21 @@ async function downloadHolidayAsset(asset: string): Promise<Buffer | null> {
   return null
 }
 
+/** Wait, without pulling in `node:timers/promises` for one line. */
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
+
 /**
- * One asset over the wire, or null for every way it can fail.
+ * One asset over the wire, or WHY it did not arrive.
  *
  * Never throws: a holiday that cannot be fetched is a holiday that does not paint
- * today, which is a normal state and not an error path the caller should have to
- * wrap. The `content-length` check is a courtesy — a mirror that announces a
- * huge body never gets to send it — while the post-read size check is the one
- * that actually holds.
+ * today, and a profile file that cannot be fetched is a sentence on the button —
+ * neither is an error path the caller should have to wrap. What it answers with
+ * instead is the reason, because the two callers treat those differently: the
+ * profile asks `presetRetryable` whether the reason is weather (./preset) and the
+ * festival art takes the null and waits for the next apply.
+ *
+ * The `content-length` check is a courtesy — a mirror that announces a huge body
+ * never gets to send it — while the post-read size check is the one that holds.
  *
  * Deliberately says nothing about WHAT the bytes are: the festival art and the
  * recommended profile are both "a file from the assets repository", and the one
@@ -481,37 +499,80 @@ async function downloadHolidayAsset(asset: string): Promise<Buffer | null> {
  * That check belongs to the caller, which is the only half that knows what it
  * asked for.
  */
-async function fetchAsset(url: string, max: number, timeout: number): Promise<Buffer | null> {
+async function fetchAsset(
+  url: string, max: number, timeout: number,
+): Promise<{ ok: true; buf: Buffer } | { ok: false; reason: FetchFailure }> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), timeout)
   try {
-    const ctl = new AbortController()
-    const timer = setTimeout(() => ctl.abort(), timeout)
-    try {
-      const res = await fetch(url, { redirect: 'follow', signal: ctl.signal })
-      if (!res.ok) return null
-      const announced = Number(res.headers.get('content-length') ?? '')
-      if (isFinite(announced) && announced > max) return null
-      const arr = await res.arrayBuffer()
-      if (arr.byteLength === 0 || arr.byteLength > max) return null
-      return Buffer.from(arr)
-    } finally {
-      clearTimeout(timer)
-    }
+    const res = await fetch(url, { redirect: 'follow', signal: ctl.signal })
+    if (!res.ok) return { ok: false, reason: fetchFailureForStatus(res.status) }
+    const announced = Number(res.headers.get('content-length') ?? '')
+    if (isFinite(announced) && announced > max) return { ok: false, reason: 'oversized' }
+    const arr = await res.arrayBuffer()
+    if (arr.byteLength > max) return { ok: false, reason: 'oversized' }
+    if (arr.byteLength === 0) return { ok: false, reason: 'empty' }
+    return { ok: true, buf: Buffer.from(arr) }
   } catch {
-    return null
+    // The abort this side armed is the one failure it can tell apart from the
+    // rest: `fetch` rejects the same way for a dead network, and there the mirror
+    // never answered at all rather than answering too late.
+    return { ok: false, reason: ctl.signal.aborted ? 'timeout' : 'network' }
+  } finally {
+    clearTimeout(timer)
   }
 }
 
-/** One festival picture, or null when no mirror served an image. */
-async function fetchHolidayAsset(url: string): Promise<Buffer | null> {
-  const buf = await fetchAsset(url, HOLIDAY_FETCH_MAX, HOLIDAY_FETCH_TIMEOUT)
-  return buf === null || imageMimeOrNull(buf) === null ? null : buf
+/**
+ * The status codes worth another round: 5xx is a mirror having a bad moment, 429
+ * is one asking to be left alone for a bit, 408 is one giving up on us.
+ *
+ * Every other non-2xx means the file is not there — jsDelivr answers a path
+ * outside the repository with 403, both hosts answer a missing file with 404 — and
+ * the profile follows a BRANCH, so that answer has to arrive fast and unchanged.
+ */
+function fetchFailureForStatus(status: number): FetchFailure {
+  return status >= 500 || status === 429 || status === 408 ? 'server' : 'missing'
 }
 
-/** One file out of the profile directory, or null when no mirror served it. */
+/**
+ * One festival picture, or null when no mirror served an image.
+ *
+ * One round, deliberately, unlike the profile's (see `fetchPresetFile`): this is
+ * fetched during boot, on the day, before the first wallpaper is painted, and a
+ * retry round would add its delay to that first paint. The art does not need one
+ * either — it is cached once it arrives, and every later read tries again, while a
+ * button press has no later read of its own.
+ */
+async function fetchHolidayAsset(url: string): Promise<Buffer | null> {
+  const got = await fetchAsset(url, HOLIDAY_FETCH_MAX, HOLIDAY_FETCH_TIMEOUT)
+  return !got.ok || imageMimeOrNull(got.buf) === null ? null : got.buf
+}
+
+/**
+ * One file out of the profile directory, or null when no mirror served it.
+ *
+ * Every mirror is asked in every round, so a round is "all the hosts there are"
+ * and the rounds are the retry: the case this exists for is a mirror that answers
+ * 502 on one round and correctly on the next, on the sixth of seven files, with
+ * six good downloads behind it. A round in which every failure was terminal — the
+ * file is not there, or it is too big — ends the attempts outright, so "the author
+ * renamed a file" still costs exactly two requests and a sentence naming the slot
+ * (see `presetRetryable`, ./preset).
+ */
 async function fetchPresetFile(name: string, max: number): Promise<Buffer | null> {
-  for (const host of PRESET_ASSET_HOSTS) {
-    const buf = await fetchAsset(`${host}/${name}`, max, PRESET_FETCH_TIMEOUT)
-    if (buf !== null) return buf
+  for (let attempt = 1; attempt <= PRESET_ATTEMPTS; attempt++) {
+    let retryable = false
+    for (const host of PRESET_ASSET_HOSTS) {
+      const got = await fetchAsset(`${host}/${name}`, max, PRESET_FETCH_TIMEOUT)
+      if (got.ok) return got.buf
+      // Any mirror worth retrying makes the ROUND worth repeating: jsDelivr
+      // answering 404 while raw answers 503 is a round that has not been answered
+      // yet, not a file that is gone.
+      if (presetRetryable(got.reason)) retryable = true
+    }
+    if (!retryable || attempt === PRESET_ATTEMPTS) return null
+    await sleep(presetRetryDelayMs(attempt))
   }
   return null
 }

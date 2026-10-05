@@ -8,7 +8,10 @@
  *   1. a `t('…')` key that is missing from the dictionary — the interface then
  *      prints the raw key (`holidayActiveNow`) instead of a sentence;
  *   2. a `className="dab-…"` with no rule in UI_CSS — an unstyled box, with no
- *      error anywhere.
+ *      error anywhere;
+ *   3. a `var(--dsw-…)` naming a token the harness does not publish — the
+ *      declaration is dropped and the property inherits, which is how a
+ *      placeholder came out looking like typed text (section 6).
  *
  * Also pins that the two dictionaries carry the SAME key set, because a key
  * present in only one language is the same bug for half the users.
@@ -139,6 +142,51 @@ const pkg = JSON.parse(readFileSync(resolve(HERE, '../package.json'), 'utf8')) a
 const declared = (pkg.repository?.url ?? '').replace(/^git\+/, '').replace(/\.git$/, '')
 if (declared !== REPO_URL) fail('repo link', `REPO_URL is ${REPO_URL}, package.json declares ${declared}`)
 else console.log(`ok   REPO_URL matches package.json (${REPO_URL})`)
+
+// ── 6. every host token the UI reads is one the theme defines ───────────────
+// A `var(--dsw-…)` naming a token this harness does not publish is not an error
+// anywhere: the declaration is dropped (invalid at computed-value time) and the
+// property falls back to `inherit` — so a placeholder came out the colour of real
+// text inside an empty box, and one label asked for a font family that does not
+// exist. That is how `--dsw-alias-label-quaternary` and `--dsw-mono`, neither of
+// which has ever been published, sat in this stylesheet without a symptom.
+//
+// The names live in the harness's own theme bundle and nowhere in this repository,
+// so this section is a claim about the INSTALLED host and needs the peer
+// dependencies to make it: absent — or a bundle that no longer carries the table —
+// it SKIPS with a notice rather than failing, because "the host is not here" must
+// not read as "the stylesheet is wrong".
+//
+// Only `var(--dsw-…)` reads are checked: the plugin's own variables (`--dab-…`)
+// are defined in its stylesheet, and the ones it publishes for its injected rules
+// (`--dsh-any-…`) are written by `wallpaper.ts` at runtime, so neither is a
+// question about the host.
+const TOKEN_FLOOR = 100
+let hostTokens: Set<string> | null = null
+try {
+  const bundle = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-client-ui-theme/client'))
+  const found = new Set([...readFileSync(bundle, 'utf8').matchAll(/--dsw-[a-z0-9-]+(?=\s*:)/g)].map(m => m[0]!))
+  if (found.size >= TOKEN_FLOOR) hostTokens = found
+} catch { hostTokens = null }
+if (hostTokens === null) {
+  console.log('skip host tokens: the harness theme bundle is not installed here')
+} else {
+  const reads = new Map<string, string[]>()
+  for (const [file, src] of sources) {
+    const where = relative(CLIENT, file).replace(/\\/g, '/')
+    for (const m of src.matchAll(/var\(\s*(--dsw-[a-z0-9-]+)/g)) {
+      const list = reads.get(m[1]!) ?? []
+      list.push(where)
+      reads.set(m[1]!, list)
+    }
+  }
+  for (const [token, where] of reads) {
+    if (!hostTokens.has(token)) {
+      fail('dead token', `var(${token}) — the theme publishes no such token — used by ${where.join(', ')}`)
+    }
+  }
+  console.log(`ok   every host token the UI reads exists (${reads.size} read, ${hostTokens.size} published)`)
+}
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
