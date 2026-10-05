@@ -183,6 +183,53 @@ export interface ThemeStoreState {
 /** Result of a wallpaper fetch from a network URL. */
 export interface FetchResult { ok: boolean; dataUrl?: string | null; error?: string }
 
+/**
+ * The document `exportTheme` writes and both imports consume: a whole
+ * configuration plus the rule wallpapers, keyed by slot, as data URLs.
+ *
+ * One shape for every source — a file the user picked, the recommended profile
+ * downloaded from the asset host, anything else that wants to carry a
+ * configuration around. Every field is optional because on arrival this is
+ * UNTRUSTED input: a JSON file off the internet is not obliged to have any of
+ * it, and the shared sanitizer is what turns whatever survives into a config.
+ */
+export interface ThemeFile {
+  /** Config shape the file was written for; absent in exports predating it. */
+  version?: number
+  exportedAt?: string
+  config?: unknown
+  /** slot → `data:image/…;base64,…` */
+  images?: Record<string, string>
+}
+
+/**
+ * The recommended profile is fetched as a DIRECTORY, in the store's own shape:
+ * a manifest, a config, and one raw file per slot. So it arrives in two kinds of
+ * answer rather than one document — the head, and then the wallpapers one at a
+ * time. Both carry their failure as a value, because an unreachable CDN is an
+ * ordinary outcome this button has to render rather than a plugin that broke.
+ *
+ * `error` is a small code the page turns into copy (`'download failed'`,
+ * `'not a profile'`, `'newer version'`, `'too many images'`, `'not an image'`),
+ * so the node half never has to write user-facing text.
+ */
+export type PresetHead =
+  | { ok: true; version: number; config: unknown; slots: string[] }
+  | { ok: false; error: string }
+
+export type PresetImage = { ok: true; dataUrl: string } | { ok: false; error: string }
+
+/**
+ * The assembled profile, or why there is none.
+ *
+ * `slot` is present when the failure belongs to ONE wallpaper rather than to the
+ * profile as a whole — the difference between "the CDN is down" and "the host is
+ * missing `modelbg-m6`", which are different problems for whoever has to fix it.
+ */
+export type PresetResult =
+  | { ok: true; preset: ThemeFile }
+  | { ok: false; error: string; slot?: string }
+
 /** Props the slots host injects into the theme section (built once). */
 export interface ThemeSectionProps {
   t: (key: string) => string
@@ -304,6 +351,23 @@ export interface ThemeSectionProps {
   exportTheme: () => void
   /** Import such a JSON file: replaces the whole rule set and its images. */
   importTheme: (file: File) => Promise<boolean>
+  /**
+   * Fetch the project's recommended profile: the manifest and config first, then
+   * one request per wallpaper the config names. Downloads only — nothing is
+   * touched until the user confirms and `applyRecommended` runs.
+   *
+   * `onProgress` reports `(downloaded, total)` wallpapers, because this is now
+   * several transfers rather than one and the button has to be able to say so.
+   * The count is known before the first wallpaper is asked for, since the config
+   * is what names them.
+   */
+  fetchRecommended: (onProgress?: (done: number, total: number) => void) => Promise<PresetResult>
+  /**
+   * Replace EVERYTHING with a downloaded profile: empty the store, then write
+   * the profile's rules and wallpapers into it. Irreversible by design, which is
+   * why the page asks first.
+   */
+  applyRecommended: (preset: ThemeFile) => Promise<boolean>
 }
 
 export interface RpcResultLike { ok: boolean; value?: any; error?: any }

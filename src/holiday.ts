@@ -2,7 +2,7 @@
  * The built-in holiday calendar behind the "holiday background" override.
  *
  * Imported by BOTH halves — the node half only reads `HOLIDAYS` (the fixed slot
- * ids and the bundled asset names), the browser half does the date maths — so
+ * ids and the hosted asset names), the browser half does the date maths — so
  * nothing here may touch the DOM, Node or the Cordis context, and every
  * `Intl` formatter is built lazily so the node half never constructs one.
  *
@@ -26,7 +26,16 @@ export interface HolidayDef {
    * hands out `m<n>`, and slots are what reach the filesystem).
    */
   slot: string
-  /** Wallpaper bundled inside the package under `holiday/`. */
+  /**
+   * File name of this holiday's wallpaper in the hosted asset directory —
+   * `holiday/` beside the README screenshots (see `HOLIDAY_ASSET_HOSTS` in
+   * ./index for where that is and which revision of it is pinned).
+   *
+   * Named HERE, with the slot and the colour, because the three are one
+   * definition of a festival: the node half derives the download URL from this
+   * field alone, so adding a holiday is still a change to this table plus one
+   * file in the assets repository.
+   */
   asset: string
   /**
    * The theme color this holiday paints with, as `#RRGGBB`.
@@ -217,7 +226,7 @@ function inMidAutumnRange(civil: { m: number; d: number }): boolean {
  *
  * The image LIST (rather than one slot) is what a rule owns since 0.7, and this
  * mirrors just enough of it to ask the picker's only question: "is there anything
- * to paint?". A holiday's own list is always the single packaged image (see
+ * to paint?". A holiday's own list is always the single hosted image (see
  * `defaultHolidayRule`), so the shape stays a formality for it — and a rule that
  * happens to be passed in answers through the same field.
  */

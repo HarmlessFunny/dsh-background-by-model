@@ -8,15 +8,16 @@
  *   theme-config.json   the ordered rule list + the global interface settings
  *   modelbg-<slot>      one background image per rule (raw bytes, no extension;
  *                       the MIME is sniffed from the magic bytes when served)
+ *   holiday-cache/      festival art downloaded from the CDN, one file per
+ *                       holiday asset — deliberately NOT a slot (see below)
  *
  * Images travel as data URLs over the RPC channel — there is no separate HTTP
  * image route. A legacy single-wallpaper / video-background store is migrated
  * to rule 1 on first read.
  */
 import { access, mkdir, readFile, writeFile, rm, rename, readdir } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-// The bundled holiday calendar: the node half only needs the fixed slot ids and
+// The holiday calendar: the node half only needs the fixed slot ids and
 // the asset names (the date maths belongs to the browser half).
 import { HOLIDAYS } from './holiday'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
@@ -41,6 +42,127 @@ const LEGACY_FILES = [
 const WALLPAPER_FETCH_MAX = 25 * 1024 * 1024
 const WALLPAPER_FETCH_TIMEOUT = 20_000
 
+/**
+ * Where the festival art is hosted, and which revision of it this build wants.
+ *
+ * The two holiday wallpapers used to ship inside the package. They do not any
+ * more: they were 746 KB of the 1.1 MB tarball — two thirds of everything anyone
+ * downloaded — for art that is looked at on one day a year, and they are the one
+ * part of the package that is a picture rather than code. The bytes now live in
+ * the `assets` repository beside the README screenshots and are fetched from a
+ * CDN the first time a holiday actually needs one (see `readHolidayAsset`).
+ *
+ * The reference is a **commit**, never a branch. Runtime art has to be
+ * immutable: a branch reference would let a later reshuffle of the documentation
+ * screenshots silently kill a shipped feature, on a day nobody is watching, with
+ * nothing in the log — and jsDelivr caches a commit reference forever, which is
+ * exactly what a file that never changes wants. The cost is that new art means a
+ * new commit and a new hash here.
+ */
+const HOLIDAY_ASSETS_REPO = 'HarmlessFunny/assets'
+const HOLIDAY_ASSETS_COMMIT = '58a9e107ac9e1993035c494397dfe77bbb7e8720'
+const HOLIDAY_ASSETS_DIR = 'dsh-background-by-model/holiday'
+/**
+ * Mirrors, tried in order. jsDelivr first because it is reachable from networks
+ * where `raw.githubusercontent.com` is not; raw second because a CDN can be
+ * blocked, rate-limited or down, and one dead mirror must not cost the easter
+ * egg. Every mirror serves the same commit, so a fallback cannot mix revisions.
+ */
+const HOLIDAY_ASSET_HOSTS: readonly string[] = [
+  `https://cdn.jsdelivr.net/gh/${HOLIDAY_ASSETS_REPO}@${HOLIDAY_ASSETS_COMMIT}/${HOLIDAY_ASSETS_DIR}`,
+  `https://raw.githubusercontent.com/${HOLIDAY_ASSETS_REPO}/${HOLIDAY_ASSETS_COMMIT}/${HOLIDAY_ASSETS_DIR}`,
+]
+/**
+ * Sub-directory of the store holding downloaded festival art.
+ *
+ * It is NOT part of the slot namespace and must never become part of it: the
+ * cached files are named after the ASSET (`mid-autumn.webp`), not after a slot,
+ * so nothing here can ever be mistaken for a user's `modelbg-<slot>`. That is
+ * what lets a holiday slot stay read-only — `writeImage` still refuses it, and
+ * the store still never holds a `modelbg-h-*` file — while the art itself is
+ * now fetched rather than shipped.
+ */
+const HOLIDAY_CACHE_DIR = 'holiday-cache'
+/** Cap and timeout for one asset download; these files are 228 KB and 500 KB. */
+const HOLIDAY_FETCH_MAX = 8 * 1024 * 1024
+const HOLIDAY_FETCH_TIMEOUT = 10_000
+
+/**
+ * The recommended profile, served from the same assets repository as the
+ * festival art — as a DIRECTORY, in the store's own shape.
+ *
+ * It used to be one theme file with every wallpaper inlined as base64: 2.9 MB
+ * where 99.8% of the bytes were a picture, so changing the `match` string of one
+ * rule meant finding it inside a single line of several hundred thousand
+ * characters. Now the published layout is exactly the layout of
+ * `~/.dsh/.dsh-background-by-model-data/` — a readable `theme-config.json` and
+ * one raw file per slot — which makes the configuration editable in place and
+ * makes publishing it a `cp` out of the data directory rather than a special
+ * export step. The bytes on the wire are the same; only their arrangement is
+ * different.
+ *
+ * Nothing lists the images: the request set is DERIVED from the config's own
+ * `rules[].images[].slot`, so adding a wallpaper is adding a rule entry and a
+ * file, with no second place to keep in sync.
+ *
+ * Referenced by BRANCH, unlike the festival art, and deliberately so. The reason
+ * that art is pinned to a commit does not apply here: its rationale is that a
+ * reshuffle of the assets repository would make a shipped feature disappear
+ * SILENTLY, on a day nobody is watching. A profile fails LOUDLY — the user
+ * clicks a button and gets an error naming what went missing — so the failure
+ * immutability buys protection from cannot happen. What branch referencing buys
+ * instead is the ability to fix a recommendation without a plugin release:
+ * pinning would mean editing one JSON file costs a new commit, a new hash in
+ * this file and a new version on npm, and every user on an older build would
+ * keep getting the old recommendation forever.
+ *
+ * The risk that IS real — a profile written for a config shape this build cannot
+ * read — is what `preset.json` exists for (see `fetchPresetConfig`).
+ */
+const PRESET_ASSETS_REPO = 'HarmlessFunny/assets'
+const PRESET_ASSETS_REF = 'main'
+const PRESET_ASSET_DIR = 'dsh-background-by-model/preset'
+/** The shape gate: `{"version": 6}` — see SCHEMA_VERSION in ./schema. */
+const PRESET_MANIFEST = 'preset.json'
+const PRESET_CONFIG = 'theme-config.json'
+/** Images are named after the slot they fill, exactly as they are on disk. */
+const PRESET_IMAGE_PREFIX = 'modelbg-'
+/** Mirrors, tried in order — same reason as the festival art's. */
+const PRESET_ASSET_HOSTS: readonly string[] = [
+  `https://cdn.jsdelivr.net/gh/${PRESET_ASSETS_REPO}@${PRESET_ASSETS_REF}/${PRESET_ASSET_DIR}`,
+  `https://raw.githubusercontent.com/${PRESET_ASSETS_REPO}/${PRESET_ASSETS_REF}/${PRESET_ASSET_DIR}`,
+]
+
+/**
+ * Caps for the profile, now per file rather than for one document.
+ *
+ * Three of them, because a profile is now a SET of transfers and each has a
+ * different way of going wrong. The manifest and the config are small by nature
+ * — a manifest is one field, a config is a few kilobytes of JSON — so their caps
+ * are what stops a mirror from answering with something enormous instead. The
+ * images are the payload, so their cap is about the content.
+ *
+ * The count is the one that matters: the request set is derived from the config,
+ * so a hostile or broken config could name a thousand slots and turn one button
+ * press into a thousand downloads. `SLOT_RE` bounds each name and
+ * `PRESET_IMAGE_COUNT_MAX` bounds how many names there can be. The running TOTAL
+ * of what those transfers add up to is bounded on the client instead, because
+ * these calls are independent and this side never sees more than one file.
+ *
+ * The timeout is set by measurement, not by symmetry with the festival art's
+ * 10 s. A 350 KB wallpaper takes a second or two over jsDelivr from a normal
+ * connection, and the mirror that exists for the case where jsDelivr does not
+ * answer is the slower one — so a tight budget would fail exactly in the
+ * situation it was written for. A minute tolerates a slow link and is still
+ * bounded; the user is watching a button that says it is downloading, which is
+ * the one place waiting is honest.
+ */
+const PRESET_MANIFEST_MAX = 64 * 1024
+const PRESET_CONFIG_MAX = 1024 * 1024
+const PRESET_IMAGE_MAX = 8 * 1024 * 1024
+const PRESET_IMAGE_COUNT_MAX = 64
+const PRESET_FETCH_TIMEOUT = 60_000
+
 // The config shape, its defaults and its sanitizers are shared with the browser
 // half — see ./schema, the module that keeps the two halves from drifting.
 
@@ -48,6 +170,7 @@ const dataDir = (): string => dshHomePath(DATA_DIR)
 const configPath = (): string => dshHomePath(DATA_DIR, CONFIG_FILE)
 const legacyWallpaperPath = (): string => dshHomePath(DATA_DIR, LEGACY_WALLPAPER)
 const imagePath = (slot: string): string => dshHomePath(DATA_DIR, `${IMAGE_PREFIX}${slot}`)
+const holidayCachePath = (asset: string): string => dshHomePath(DATA_DIR, HOLIDAY_CACHE_DIR, asset)
 
 const exists = async (p: string): Promise<boolean> => { try { await access(p); return true } catch { return false } }
 
@@ -143,9 +266,9 @@ async function readConfig(): Promise<ThemeConfig> {
 // next load quietly falls back to the default. Warn once per key so the drift
 // shows up in the host log instead.
 const LEGACY_CONFIG_KEYS = new Set(['color', 'bgMode', 'wallpaperOpacity', 'blur', 'bgState'])
-// Pre-0.7 / pre-0.8 rule fields: `normalizeRule` deliberately LIFTS these into
+// Pre-0.7 / pre-0.7.5 rule fields: `normalizeRule` deliberately LIFTS these into
 // the image list, so they are not drift and must not be reported as such. `bgMode`
-// joined them in 0.8: the rule-level layout mode a schema-5 config carries is read
+// joined them in 0.7.5: the rule-level layout mode a schema-5 config carries is read
 // once and handed to every image entry, which is a migration, not a mismatch.
 const LEGACY_RULE_KEYS = new Set(['slot', 'bgState', 'bgMode'])
 // Nested fields an older shape carried and the sanitizer consumes on purpose:
@@ -238,30 +361,55 @@ async function writeConfig(config: unknown): Promise<boolean> {
   }
 }
 
-/** Sniff an image's MIME from its leading magic bytes (defaults to JPEG). */
-function sniffImageMime(buf: Buffer): string {
+/**
+ * Sniff an image's MIME from its leading magic bytes, or null when the bytes are
+ * not a recognised image at all.
+ *
+ * The null answer is what a DOWNLOAD is checked against (see `fetchHolidayAsset`):
+ * a CDN that answers 200 with an error page, a captive-portal redirect or a
+ * truncated body has to be rejected, and neither a status code nor a
+ * `content-type` header survives contact with a misconfigured mirror. The magic
+ * bytes of the payload are the only claim that cannot lie.
+ */
+function imageMimeOrNull(buf: Buffer): string | null {
   if (buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png'
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg'
   if (buf.length >= 6 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif'
   if (buf.length >= 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp'
   if (buf.length >= 2 && buf[0] === 0x42 && buf[1] === 0x4d) return 'image/bmp'
-  return 'image/jpeg'
+  return null
+}
+
+/**
+ * Sniff an image's MIME from its leading magic bytes (defaults to JPEG).
+ *
+ * The default is deliberate for the bytes a USER uploaded: an unrecognised format
+ * is better served as a JPEG and left to the browser than refused outright — the
+ * browser decides, and it can sniff what this list does not know.
+ */
+function sniffImageMime(buf: Buffer): string {
+  return imageMimeOrNull(buf) ?? 'image/jpeg'
 }
 
 /**
  * Read one slot as a data URL, or null when it has nothing to serve.
  *
- * A holiday slot is answered from the package and from nowhere else — the data
- * directory is never consulted for it, which is what makes the festival art
- * impossible to swap. Everything else is the user's own bytes. Both are resolved
- * lazily, so nothing about the bundled art is loaded — or even looked for — until
- * a holiday actually reaches for it.
+ * Two very different sources behind one answer. A holiday slot resolves to the
+ * festival art — downloaded on demand and cached, never shipped (see
+ * `readHolidayAsset`). Everything else is the user's own bytes on disk. Both are
+ * resolved lazily, so neither is read, fetched or even looked for until a
+ * wallpaper actually needs it.
+ *
+ * `null` is a legitimate answer for a holiday — offline, a blocked CDN, a cold
+ * cache — and the caller is built for it: `pickHoliday` treats "no bytes" as
+ * "this holiday does not take over" and the model rules keep painting. A
+ * festival that cannot be downloaded must never blank the interface.
  */
 async function readImage(slot: string): Promise<string | null> {
-  const asset = bundledAssetFor(slot)
+  const asset = holidayAssetFor(slot)
   if (asset !== null) {
-    const bundled = await readFileOrNull(bundledAssetPath(asset))
-    return bundled === null ? null : toDataUrl(bundled)
+    const art = await readHolidayAsset(asset)
+    return art === null ? null : toDataUrl(art)
   }
   const own = await readFileOrNull(imagePath(slot))
   return own === null ? null : toDataUrl(own)
@@ -279,30 +427,223 @@ function toDataUrl(buf: Buffer): string {
   return `data:${sniffImageMime(buf)};base64,${buf.toString('base64')}`
 }
 
-/** Absolute path of one wallpaper bundled inside the package. */
-function bundledAssetPath(asset: string): string {
-  return fileURLToPath(new URL(`../holiday/${asset}`, import.meta.url))
+/** Downloads in flight, so two read paths asking at once share one transfer. */
+const holidayInFlight = new Map<string, Promise<Buffer | null>>()
+
+/**
+ * One holiday's art: from the cache if it is there and sound, otherwise from the
+ * network.
+ *
+ * The cached copy is validated rather than trusted — a process killed mid-write
+ * (or a full disk) would otherwise leave a permanently truncated file that every
+ * later read happily serves, and the holiday would be broken forever with no way
+ * back short of deleting a file nobody knows about. A cache entry that is not an
+ * image is treated exactly like a miss and overwritten by the next download.
+ *
+ * The in-flight map matters because the two readers can race: the boot hydrate
+ * and the midnight rollover timer both ask for the same slot, and the timer
+ * fires precisely when a machine that was asleep all day is waking up. Without
+ * it that is two simultaneous half-megabyte transfers for one picture.
+ */
+async function readHolidayAsset(asset: string): Promise<Buffer | null> {
+  const cached = await readFileOrNull(holidayCachePath(asset))
+  if (cached !== null && imageMimeOrNull(cached) !== null) return cached
+  const running = holidayInFlight.get(asset)
+  if (running !== undefined) return await running
+  const task = downloadHolidayAsset(asset).finally(() => { holidayInFlight.delete(asset) })
+  holidayInFlight.set(asset, task)
+  return await task
+}
+
+/** Try every mirror in turn; the first usable answer is cached and returned. */
+async function downloadHolidayAsset(asset: string): Promise<Buffer | null> {
+  for (const host of HOLIDAY_ASSET_HOSTS) {
+    const buf = await fetchHolidayAsset(`${host}/${asset}`)
+    if (buf === null) continue
+    await writeHolidayCache(asset, buf)
+    return buf
+  }
+  return null
 }
 
 /**
- * The wallpaper bundled for one slot, or null when the slot is not a holiday's.
+ * One asset over the wire, or null for every way it can fail.
  *
- * This mapping is the ONLY thing that makes a holiday slot read-only and
- * package-served, so both `readImage` and `writeImage` go through it rather than
- * each testing the holiday list on their own. It reads no config: the bundled art
- * has stopped being a fallback that a flag could disable.
+ * Never throws: a holiday that cannot be fetched is a holiday that does not paint
+ * today, which is a normal state and not an error path the caller should have to
+ * wrap. The `content-length` check is a courtesy — a mirror that announces a
+ * huge body never gets to send it — while the post-read size check is the one
+ * that actually holds.
+ *
+ * Deliberately says nothing about WHAT the bytes are: the festival art and the
+ * recommended profile are both "a file from the assets repository", and the one
+ * thing they do not share is how a payload is recognised (magic bytes vs JSON).
+ * That check belongs to the caller, which is the only half that knows what it
+ * asked for.
  */
-function bundledAssetFor(slot: string): string | null {
+async function fetchAsset(url: string, max: number, timeout: number): Promise<Buffer | null> {
+  try {
+    const ctl = new AbortController()
+    const timer = setTimeout(() => ctl.abort(), timeout)
+    try {
+      const res = await fetch(url, { redirect: 'follow', signal: ctl.signal })
+      if (!res.ok) return null
+      const announced = Number(res.headers.get('content-length') ?? '')
+      if (isFinite(announced) && announced > max) return null
+      const arr = await res.arrayBuffer()
+      if (arr.byteLength === 0 || arr.byteLength > max) return null
+      return Buffer.from(arr)
+    } finally {
+      clearTimeout(timer)
+    }
+  } catch {
+    return null
+  }
+}
+
+/** One festival picture, or null when no mirror served an image. */
+async function fetchHolidayAsset(url: string): Promise<Buffer | null> {
+  const buf = await fetchAsset(url, HOLIDAY_FETCH_MAX, HOLIDAY_FETCH_TIMEOUT)
+  return buf === null || imageMimeOrNull(buf) === null ? null : buf
+}
+
+/** One file out of the profile directory, or null when no mirror served it. */
+async function fetchPresetFile(name: string, max: number): Promise<Buffer | null> {
+  for (const host of PRESET_ASSET_HOSTS) {
+    const buf = await fetchAsset(`${host}/${name}`, max, PRESET_FETCH_TIMEOUT)
+    if (buf !== null) return buf
+  }
+  return null
+}
+
+/**
+ * The profile's shape gate and its configuration, in one answer.
+ *
+ * Two files, fetched in order, because they answer different questions. The
+ * manifest says what SHAPE the config is written for, and a config written for a
+ * shape this build cannot read is refused here — before anything is downloaded
+ * in earnest and long before anything is deleted. The config then says what the
+ * profile IS.
+ *
+ * The sanitizer runs on this side, and that is not merely tidiness: the list of
+ * images to download is DERIVED from `rules[].images[].slot`, so an unsanitized
+ * config would let a remote file choose what this process requests. After
+ * `normalizeConfig` every slot has passed `SLOT_RE` (see `normalizeImage`), and
+ * the only names left to reject are the holiday slots — which a config CAN name,
+ * legally, inside `holidays.items`, and which have no file at all.
+ *
+ * Holiday slots are dropped rather than refused. They are unwritable by design
+ * (`writeImage` refuses them), so a rule that points at one is already inert on
+ * the client; failing the whole profile over a slot nothing could ever fill
+ * would be a worse answer than ignoring it.
+ *
+ * Nothing is cached to disk, unlike the festival art. That cache exists because
+ * the art is fetched on a schedule without anyone asking and must work offline
+ * afterwards; this is a button whose entire point is to fetch what is there NOW.
+ */
+async function fetchPresetConfig(): Promise<
+  { ok: true; version: number; config: ThemeConfig; slots: string[] } | { ok: false; error: string }
+> {
+  const manifestRaw = await fetchPresetFile(PRESET_MANIFEST, PRESET_MANIFEST_MAX)
+  if (manifestRaw === null) return { ok: false, error: 'download failed' }
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(manifestRaw.toString('utf8'))
+  } catch {
+    return { ok: false, error: 'not a profile' }
+  }
+  const declared = (manifest as { version?: unknown } | null)?.version
+  if (typeof declared !== 'number' || !isFinite(declared)) return { ok: false, error: 'not a profile' }
+  if (declared > SCHEMA_VERSION) return { ok: false, error: 'newer version' }
+
+  const configRaw = await fetchPresetFile(PRESET_CONFIG, PRESET_CONFIG_MAX)
+  if (configRaw === null) return { ok: false, error: 'download failed' }
+  let raw: unknown
+  try {
+    raw = JSON.parse(configRaw.toString('utf8'))
+  } catch {
+    return { ok: false, error: 'not a profile' }
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'not a profile' }
+  const config = normalizeConfig(raw)
+
+  const slots = new Set<string>()
+  for (const rule of config.rules) {
+    for (const image of rule.images) {
+      if (holidayAssetFor(image.slot) !== null) continue
+      slots.add(image.slot)
+    }
+  }
+  if (slots.size > PRESET_IMAGE_COUNT_MAX) return { ok: false, error: 'too many images' }
+  return { ok: true, version: declared, config, slots: [...slots] }
+}
+
+/**
+ * One of the profile's wallpapers, as a data URL ready to be written into a slot.
+ *
+ * The same two checks the festival art gets, for the same reason: the bytes must
+ * actually be an image (`imageMimeOrNull`, never the `content-type` header — the
+ * mirror serves extensionless files as `application/octet-stream`), and the slot
+ * must be one this process is willing to write. The slot name is re-checked here
+ * because this is a public RPC: the list this side hands out is not the only
+ * thing a caller could ask for.
+ */
+async function fetchPresetImage(
+  slot: string,
+): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
+  if (!SLOT_RE.test(slot) || holidayAssetFor(slot) !== null) return { ok: false, error: 'bad slot' }
+  const buf = await fetchPresetFile(`${PRESET_IMAGE_PREFIX}${slot}`, PRESET_IMAGE_MAX)
+  if (buf === null) return { ok: false, error: 'download failed' }
+  const mime = imageMimeOrNull(buf)
+  if (mime === null) return { ok: false, error: 'not an image' }
+  return { ok: true, dataUrl: `data:${mime};base64,${buf.toString('base64')}` }
+}
+
+/**
+ * Cache one downloaded asset, atomically and best-effort.
+ *
+ * Written to a temp name and renamed into place, so a reader never sees a partial
+ * file even if this process dies between the two calls. A failure to cache is
+ * logged and otherwise ignored: the bytes are already in hand and the caller is
+ * waiting for them — losing the cache costs a re-download next time, and failing
+ * the read over it would cost the holiday.
+ */
+async function writeHolidayCache(asset: string, buf: Buffer): Promise<void> {
+  try {
+    await ensureDir()
+    await mkdir(dshHomePath(DATA_DIR, HOLIDAY_CACHE_DIR), { recursive: true })
+    const target = holidayCachePath(asset)
+    const temp = `${target}.tmp`
+    await writeFile(temp, buf)
+    await rename(temp, target)
+  } catch (e) {
+    console.warn(`dsh-background-by-model: could not cache the "${asset}" holiday art`, e)
+  }
+}
+
+/**
+ * The wallpaper a holiday slot resolves to, or null when the slot is not a
+ * holiday's.
+ *
+ * This mapping is the ONLY thing that makes a holiday slot read-only, so both
+ * `readImage` and `writeImage` go through it rather than each testing the holiday
+ * list on their own. It reads no config: the festival art has stopped being a
+ * fallback that a flag could disable. What changed is only WHERE the bytes come
+ * from — the slot's identity, and its refusal to accept a write, are untouched.
+ */
+function holidayAssetFor(slot: string): string | null {
   return HOLIDAYS.find(h => h.slot === slot)?.asset ?? null
 }
 
 /** Persist one rule image (null removes it); false keeps the previous file. */
 async function writeImage(slot: string, dataUrl: string | null): Promise<boolean> {
-  // A holiday slot is the package's, not the user's: refusing the write (rather
-  // than merely ignoring whatever a file there holds) is what keeps the festival
-  // art unswappable. This is the one funnel every write, delete and URL fetch
-  // goes through, so the invariant cannot be bypassed one entry point at a time.
-  if (bundledAssetFor(slot) !== null) return false
+  // A holiday slot is not the user's: refusing the write (rather than merely
+  // ignoring whatever a file there holds) is what keeps the festival art
+  // unswappable. This is the one funnel every write, delete and URL fetch goes
+  // through, so the invariant cannot be bypassed one entry point at a time. It
+  // still holds now that the art is downloaded rather than shipped: the download
+  // caches under `holiday-cache/`, keyed by asset, and never into a slot.
+  if (holidayAssetFor(slot) !== null) return false
   await ensureDir()
   try {
     if (dataUrl === null) {
@@ -333,13 +674,51 @@ async function listSlots(): Promise<string[]> {
 }
 
 /**
+ * Empty the store: the config and every rule image, and nothing else.
+ *
+ * The hard reset behind "use the recommended profile", and it has to be a real
+ * one rather than a config overwrite. `nextSlot` hands out `m1`, `m2`, … — a
+ * running counter, not a random token — so a profile and a store that both have
+ * pictures collide on those names as a matter of course. Emptying first is what
+ * makes the profile's own slots free to write, and it is why this feature needs
+ * no slot remapping: there is nothing left to collide with.
+ *
+ * `holiday-cache/` is deliberately untouched. It is not the user's
+ * configuration: it is downloaded festival art that belongs to no slot, costs a
+ * network round trip to get back, and has nothing to do with which profile is
+ * selected.
+ *
+ * Best-effort per entry — one unremovable file must not abort the rest and leave
+ * the store half wiped — but the failures are logged rather than swallowed,
+ * because the caller is about to write a fresh config over whatever survives.
+ */
+async function resetStore(): Promise<boolean> {
+  let ok = true
+  try {
+    await rm(configPath(), { force: true })
+  } catch (e) {
+    ok = false
+    console.warn(`dsh-background-by-model: failed to remove "${CONFIG_FILE}"`, e)
+  }
+  for (const slot of await listSlots()) {
+    try {
+      await rm(imagePath(slot), { force: true })
+    } catch (e) {
+      ok = false
+      console.warn(`dsh-background-by-model: failed to remove the image for slot "${slot}"`, e)
+    }
+  }
+  return ok
+}
+
+/**
  * Download an image from a network URL into one slot (replacing its bytes).
  * Returns { ok, dataUrl?, error? }; never throws.
  */
 async function fetchImageUrl(slot: string, url: string | null): Promise<{ ok: boolean; dataUrl?: string | null; error?: string }> {
   // Checked BEFORE the download: a holiday slot cannot accept the bytes, so
   // fetching them first would burn a transfer to throw it away.
-  if (bundledAssetFor(slot) !== null) return { ok: false, error: 'read-only slot' }
+  if (holidayAssetFor(slot) !== null) return { ok: false, error: 'read-only slot' }
   if (url === null) {
     const ok = await writeImage(slot, null)
     return { ok, dataUrl: null, error: ok ? undefined : 'remove failed' }
@@ -424,6 +803,16 @@ async function handleRpcMethod(
       case 'fetchImageUrl':
         if (slot === null) return { ok: true, value: { ok: false, error: 'bad slot' } }
         return { ok: true, value: await fetchImageUrl(slot, ((payload as { url?: unknown } | null)?.url ?? null) as string | null) }
+      case 'fetchPresetConfig':
+        // The failure is a VALUE, not an RPC error: "the CDN is down" is an
+        // ordinary answer this feature has to render, and it must not look like
+        // the plugin being broken.
+        return { ok: true, value: await fetchPresetConfig() }
+      case 'fetchPresetImage':
+        if (slot === null) return { ok: true, value: { ok: false, error: 'bad slot' } }
+        return { ok: true, value: await fetchPresetImage(slot) }
+      case 'resetStore':
+        return { ok: true, value: await resetStore() }
       case 'defaultModel':
         return { ok: true, value: defaultModel(ctx) }
       default:

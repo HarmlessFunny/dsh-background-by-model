@@ -230,6 +230,10 @@ export const UI_CSS = `
 .dab-modal-card{animation:dab-zoom-in .3s cubic-bezier(.22,1,.36,1) both;max-width:calc(100vw - 40px);max-height:calc(100vh - 120px);overflow:auto}
 .dab-overlay .dab-btn{background:rgba(255,255,255,.94);color:#14161a;border-color:transparent}
 .dab-overlay .dab-btn-primary{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-inverted)}
+/* The destructive choice has to survive the white-on-dark treatment above: a
+   confirmation whose "delete everything" button looks exactly like its "cancel"
+   is the one place where losing the distinction actually costs something. */
+.dab-overlay .dab-btn-danger{background:#dc2626;color:#fff;border-color:transparent}
 .dab-crash{display:flex;flex-direction:column;gap:10px;align-items:center;padding:28px 18px;border:1px solid var(--dsw-alias-border-l2);border-radius:16px}
 .dab-crash-title{font-size:15px;font-weight:650}
 .dab-crash-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);text-align:center;line-height:1.5}

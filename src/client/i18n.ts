@@ -136,6 +136,28 @@ export const zh: Record<string, string> = {
   toastExportDone: '配置文件已开始下载',
   importDone: '已导入配置',
   importFail: '导入失败，文件格式不正确',
+
+  // ── 推荐配置（从素材库下载，覆盖式；配置页）───────────────────────────────
+  // 与导入的区别只有两点：来源是网络而不是本地文件，以及它会先清空再写入。
+  recCardTitle: '推荐配置',
+  recCardDesc: '从项目素材库下载作者维护的一整套配置（规则、壁纸与接口设置），一键替换当前的全部内容',
+  recAdopt: '采用推荐配置',
+  recBusy: '正在下载',
+  recConfirmTitle: '替换当前的全部配置？',
+  recConfirmBody: '会先删除你现在的全部规则与壁纸，再写入这份推荐配置。删除的文件无法恢复。',
+  recStatRules: '条规则',
+  recStatImages: '张壁纸',
+  recConfirmOk: '删除并替换',
+  recConfirmCancel: '取消',
+  recDone: '已采用推荐配置',
+  recFailNetwork: '推荐配置下载失败，请检查网络后重试',
+  recFailNotProfile: '素材库返回的内容不是配置，请稍后重试',
+  recFailNewer: '这份推荐配置需要更新的插件版本，未做任何改动',
+  recFailTooMany: '这份推荐配置列出的图片数量超出限制，未做任何改动',
+  recFailTooLarge: '这份推荐配置体积过大，未做任何改动',
+  recFailImage: '这张壁纸没拿到（素材库里缺这个文件）：',
+  recFailApply: '未能写入推荐配置，你原来的配置没有被改动',
+
   footerTag: '按模型换背景插件',
   repoLink: '在 GitHub 上打开仓库',
 
@@ -292,6 +314,29 @@ export const en: Record<string, string> = {
   toastExportDone: 'Export started',
   importDone: 'Profile imported',
   importFail: 'Import failed — invalid file',
+
+  // ── Recommended profile (downloaded from the asset host; replaces the lot) ─
+  // It differs from Import in exactly two ways: where the file comes from, and
+  // that it empties the store before writing.
+  recCardTitle: 'Recommended profile',
+  recCardDesc: "Download the author's own full setup — rules, wallpapers and interface settings — and replace everything with it",
+  recAdopt: 'Use recommended profile',
+  recBusy: 'Downloading',
+  recConfirmTitle: 'Replace your entire profile?',
+  recConfirmBody: 'Every rule and wallpaper you have is deleted first, then this profile is written in its place. Deleted files cannot be recovered.',
+  recStatRules: 'rules',
+  recStatImages: 'wallpapers',
+  recConfirmOk: 'Delete and replace',
+  recConfirmCancel: 'Cancel',
+  recDone: 'Recommended profile applied',
+  recFailNetwork: 'Could not download the recommended profile — check your connection and retry',
+  recFailNotProfile: 'The asset host answered with something that is not a profile — try again later',
+  recFailNewer: 'This profile needs a newer plugin version. Nothing was changed.',
+  recFailTooMany: 'The recommended profile names more images than the plugin will fetch. Nothing was changed.',
+  recFailTooLarge: 'The recommended profile is too large. Nothing was changed.',
+  recFailImage: 'Could not fetch this wallpaper — the asset host has no such file:',
+  recFailApply: 'Could not write the recommended profile — your own is untouched',
+
   footerTag: 'Per-model wallpaper plugin',
   repoLink: 'Open the repository on GitHub',
 

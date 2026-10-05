@@ -9,22 +9,23 @@
 import { defineStore } from './runtime'
 import type {
   Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, PartBlurs, BgImage, BgMode, BgRule, BgState, HolidayRule,
-  FetchResult, ModelFacts, TransitionConfig,
+  FetchResult, ModelFacts, TransitionConfig, ThemeFile, PresetResult,
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
   cfg, adoptConfig, imageOf, displayImageOf, setImage, newRule, nextSlot, nextRuleId, ruleById,
   holidayById, normalizeRuleInPlace, patchRotation, ruleSlots, setActive, setModelLabel,
   activeRule, activeColor, activeRuleId, activeMatched, modelLabel, imageIndexOf, setRotIndex, takenSlots,
-  rWp, rRightbarOpacity, DEFAULT_BG_STATE,
+  rWp, rRightbarOpacity, DEFAULT_BG_STATE, resetConfig,
 } from './state'
 import { activeHoliday, pickHoliday } from '../holiday'
-import { normalizeTransition } from '../schema'
+import { SCHEMA_VERSION, normalizeTransition } from '../schema'
 import { nextIndex, isRotating } from './rotation'
 import { shouldRepaint } from './repaint'
 import {
   RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
   readImage, writeImage, deleteImage, fetchImageUrl, readDefaultModel, hostIsLegacy,
+  canWriteConfig, fetchPresetConfig, fetchPresetImage, resetStore,
 } from './rpc'
 import {
   applyWp, teardownWp, applySettingsOverrides, applyRightbarOverrides, SETTINGS_STYLE_RULE, TRAJECTORY_STYLE_RULE,
@@ -41,6 +42,35 @@ export const name = 'dsh-background-by-model'
 export const inject = ['slots', 'locale', 'theme', 'connection']
 
 const CUSTOM_ID = 'custom-color'
+
+/**
+ * Ceiling on what one recommended profile may add up to, across every wallpaper.
+ *
+ * The node half caps each file and the number of files, but it answers one
+ * independent call at a time and never sees a running total — the client is the
+ * only side that does, so the total is bounded here. The real profile is 2.2 MB
+ * of images across seven of them, so this is generous by design: it exists to
+ * stop a config that names sixty-four eight-megabyte slots from turning one
+ * button press into half a gigabyte, not to second-guess the author.
+ */
+const PRESET_TOTAL_MAX = 32 * 1024 * 1024
+
+/**
+ * How many wallpapers of a profile are in flight at once.
+ *
+ * Measured rather than guessed. The real seven-file profile, fetched against the
+ * live asset host: 8.3 s one at a time, 4.8 s with four in flight (25 s when the
+ * CDN edge was still cold). What is being paid is per-request latency, and the
+ * host speaks HTTP/2 — the bytes are identical either way and the connection is
+ * reused — so overlapping them buys wall-clock time and risks nothing but a
+ * little contention.
+ *
+ * Four rather than all seven: a burst that wide competes for the same bandwidth
+ * and makes the per-file timeout harder to reason about, and four already hides
+ * most of the latency. Whichever worker finishes first takes the next file, so
+ * the pool stays busy to the end rather than idling on the largest one.
+ */
+const PRESET_CONCURRENCY = 4
 
 export function apply(ctx: Ctx): void {
   // Bind the dedicated `/dsh-background-by-model` RPC caller so the persistence
@@ -378,7 +408,7 @@ export function apply(ctx: Ctx): void {
   const scheduleRotation = (force = false): void => {
     const rule = activeRule()
     // `activeRule()` also answers with a holiday entry, whose images are the
-    // package's single picture; `isRotating` turns that into "no schedule".
+    // single hosted festival picture; `isRotating` turns that into "no schedule".
     const sig = rule === null
       ? ''
       : [rule.id, rule.rotate.enabled, rule.rotate.intervalMs, rule.rotate.order, rule.images.length, document.hidden].join('|')
@@ -493,10 +523,12 @@ export function apply(ctx: Ctx): void {
   /**
    * The slot of the holiday that could paint TODAY, or null.
    *
-   * Gated on the CALENDAR, not merely on the switch. Now that the override is on
-   * by default and invisible, a profile that simply is not on a holiday must not
-   * pull ~730 KB of bundled art (≈970 KB of base64 over this channel) at every
-   * boot just because the feature is armed.
+   * Gated on the CALENDAR, not merely on the switch — and this gate is worth more
+   * than it used to be. The art does not ship in the package any more: the first
+   * read on the day sends the node half to the network, so a profile that is
+   * simply not on a holiday must not merely avoid ~730 KB of base64 over this
+   * channel, it must avoid starting a download at all. On every other day this
+   * returns null and nothing is fetched, cached or paid for.
    */
   const todayHolidaySlot = (): string | null => {
     if (!cfg.holidays.enabled) return null
@@ -696,6 +728,69 @@ export function apply(ctx: Ctx): void {
       matched: activeMatched,
     }
   }
+  /**
+   * Write a whole theme file into the store: its rules, its wallpapers, nothing
+   * else. The ONE door both imports come through — the file the user picked and
+   * the profile downloaded from the project's asset host — so a downloaded
+   * profile cannot arrive by a laxer route than a hand-picked file does.
+   *
+   * `wipeFirst` is the entire difference between them, and it belongs to the
+   * recommended profile alone. `nextSlot` hands slots out as `m1`, `m2`, … — a
+   * counter, not a random token — so a downloaded profile and the store it lands
+   * in collide on those names as a matter of course rather than by coincidence.
+   * Emptying the store first is what makes "replace everything with this"
+   * literally true, instead of overwriting whichever of the user's own pictures
+   * happened to share a name. The file path keeps the older behaviour: it
+   * replaces the rules but pre-emptively deletes nothing.
+   *
+   * The wipe happens HERE rather than before the download, and that ordering is
+   * the one thing worth being pedantic about: an unreachable CDN must not cost
+   * the user their configuration on the way to a profile that never arrived. By
+   * the time this runs the bytes are already in hand, so the caller has nothing
+   * left to fail at.
+   */
+  const applyThemeFile = async (data: ThemeFile, wipeFirst: boolean): Promise<boolean> => {
+    // Refused before ANYTHING is touched, on both paths. A file written for a
+    // shape this build does not know would otherwise be half-understood by an
+    // older sanitizer — every field it cannot see silently dropped — and
+    // importing it would produce a config neither its author nor its reader
+    // wrote. Failing closed costs one line of copy; failing open costs whatever
+    // the user had.
+    if (typeof data.version === 'number' && data.version > SCHEMA_VERSION) return false
+    if (typeof data.config !== 'object' || data.config === null) return false
+    if (wipeFirst) {
+      await resetStore()
+      // The in-memory mirror has to go with it, or slots that no longer exist on
+      // disk keep painting until the next reload.
+      resetConfig()
+    }
+    adoptConfig(data.config)
+    const incoming = (data.images ?? {}) as Record<string, unknown>
+    const keep = new Set<string>()
+    // Every slot the incoming config references — the same set the export writes.
+    // A holiday slot an older theme file still carries falls outside `keep` and
+    // is swept below; the node half refuses to write such a slot either way, so
+    // it is inert from both directions.
+    for (const slot of cfg.rules.flatMap(ruleSlots)) {
+      keep.add(slot)
+      const raw = incoming[slot]
+      if (typeof raw === 'string' && /^data:image\//.test(raw)) {
+        setImage(slot, raw)
+        void writeImage(slot, raw)
+      } else {
+        setImage(slot, null)
+        void deleteImage(slot)
+      }
+    }
+    // Slots the incoming config no longer references are released.
+    for (const slot of Object.keys(incoming)) {
+      if (!keep.has(slot) && /^[A-Za-z0-9_-]{1,32}$/.test(slot)) void deleteImage(slot)
+    }
+    persistConfig()
+    applyActive()
+    return true
+  }
+
   const sectionInject = (actions: { sync: (...a: any[]) => void }): Omit<ThemeSectionProps, 'useStore'> => {
     bound = actions
     sync()
@@ -1121,36 +1216,100 @@ export function apply(ctx: Ctx): void {
         try {
           const data: unknown = JSON.parse(await file.text())
           if (!data || typeof data !== 'object') return false
-          const d = data as { version?: number; config?: unknown; images?: unknown }
-          if (typeof d.config !== 'object' || d.config === null) return false
-          adoptConfig(d.config)
-          const incoming = (d.images ?? {}) as Record<string, unknown>
-          const keep = new Set<string>()
-          // Every slot the imported config references — the same set the export
-          // writes. A holiday slot that an older theme file still carries falls
-          // outside `keep` and is swept below; the node half refuses to write such
-          // a slot either way, so it is inert from both directions.
-          for (const slot of cfg.rules.flatMap(ruleSlots)) {
-            keep.add(slot)
-            const raw = incoming[slot]
-            if (typeof raw === 'string' && /^data:image\//.test(raw)) {
-              setImage(slot, raw)
-              void writeImage(slot, raw)
-            } else {
-              setImage(slot, null)
-              void deleteImage(slot)
-            }
-          }
-          // Slots the imported config no longer references are released.
-          for (const slot of Object.keys(incoming)) {
-            if (!keep.has(slot) && /^[A-Za-z0-9_-]{1,32}$/.test(slot)) void deleteImage(slot)
-          }
-          persistConfig()
-          applyActive()
-          return true
+          return await applyThemeFile(data as ThemeFile, false)
         } catch {
           return false
         }
+      },
+      /**
+       * Fetch the project's recommended profile. Downloads only.
+       *
+       * Split from applying it on purpose: the page has to ask before anything is
+       * destroyed, and a confirmation can only describe what is actually in hand
+       * — "7 rules, 7 wallpapers, 2.9 MB" — which means the download comes first
+       * and the question second.
+       *
+       * The profile is a DIRECTORY now, so this is a pool rather than one call:
+       * the manifest and config say which slots exist, and each wallpaper is one
+       * request, up to `PRESET_CONCURRENCY` of them at a time. What the fan-out
+       * buys is wall-clock time — the real profile measured 8.3 s fetched one at
+       * a time against 4.8 s with four in flight — while each file keeps its own
+       * mirror fallback, its own validation, and its own slot name in a failure.
+       *
+       * STRICT, and the pool is what makes that a decision rather than a
+       * formality: the first wallpaper that cannot be had stops the queue, so the
+       * files nobody has asked for yet are never asked for. Whatever was already
+       * in flight finishes and is thrown away. Nothing has been touched at this
+       * point, so "the author renamed a file" arrives as an error naming the file
+       * rather than as a profile that is quietly missing a picture — and that
+       * loudness is the whole reason this feature is allowed to follow a branch.
+       */
+      fetchRecommended: async (
+        onProgress?: (done: number, total: number) => void,
+      ): Promise<PresetResult> => {
+        const head = await fetchPresetConfig()
+        if (!head.ok) return { ok: false, error: head.error }
+        const slots = head.slots
+        const images: Record<string, string> = {}
+        let next = 0
+        let done = 0
+        let bytes = 0
+        /** Latched by the first worker to fail, so the rest stop asking. */
+        let stopped = false
+        onProgress?.(0, slots.length)
+        // A shared cursor rather than a fixed slice per worker: the files are not
+        // the same size, so whoever finishes first takes the next one and the pool
+        // stays busy to the end instead of idling on the largest file.
+        const worker = async (): Promise<{ error: string; slot?: string } | null> => {
+          for (;;) {
+            // Checked before taking a number, never after: a failure must not
+            // start one more download on its way out. The transfers already in
+            // flight finish and are thrown away with the rest.
+            if (stopped || next >= slots.length) return null
+            const slot = slots[next++] as string
+            const got = await fetchPresetImage(slot)
+            if (!got.ok) {
+              stopped = true
+              return { error: got.error, slot }
+            }
+            images[slot] = got.dataUrl
+            bytes += got.dataUrl.length
+            // The node half bounds ONE file and the COUNT; the running total can
+            // only be bounded here, because these calls are independent and that
+            // side never sees more than one of them.
+            if (bytes > PRESET_TOTAL_MAX) {
+              stopped = true
+              return { error: 'too large' }
+            }
+            onProgress?.(++done, slots.length)
+          }
+        }
+        const failure = (await Promise.all(
+          Array.from({ length: Math.min(PRESET_CONCURRENCY, slots.length) }, worker),
+        )).find(r => r !== null) ?? null
+        // Whichever failure is reported, NOTHING has been touched: the store is
+        // emptied by `applyRecommended`, which never runs on this path.
+        if (failure !== null) return { ok: false, error: failure.error, slot: failure.slot }
+        // Assembled into the shape `exportTheme` writes, so everything downstream
+        // — the version gate, the sanitizer, the wipe — is the path a hand-picked
+        // file already takes.
+        return {
+          ok: true,
+          preset: { version: head.version, exportedAt: new Date().toISOString(), config: head.config, images },
+        }
+      },
+      /**
+       * Replace EVERYTHING with a downloaded profile: empty the store, then write
+       * the profile into it. Irreversible by design, which is why the page asks
+       * first and why nothing here is offered as an undo.
+       */
+      applyRecommended: async (preset: ThemeFile): Promise<boolean> => {
+        // Never delete a store this build cannot write back into. A host older
+        // than multi-image holds every config write (see canWriteConfig); the
+        // reset would still go through, and "the write was held" would turn into
+        // "your profile is gone and nothing replaced it".
+        if (!canWriteConfig()) return false
+        return await applyThemeFile(preset, true)
       },
     }
   }

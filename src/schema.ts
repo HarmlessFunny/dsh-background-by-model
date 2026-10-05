@@ -48,7 +48,7 @@ export const DEFAULT_BG_STATE: BgState = { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 }
  *
  * NULL IS NOT AN OPINION here, unlike the color: `bgMode` is always one of
  * `BG_MODES`, and every entry that lacks the KEY is lifted from the rule-level
- * value a pre-0.8 config carried (see `normalizeImage`). There is no "follow the
+ * value a pre-0.7.5 config carried (see `normalizeImage`). There is no "follow the
  * rule" state to express, because the rule no longer has a mode at all.
  */
 export interface BgImage {
@@ -57,7 +57,7 @@ export interface BgImage {
   /**
    * How THIS image meets the viewport (see `BgMode`).
    *
-   * Written by every release from 0.8 on. An entry that predates the field has no
+   * Written by every release from 0.7.5 on. An entry that predates the field has no
    * `bgMode` KEY, which is exactly how `normalizeImage` tells "this image never
    * had a mode of its own" from "this image was explicitly set to 适应" — and why
    * the rule's own mode is lifted onto it on read rather than being quietly
@@ -338,9 +338,12 @@ export function ruleCanPaint(rule: BgRule): boolean {
  * never point a holiday at another rule's slot.
  *
  * There is deliberately nothing here about the IMAGE. A holiday's wallpaper is
- * the one bundled in the package (under `holiday/`), the node half serves it
- * straight out of there, and a holiday slot is read-only — no entry point takes
- * bytes for it. The feature is an easter egg, not a thing to configure.
+ * the file its definition names in `HOLIDAYS`, which the node half downloads and
+ * caches on the day it is needed rather than shipping in the package, and a
+ * holiday slot is read-only — no entry point takes bytes for it. Where those
+ * bytes come from is the node half's business and never this shape's: nothing
+ * about it reaches the config file, so a hand-edited one cannot point a festival
+ * at another picture. The feature is an easter egg, not a thing to configure.
  *
  * Its theme colors are forced from the definition for the same reason, one level
  * deeper: a holiday's color belongs to it, so `normalizeHolidayRule` rewrites both
@@ -468,8 +471,9 @@ export function defaultHolidayRule(def: HolidayDef): HolidayRule {
   const color = hexToHsl(def.color)
   return {
     id: def.id,
-    // Exactly one image: a holiday's art is the package's, so there is nothing
-    // for a second entry to point at and nothing for a rotation to walk.
+    // Exactly one image: a holiday's art is the single file its definition
+    // names, so there is nothing for a second entry to point at and nothing for
+    // a rotation to walk.
     images: [{ slot: def.slot, bgMode: 'fill', bgState: { ...DEFAULT_BG_STATE }, color }],
     match: '',
     enabled: true,
@@ -696,7 +700,7 @@ export function normalizeImage(
  * is still what the rule paints once its last picture is gone.
  *
  * The layout mode makes the same trip in the other direction, and this is the
- * last release that has to: a config written before 0.8 keeps `bgMode` at the RULE
+ * last release that has to: a config written before 0.7.5 keeps `bgMode` at the RULE
  * level, where one value covered every picture of a rotation, so it is read here
  * once and handed to each image as its inherited mode. What the user chose
  * therefore survives the move the same way it survived the color's — the mode is
@@ -722,7 +726,7 @@ export function normalizeRule(raw: unknown): BgRule | null {
   const id = typeof r.id === 'string' && r.id !== '' ? r.id : null
   if (id === null) return null
   const color = normalizeHsl(r.color)
-  // The rule-level mode a config written before 0.8 carries, resolved ONCE here
+  // The rule-level mode a config written before 0.7.5 carries, resolved ONCE here
   // and handed to every image entry below. `fit` when the field is absent or
   // unusable — the same default a fresh rule's first picture gets, so a config
   // that never named a mode cannot tell this lift apart from a new rule.

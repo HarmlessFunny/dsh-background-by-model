@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { ThemeSectionProps, ThemeStoreState } from '../../types'
+import type { ThemeFile, ThemeSectionProps, ThemeStoreState } from '../../types'
 import { cfg, rFadeMs } from '../../state'
 import { matchRule } from '../../modelbg'
 import { saveConfig } from '../../rpc'
@@ -8,6 +8,7 @@ import { normalizeTransition, TRANSITION_EASINGS, TRANSITION_EFFECTS } from '../
 import { transitionPlan } from '../../transition'
 import type { TransitionEffect, TransitionEasing } from '../../../schema'
 import { LiveSlider } from '../LiveSlider'
+import { Portal } from '../Portal'
 import { REPO_URL } from '../../repo'
 import { DownloadIcon, SparkleIcon, UploadIcon } from '../icons'
 
@@ -30,6 +31,30 @@ const MODEL_NOTE_KEYS: Record<string, string | undefined> = {
   'no-projection': 'statusNoteNoProjection',
   'empty-selection': 'statusNoteEmptySelection',
 }
+
+/**
+ * The ways the recommended-profile download can fail, mapped to their copy.
+ *
+ * They are worth telling apart because they ask different things of the user and
+ * of whoever maintains the assets repository: nothing answering is a network to
+ * retry, a mirror that answered with something that is not a profile is not
+ * going to start working on a retry, a profile written for a newer plugin is a
+ * "update this build", and too many images is a profile nobody should install.
+ * A failure that names a SLOT is a fifth case and is rendered separately — that
+ * one is the author's file naming, and only the slot tells them which.
+ */
+const REC_ERROR_KEYS: Record<string, string | undefined> = {
+  'download failed': 'recFailNetwork',
+  'not a profile': 'recFailNotProfile',
+  'newer version': 'recFailNewer',
+  'too many images': 'recFailTooMany',
+  'too large': 'recFailTooLarge',
+}
+
+/** Size of a download, at the precision a person reads it at. */
+const fmtBytes = (n: number): string => (n >= 1024 * 1024
+  ? `${(n / 1024 / 1024).toFixed(1)} MB`
+  : `${Math.max(1, Math.round(n / 1024))} KB`)
 
 export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg: string, ok?: boolean) => void }) {
   const { t, exportTheme, importTheme, setTransition } = p
@@ -124,6 +149,61 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
     }
   }
 
+  // ── recommended profile ───────────────────────────────────────────────────
+  // The profile is downloaded FIRST and held here, and only then is the user
+  // asked. The order is the point: this is the one action in the panel that
+  // deletes everything, and a question asked before the download could only be
+  // "replace all of it with … something that may not arrive". Asking second also
+  // lets the question state what is actually in hand.
+  //
+  // It is several transfers rather than one — a config and then a file per
+  // wallpaper — so there is a real count to show while it runs, and a partial
+  // failure to name. `slot` is what carries that: the config named a file the
+  // host does not have.
+  const [pending, setPending] = useState<ThemeFile | null>(null)
+  const [recBusy, setRecBusy] = useState(false)
+  const [recDone, setRecDone] = useState(0)
+  const [recTotal, setRecTotal] = useState(0)
+
+  /** What the confirmation describes: countable facts about the download. */
+  const recStats = ((): { rules: number; images: number; bytes: number } | null => {
+    if (pending === null) return null
+    const rules = (pending.config as { rules?: unknown } | null)?.rules
+    const images = pending.images ?? {}
+    let bytes = 0
+    // The base64 IS the transfer — the rest of the document is a few kilobytes
+    // of JSON — so summing the data URLs is the honest number to show.
+    for (const url of Object.values(images)) bytes += url.length
+    return { rules: Array.isArray(rules) ? rules.length : 0, images: Object.keys(images).length, bytes }
+  })()
+
+  const onRecommended = async () => {
+    setRecBusy(true)
+    setRecDone(0)
+    setRecTotal(0)
+    const res = await p.fetchRecommended((done, total) => { setRecDone(done); setRecTotal(total) })
+    setRecBusy(false)
+    if (!res.ok) {
+      // A failure that names a slot is about one file in the assets repository,
+      // not about the network or this build — so it says which one.
+      notify(res.slot === undefined
+        ? t(REC_ERROR_KEYS[res.error] ?? 'recFailNetwork')
+        : `${t('recFailImage')} ${res.slot}`, false)
+      return
+    }
+    setPending(res.preset)
+  }
+
+  const onConfirmRecommended = async () => {
+    const preset = pending
+    if (preset === null) return
+    setRecBusy(true)
+    const ok = await p.applyRecommended(preset)
+    setRecBusy(false)
+    setPending(null)
+    notify(ok ? t('recDone') : t('recFailApply'), ok)
+  }
+
   return (
     <>
       <header className="dab-head dab-rise" style={{ '--d': 0 } as CSSProperties}>
@@ -136,7 +216,8 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
           per holiday, no thumbnail and no image picker: the feature is a small
           easter egg, and the panels that used to live here made it look like
           something the user is expected to configure — art included. The
-          wallpapers ship in the package and are not swappable at all.
+          wallpapers are fetched from the project's own asset host and are not
+          swappable at all.
 
           Nor is there a line under the switch explaining it. The label carries
           the meaning, and the control's tooltip carries the windows; a
@@ -263,6 +344,24 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
       </section>
 
       <div className="dab-profile-grid dab-rise" style={{ '--d': 3 } as CSSProperties}>
+        {/* The one-click path, so it leads. It is also the only card here that
+            DESTROYS something — export and import both move a profile around,
+            this one replaces the store outright — which is why it is the only
+            one that asks before acting. */}
+        <section className="dab-card dab-card-hover">
+          <div className="dab-profile-ico"><SparkleIcon size={17} /></div>
+          <div className="dab-profile-title">{t('recCardTitle')}</div>
+          <div className="dab-profile-desc">{t('recCardDesc')}</div>
+          <button type="button" className="dab-btn dab-btn-primary"
+            disabled={recBusy || store.hostStale}
+            title={store.hostStale ? t('hostStaleHint') : t('recAdopt')}
+            onClick={() => void onRecommended()}>
+            <SparkleIcon size={14} />
+            {!recBusy ? t('recAdopt')
+              : recTotal > 0 ? `${t('recBusy')} ${recDone}/${recTotal}` : t('recBusy')}
+          </button>
+        </section>
+
         <section className="dab-card dab-card-hover">
           <div className="dab-profile-ico"><DownloadIcon size={17} /></div>
           <div className="dab-profile-title">{t('exportCardTitle')}</div>
@@ -285,6 +384,34 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
           }} />
         </section>
       </div>
+
+      {/* The confirmation. A transient toast could not do this job: a toast is
+          gone in 2.6 s whether or not it was read, and this is the one action in
+          the panel whose mistake cannot be walked back — the store it deletes is
+          the only copy of the user's own wallpapers. The counters are here
+          rather than in the card because they describe the DOWNLOAD ("what am I
+          about to install"), which is not known until it arrives. */}
+      {pending !== null && recStats !== null ? (
+        <Portal>
+          <div className="dab-overlay" onClick={e => {
+            if (e.target === e.currentTarget && !recBusy) setPending(null)
+          }}>
+            <div className="dab-overlay-title">{t('recConfirmTitle')}</div>
+            <div className="dab-modal-card" style={{ maxWidth: 'min(92vw, 460px)', textAlign: 'center' }}>
+              <p className="dab-overlay-hint" style={{ lineHeight: 1.7 }}>{t('recConfirmBody')}</p>
+              <p className="dab-overlay-hint" style={{ marginTop: 10, fontFamily: 'var(--dab-mono, monospace)' }}>
+                {`${recStats.rules} ${t('recStatRules')} · ${recStats.images} ${t('recStatImages')} · ${fmtBytes(recStats.bytes)}`}
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" className="dab-btn" disabled={recBusy}
+                onClick={() => setPending(null)}>{t('recConfirmCancel')}</button>
+              <button type="button" className="dab-btn dab-btn-danger" disabled={recBusy}
+                onClick={() => void onConfirmRecommended()}>{t('recConfirmOk')}</button>
+            </div>
+          </div>
+        </Portal>
+      ) : null}
 
       <footer className="dab-footer dab-rise" style={{ '--d': 4 } as CSSProperties}>
         {/* The package name is the link: it is what you would search for, and the

@@ -1,6 +1,6 @@
 {
   "name": "dsh-background-by-model",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "Appearance plugin for DeepSeek Harness: an ordered list of model rules, each carrying its own wallpapers — every image with its own framing and theme color — plus layout mode, opacity and blur; the background follows the model you switch to, and a rule can rotate through several images on its own rhythm.",
   "keywords": [
     "deepseek-harness",
@@ -45,12 +45,9 @@
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
-    "lib/client.js.map",
     "CHANGELOG.md",
     "CHANGELOG.zh.md",
-    "cordis.patch.yml",
-    "example_img",
-    "holiday"
+    "cordis.patch.yml"
   ],
   "scripts": {
     "bundle": "tsdown",

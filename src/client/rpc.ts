@@ -1,4 +1,4 @@
-import type { FetchResult, RpcResultLike } from './types'
+import type { FetchResult, PresetHead, PresetImage, RpcResultLike } from './types'
 import { cfg } from './state'
 // The shape this bundle writes, and the one the host announces on `read`.
 import { SCHEMA_VERSION } from '../schema'
@@ -158,6 +158,53 @@ export async function fetchImageUrl(slot: string, url: string): Promise<FetchRes
   return v?.ok === true
     ? { ok: true, dataUrl: v.dataUrl ?? null }
     : { ok: false, error: v?.error ?? 'failed' }
+}
+
+/**
+ * The profile's manifest and config, in one answer. Reads nothing, writes nothing.
+ *
+ * Raw rather than `rpcCall` for the same reason `fetchImageUrl` is: the node half
+ * answers this one with a value that CARRIES its own failure, and the `error`
+ * inside it is the only thing worth showing the user — the generic "rpc failed"
+ * log would throw that distinction away.
+ */
+export async function fetchPresetConfig(): Promise<PresetHead> {
+  const res = await rpcRaw('fetchPresetConfig', {})
+  return unwrapPreset<PresetHead>(res)
+}
+
+/** One of the profile's wallpapers, addressed by the slot the config names. */
+export async function fetchPresetImage(slot: string): Promise<PresetImage> {
+  const res = await rpcRaw('fetchPresetImage', { slot })
+  return unwrapPreset<PresetImage>(res)
+}
+
+/**
+ * The envelope both profile calls share: a transport failure and a value-level
+ * failure have to come out the same shape, because the page renders one message
+ * either way and must not have to know which layer said no.
+ */
+function unwrapPreset<T>(res: RpcResultLike | undefined): T {
+  if (!res) return { ok: false, error: 'no response' } as T
+  if (res.ok !== true) {
+    const err = (res as { error?: { message?: string } }).error
+    return { ok: false, error: err?.message ?? 'request failed' } as T
+  }
+  const v = res.value as { ok?: unknown; error?: unknown } | undefined
+  if (v?.ok !== true) return { ok: false, error: typeof v?.error === 'string' ? v.error : 'failed' } as T
+  return v as T
+}
+
+/**
+ * Empty the store: the config and every rule image.
+ *
+ * Only the recommended profile uses this, and only after its download has
+ * already succeeded — see `applyRecommended`. Nothing else in the plugin deletes
+ * the user's configuration wholesale.
+ */
+export async function resetStore(): Promise<boolean> {
+  const res = await rpcCall('resetStore', {})
+  return res === true
 }
 
 /** Host default model — used only when the per-session services are absent. */

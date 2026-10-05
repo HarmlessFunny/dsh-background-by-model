@@ -72,6 +72,11 @@ const TABLE_KEYS: Array<[string, RegExp, string]> = [
   // The match tester — and with it this table — moved from the rules page to the
   // profile page, so the keys are now reached from there.
   ['components/pages/ProfilePage.tsx', /'(statusNote[A-Za-z]+)'/g, 'MODEL_NOTE_KEYS'],
+  // The recommended-profile download's failure codes, matched the same way: the
+  // node half reports a code and the page looks the copy up. A prefix rather than
+  // a list, because the set of codes grows with the ways a download can fail and
+  // every one of them is a key that must not go missing.
+  ['components/pages/ProfilePage.tsx', /'(recFail[A-Za-z]+)'/g, 'REC_ERROR_KEYS'],
   ['components/pages/ModelBgPage.tsx', /key:\s*'(bgMode[A-Za-z]+)'/g, 'BG_MODES'],
   ['components/pages/InterfacePage.tsx', /labelKey:\s*'(ui[A-Za-z]+)'/g, 'PARTS'],
   // The dwell-time presets are rendered from ROTATE_PRESETS, so their labels are
