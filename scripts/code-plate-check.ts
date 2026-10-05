@@ -17,10 +17,10 @@
  *      reach `:root`, and the plate must be a palette tint (a constant can only
  *      ever match one of the two ink sets) — plus the `:root` fade scope, or the
  *      block would jump to the new tint while everything around it faded;
- *   2. a code surface no slider can reach. The block carries text and defaults to
- *      opaque, but the alpha has to EXIST: the plate and its banner are painted by
- *      the host's own components, so nothing else in the palette machinery would
- *      ever touch them.
+ *   2. a code surface no slider can reach. The block carries text and the shipped
+ *      profile keeps its plate nearly opaque, but the alpha has to EXIST: the
+ *      plate and its banner are painted by the host's own components, so nothing
+ *      else in the palette machinery would ever touch them.
  *
  * The colour half is behavioural (`genTokens` is pure); the wiring half is
  * textual, the same shape `scripts/repaint-check.ts` uses for the plugin-owned
@@ -100,8 +100,8 @@ check('both ride one part group',
 console.log('--- and a slider to move it (schema + page + both dictionaries) ---')
 check('the key list carries the part',
   /PART_OPACITY_KEYS = \['bg', 'sidebar', 'card', 'code', 'input'\] as const/.test(schema), true)
-check('it defaults to opaque',
-  /DEFAULT_PART_OPACITIES: PartOpacities = \{[^}]*\bcode: 1\b[^}]*\}/.test(schema), true)
+check('it ships on the profile\'s own 81%',
+  /DEFAULT_PART_OPACITIES: PartOpacities = \{[^}]*\bcode: 0\.81\b[^}]*\}/.test(schema), true)
 check('the Interface page renders it, opacity only',
   /\{ opKey: 'code', labelKey: 'uiOpacityCode', Icon: CodeIcon, noBlur: true \}/.test(page), true)
 check('the label exists in both dictionaries', [zh.uiOpacityCode, en.uiOpacityCode], ['代码块', 'Code blocks'])

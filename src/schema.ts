@@ -156,10 +156,27 @@ export const PART_OPACITY_KEYS = ['bg', 'sidebar', 'card', 'code', 'input'] as c
 /** Per-part main interface opacities (0..1), keyed BY the list above. */
 export type PartOpacities = Record<(typeof PART_OPACITY_KEYS)[number], number>
 
-// `code` starts opaque, like the other surfaces that carry text on top of a
-// deliberate surface (`card`, `input`): a code block is read, not looked through,
-// and anyone who wants the wallpaper inside it has a slider for exactly that.
-export const DEFAULT_PART_OPACITIES: PartOpacities = { bg: 0.85, sidebar: 0.93, card: 1, code: 1, input: 1 }
+// The numbers below are what a FRESH INSTALL starts on, and they are the author's
+// own profile: the Interface tab's numbers, exactly as the recommended profile on
+// the asset host carries them (`dsh-background-by-model/preset/theme-config.json`).
+// A new install therefore already looks like that profile, and its one-click
+// download adds the pictures rather than changing anything on this tab. The two
+// settings this tab does not own are deliberately NOT copied from it: the festival
+// switch ships off (see DEFAULT_HOLIDAYS_ENABLED) and the switch duration keeps
+// the 320 ms cross-fade every earlier release used (see DEFAULT_TRANSITION).
+//
+// That reversed how these were chosen. Every one of them used to be picked per
+// key for safety, which is why the panel opened on a pale approximation of the
+// host rather than on anything anyone would actually run: `code` was fully opaque
+// because "a code block is read, not looked through", `bg` was 0.85 so the host
+// surface stayed visible under it, `input` blur was 0 because blur costs a
+// compositor layer. Two consequences are worth knowing. The main background now
+// starts at 0%, so it is entirely the wallpaper — with no wallpaper yet, it is
+// the host's own canvas (the palette and its ink are unaffected: they come from
+// the colour, not from this alpha). And a config that does not mention one of
+// these keys lands on the profile's value too, which is the intent: a missing key
+// and a fresh install should never show two different panels.
+export const DEFAULT_PART_OPACITIES: PartOpacities = { bg: 0, sidebar: 0.1, card: 1, code: 0.81, input: 0.88 }
 
 /**
  * Interface blur (px, 0..60), global (Interface page):
@@ -177,8 +194,11 @@ export const PART_BLUR_KEYS = ['bg', 'sidebar', 'card', 'settings', 'chat', 'tra
 /** Per-part interface blur (px, 0..60), keyed BY the list above. */
 export type PartBlurs = Record<(typeof PART_BLUR_KEYS)[number], number>
 
+// The profile's blurs: every surface sharp except the input & controls, which
+// carry the 60 px the author runs (see the note above DEFAULT_PART_OPACITIES for
+// why the shipped numbers are the author's rather than a per-key safe value).
 export const DEFAULT_PART_BLURS: PartBlurs = {
-  bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, rightbar: 0, input: 0,
+  bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, rightbar: 0, input: 60,
 }
 
 // ── Wallpaper switch transition (global) ───────────────────────────────────
@@ -401,22 +421,34 @@ export interface ThemeConfig {  /** Ordered rules: matching runs top→bottom, r
   holidays: HolidaysConfig
 }
 
-/** 100% = untouched host surface; zero would blank the page by default. */
+// The three tint alphas and the panel opacity are the profile's values as well
+// (see the note above DEFAULT_PART_OPACITIES): the settings dialog stays fully
+// opaque, the conversation text box carries its 35% tint, the trajectory view
+// 73%, and the file-preview panel is OWNED from the first run at 45%.
+//
+// `rightbarOpacity` is the one default whose TYPE carries a second state, which
+// is why it is not a plain fallback: `null` means "never dragged, so follow
+// `opacities.bg`" (see `normalizeRightbarOpacity`), and a fresh config is not in
+// that state any more.
 export const DEFAULT_SETTINGS_OPACITY = 1
-export const DEFAULT_CHAT_TEXT_OPACITY = 0
-/** 100% = untouched host surface; zero would blank the page by default. */
-export const DEFAULT_TRAJECTORY_OPACITY = 1
-/** `null` = the file-preview panel still follows the main background. */
-export const DEFAULT_RIGHTBAR_OPACITY: number | null = null
+export const DEFAULT_CHAT_TEXT_OPACITY = 0.35
+export const DEFAULT_TRAJECTORY_OPACITY = 0.73
+export const DEFAULT_RIGHTBAR_OPACITY: number | null = 0.45
 /** Picking an image should just work; the toggle is there for people who don't want it. */
 export const DEFAULT_AUTO_EXTRACT = true
 /**
- * Holiday overrides are ON out of the box: the point is that the background
- * changes by itself on the day and changes back the next morning. The single
- * switch on the Config page is the off-ramp, so only an explicit `false` turns
- * the feature off.
+ * Holiday overrides ship OFF: a fresh install paints what the model rules say and
+ * nothing else, and the single switch on the Config page is how the feature is
+ * asked for.
+ *
+ * It shipped ON before, on the argument that the point of the feature is that the
+ * background changes by itself on the day. That is the right answer for a
+ * configuration somebody has already chosen — which is why the recommended
+ * profile on the asset host still turns it ON — but not for a plugin that has
+ * just been installed and has no wallpaper of its own yet: on the day, the first
+ * thing a new user would see is a festival picture nobody asked for.
  */
-export const DEFAULT_HOLIDAYS_ENABLED = true
+export const DEFAULT_HOLIDAYS_ENABLED = false
 
 /**
  * `#RRGGBB` → the `[h, s, l]` triple every rule stores (`s` and `l` in 0..1), or
@@ -828,12 +860,43 @@ export function normalizeHolidays(raw: unknown): HolidaysConfig {
     }
   }
   return {
-    // Only an explicit `false` turns the feature off — the same "absent means
-    // on" rule the per-item switch uses, so a config predating the feature (or
-    // one whose hidden panel was never opened) keeps working.
-    enabled: r.enabled !== false,
+    // A real boolean is honoured; anything else — the absent field of a config
+    // written before the feature existed, or junk from a hand-edit — lands on the
+    // shipped default (OFF, see DEFAULT_HOLIDAYS_ENABLED).
+    //
+    // This used to be "only an explicit `false` turns it off", so that a config
+    // predating the feature kept working the way it always had. Shipping the
+    // feature off is exactly the decision that rule was standing in for: it is on
+    // because a configuration says so, not because nobody has said anything. The
+    // per-HOLIDAY `enabled` inside each item is a different switch and still
+    // defaults to on — it is a detail of a feature already switched on, not the
+    // switch itself.
+    enabled: typeof r.enabled === 'boolean' ? r.enabled : DEFAULT_HOLIDAYS_ENABLED,
     items: HOLIDAYS.map(def => normalizeHolidayRule(def, stored.get(def.id))),
   }
+}
+
+/**
+ * The file-preview panel's own opacity.
+ *
+ * Three states, and the middle one is why this is a function rather than the
+ * one-line fallback every other field gets: a real number is the card's own
+ * value, `null` is "never owned, so follow `opacities.bg`", and a KEY that is not
+ * there at all — a hand-written config, or one written before the option existed
+ * — is the shipped profile's 45% (see DEFAULT_RIGHTBAR_OPACITY).
+ *
+ * `null` has to survive as ITSELF instead of falling through to the default:
+ * every release so far has written it — a panel the user never dragged is
+ * persisted as an explicit `null` — so treating it as "missing" would hand the
+ * shipped 45% to every configuration whose preview panel was following the main
+ * background, a silent change to a setup nobody asked to change. It is also
+ * unreachable from the UI (no control returns to it); it exists for configs that
+ * were written while the shipped default was `null`.
+ */
+function normalizeRightbarOpacity(v: unknown): number | null {
+  if (v === null) return null
+  if (typeof v === 'number' && isFinite(v)) return clamp01(v, 1)
+  return DEFAULT_RIGHTBAR_OPACITY
 }
 
 /** Coerce an unknown persisted value into a valid ThemeConfig, falling back per-field. */
@@ -860,11 +923,11 @@ export function normalizeConfig(raw: unknown): ThemeConfig {
     settingsOpacity: clamp01(r.settingsOpacity, DEFAULT_SETTINGS_OPACITY),
     chatTextOpacity: clamp01(r.chatTextOpacity, DEFAULT_CHAT_TEXT_OPACITY),
     trajectoryOpacity: clamp01(r.trajectoryOpacity, DEFAULT_TRAJECTORY_OPACITY),
-    // Anything but a real number means "not owned yet" — including the absent
-    // field of a config written before this option existed.
-    rightbarOpacity: typeof r.rightbarOpacity === 'number' && isFinite(r.rightbarOpacity)
-      ? clamp01(r.rightbarOpacity, 1)
-      : DEFAULT_RIGHTBAR_OPACITY,
+    // A real number is the card's own value, an explicit `null` is still "follow
+    // the main background", and only a key that is not there at all takes the
+    // shipped default — see normalizeRightbarOpacity for why the middle one must
+    // not be treated as missing.
+    rightbarOpacity: normalizeRightbarOpacity(r.rightbarOpacity),
     // Only an explicit `false` turns it off, so a config written before this
     // option existed starts with the helpful default.
     autoExtract: r.autoExtract !== false,

@@ -122,7 +122,7 @@ console.log('\n--- the holiday block through the shared sanitizer ---')
 const first = await readConfig()
 const h = first.holidays
 check('the block exists at all', h !== undefined)
-check('the override is ON with no config at all (easter egg: it just works)', h.enabled === true)
+check('the override is OFF with no config at all (the shipped default)', h.enabled === false)
 check('one entry per built-in holiday, in HOLIDAYS order',
   JSON.stringify(h.items.map(i => i.id)) === JSON.stringify(['mid-autumn', 'national-day']),
   JSON.stringify(h.items.map(i => i.id)))
@@ -150,6 +150,41 @@ check('the rule color and the image color agree to the digit',
 check('nothing in the shape offers to swap the image',
   h.items.every(i => !('useBundled' in i) && !('image' in i) && !('asset' in i)),
   JSON.stringify(Object.keys(h.items[0])))
+
+console.log('\n--- a fresh install starts on the published profile, not on per-key safety ---')
+// These are the Interface numbers the recommended profile on the asset host
+// carries, and they are asserted HERE by value: a constant changed without the
+// profile (or the other way round) then fails this check instead of drifting
+// quietly out of step.
+check('the main background starts fully transparent (the wallpaper IS the window)',
+  first.opacities.bg === 0)
+check('the left panel, the code plate and the inputs carry the profile\'s numbers',
+  first.opacities.sidebar === 0.1 && first.opacities.code === 0.81 && first.opacities.input === 0.88,
+  JSON.stringify(first.opacities))
+check('the cards stay opaque', first.opacities.card === 1)
+check('and so do the blurs — only the input & controls are frosted, at 60 px',
+  first.blurs.input === 60 && first.blurs.bg === 0 && first.blurs.card === 0 && first.blurs.settings === 0,
+  JSON.stringify(first.blurs))
+check('the settings panel stays opaque', first.settingsOpacity === 1)
+check('the conversation text box and the trajectory view carry their tints',
+  first.chatTextOpacity === 0.35 && first.trajectoryOpacity === 0.73,
+  `${first.chatTextOpacity} / ${first.trajectoryOpacity}`)
+check('and the file-preview panel is OWNED from the first run',
+  first.rightbarOpacity === 0.45, String(first.rightbarOpacity))
+// The state a fresh config must NOT swallow. `null` here is not "missing": it is
+// what every release so far has WRITTEN for a preview panel nobody ever dragged,
+// so reading it as an absent key would silently repaint that panel in every
+// existing configuration — a change nobody asked for, with nothing in the log.
+await call('writeConfig', { config: { ...first, rightbarOpacity: null } })
+check('an explicit null preview panel still follows the main background',
+  (await readConfig()).rightbarOpacity === null)
+await call('writeConfig', { config: { ...first, rightbarOpacity: 0.62 } })
+check('and a panel with a number of its own keeps it', (await readConfig()).rightbarOpacity === 0.62)
+await call('writeConfig', { config: { ...first, rightbarOpacity: 'x' } })
+check('while a hand-edit that is not a number lands on the shipped 45%',
+  (await readConfig()).rightbarOpacity === 0.45)
+// Hand the store back to the sections below in the state it found it.
+await call('writeConfig', { config: first })
 
 console.log('\n--- the festival art is fetched on demand, and cached ---')
 const CACHE = join(DATA, 'holiday-cache')
@@ -344,15 +379,20 @@ check('a hand-edited layout mode cannot letterbox a festival wallpaper',
   repaired.items.every(i => i.images[0].bgMode === 'fill'),
   JSON.stringify(repaired.items.map(i => i.images[0].bgMode)))
 
-// The switch is an off-ramp, so only an explicit `false` takes it down: this is
-// the same "absent means on" rule the per-holiday switch already uses.
+// The switch writes a real boolean, and that is the only thing honoured: the
+// absent field of a config written before the feature existed, and junk from a
+// hand-edit, both take the shipped default — OFF, which is also what a fresh
+// install gets.
+await call('writeConfig', { config: { ...first, holidays: { enabled: true, items: first.holidays.items } } })
+check('an explicit true turns the override on', (await readConfig()).holidays.enabled === true)
 await call('writeConfig', { config: { ...first, holidays: { enabled: false, items: first.holidays.items } } })
 check('an explicit false turns the override off', (await readConfig()).holidays.enabled === false)
 await call('writeConfig', { config: { ...first, holidays: { enabled: 'yes', items: first.holidays.items } } })
-check('anything that is not false leaves it on (off-ramp, not opt-in)',
-  (await readConfig()).holidays.enabled === true)
+check('and anything that is not a boolean lands on the shipped default, also off',
+  (await readConfig()).holidays.enabled === false)
 await call('writeConfig', { config: withHolidays(items => items) })
-check('an explicit true persists', (await readConfig()).holidays.enabled === true)
+check('an explicit true persists (the recommended profile turns it on)',
+  (await readConfig()).holidays.enabled === true)
 
 // A config written by a release that predates the feature has no block at all.
 const withoutHolidays = { ...first }

@@ -170,7 +170,6 @@ export const UI_CSS = `
 .dab-part-head{display:flex;align-items:center;gap:11px;margin-bottom:14px}
 .dab-part-ico{width:32px;height:32px;flex:none;border-radius:10px;display:grid;place-items:center;color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
 .dab-part-name{font-size:13.5px;font-weight:600}
-.dab-part-badge{margin-left:auto;font-family:var(--dab-mono);font-size:11px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);border-radius:99px;padding:3px 9px}
 
 /* ── segmented control ───────────────────────────────────────────────────── */
 .dab-seg{position:relative;display:inline-flex;padding:3px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:11px}

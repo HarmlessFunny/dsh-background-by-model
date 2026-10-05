@@ -82,7 +82,6 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
               <div className="dab-part-head">
                 <div className="dab-part-ico"><Icon size={16} /></div>
                 <div className="dab-part-name">{t(labelKey)}</div>
-                <span className="dab-part-badge">{Math.round(opacity * 100)}%</span>
               </div>
 
               <LiveSlider label={t('uiOpacity')} min={0} max={100} step={1} def={Math.round(opacity * 100)}
