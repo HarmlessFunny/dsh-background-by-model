@@ -1264,8 +1264,9 @@ export function apply(ctx: Ctx): void {
        * next press (`presetHeld` below), which is the difference between retrying
        * one file and retrying the lot. Nothing has been touched at this point, so
        * "the author renamed a file" arrives as an error naming the file rather
-       * than as a profile that is quietly missing a picture — and that loudness is
-       * the whole reason this feature is allowed to follow a branch.
+       * than as a profile that is quietly missing a picture — and that loudness
+       * is what makes a reference the plugin does not fully control acceptable
+       * here.
        */
       fetchRecommended: async (
         onProgress?: (done: number, total: number) => void,
@@ -1276,9 +1277,11 @@ export function apply(ctx: Ctx): void {
         // The manifest and the config are fetched again on every attempt — two
         // small files, and they are what the counts below are derived from — and
         // the bytes a previous attempt held are reused only if this config comes
-        // back identical to the one they came from. The profile is served from a
-        // BRANCH, so that comparison is what makes the reuse a statement about the
-        // same revision rather than a lucky one (see `presetKey`, ../preset).
+        // back identical to the one they came from. The profile is served at ONE
+        // version, but the tag behind that version can be re-pointed and an edge
+        // that has not been purged can still answer with the old bytes, so the
+        // comparison is what makes the reuse a statement about the same revision
+        // rather than a lucky one (see `presetKey`, ../preset).
         const key = presetKey(head.version, head.config)
         const images: Record<string, string> = presetResume(presetHeld, key)
         let bytes = 0

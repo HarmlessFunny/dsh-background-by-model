@@ -107,13 +107,16 @@ function canonical(value: unknown): string {
  * The identity of one revision of the profile: the manifest's shape version plus
  * the config, in canonical form.
  *
- * The profile is served from a branch, so "the profile" is not a fixed thing: the
- * bytes a previous attempt is holding are only known to belong to what is being
- * installed when that config comes back the same. Order-insensitivity is what lets
- * this be a comparison of VALUES rather than of spellings — `normalizeConfig`
- * (./schema) rebuilds the config it reads, so pinning the key to the exact key
- * order the wire happened to use would make the hold useless the moment anything
- * upstream normalized differently.
+ * The profile is served at ONE version of the assets repository, but a version
+ * reference is only as fixed as the tag behind it: re-point the tag and every
+ * edge that has not been purged keeps answering with the previous bytes of the
+ * same URL. So "the profile" is still not guaranteed to be one fixed thing, and
+ * the bytes a previous attempt is holding are only known to belong to what is
+ * being installed when that config comes back the same. Order-insensitivity is
+ * what lets this be a comparison of VALUES rather than of spellings —
+ * `normalizeConfig` (./schema) rebuilds the config it reads, so pinning the key
+ * to the exact key order the wire happened to use would make the hold useless
+ * the moment anything upstream normalized differently.
  */
 export function presetKey(version: number, config: unknown): string {
   return `${version}\n${canonical(config)}`

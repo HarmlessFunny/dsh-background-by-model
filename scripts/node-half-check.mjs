@@ -219,8 +219,14 @@ console.log('\n--- the festival art is fetched on demand, and cached ---')
 const CACHE = join(DATA, 'holiday-cache')
 const asked = (fragment) => fetchLog.filter(u => u.includes(fragment)).length
 const cached = (asset) => (existsSync(join(CACHE, asset)) ? readFileSync(join(CACHE, asset)) : null)
-/** The pinned revision in either URL shape — jsDelivr writes `@<sha>`, raw does not. */
-const revision = (u) => (u.match(/@?([0-9a-f]{40})/) ?? [])[1]
+/**
+ * The pinned reference in either URL shape: jsDelivr writes it beside the
+ * repository as `HarmlessFunny/assets@<ref>`, the raw mirror as
+ * `HarmlessFunny/assets/<ref>/`. It is lifted out next to the repository name
+ * rather than by looking for an `@` — the two mirrors have to be comparable, and
+ * a release tag is not a shape the `@`-only spelling can see.
+ */
+const revision = (u) => (u.match(/(?:assets@|assets\/)([^/]+)\//) ?? [])[1]
 
 // Loading the plugin and reading the config must not fetch anything: the art is
 // gated on the calendar, and today is not a holiday.
@@ -230,8 +236,8 @@ const mid = await dataUrl('h-midautumn')
 check('a holiday slot is served as webp', mid?.startsWith('data:image/webp;base64,') === true,
   mid === null ? 'null' : `${bytes(mid)} B`)
 check('and serving it took exactly one download', fetchLog.length === 1, JSON.stringify(fetchLog))
-check('pinned to a commit, never to a branch',
-  revision(fetchLog[0]) !== undefined && !fetchLog[0].includes('@main'), fetchLog[0])
+check('pinned to the assets release tag, never to a branch',
+  revision(fetchLog[0]) === 'v0.1.0' && !fetchLog[0].includes('@main'), fetchLog[0])
 check('from the holiday asset path, named by the definition',
   fetchLog[0].endsWith('/dsh-background-by-model/holiday/mid-autumn.webp'), fetchLog[0])
 check('the served bytes are the downloaded ones', mid !== null && bytes(mid) === WEBP.length)
@@ -807,12 +813,12 @@ check('and it cost exactly two requests, manifest first',
   && fetchLog[beforeHead].endsWith('/dsh-background-by-model/preset/preset.json')
   && fetchLog[beforeHead + 1].endsWith('/dsh-background-by-model/preset/theme-config.json'),
   JSON.stringify(fetchLog.slice(beforeHead)))
-// The one place this feature's reference differs from the festival art's, on
-// purpose: a branch, so a bad recommendation can be corrected in the assets
-// repository instead of waiting for a plugin release. A profile fails LOUDLY
-// (the user is looking at the button), which is what makes that safe.
-check('and it follows the branch, not a pinned commit',
-  fetchLog.slice(beforeHead).every(u => u.includes('@main') && revision(u) === undefined),
+// The reference this feature shares with the festival art, and the same release
+// tag the README's screenshots are read at: one version of the assets repository
+// is one version of every byte the plugin fetches, so a profile cannot be
+// changed under a build that already pins it.
+check('and it is read at the assets release tag, not at a branch',
+  fetchLog.slice(beforeHead).every(u => u.includes('@v0.1.0') && revision(u) === 'v0.1.0'),
   JSON.stringify(fetchLog.slice(beforeHead)))
 // THE trap of this shape: `holidays.items` legally carries h-midautumn and
 // h-nationalday, and a rule may name one too, while the store can never hold a
