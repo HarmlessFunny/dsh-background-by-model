@@ -216,9 +216,13 @@ check('while a hand-edit that is not a number lands on the shipped 45%',
 await call('writeConfig', { config: first })
 
 console.log('\n--- the festival art is fetched on demand, and cached ---')
+/** The release of the assets repository this build pins — one value, used below. */
+const REF = 'v0.1.0'
 const CACHE = join(DATA, 'holiday-cache')
 const asked = (fragment) => fetchLog.filter(u => u.includes(fragment)).length
-const cached = (asset) => (existsSync(join(CACHE, asset)) ? readFileSync(join(CACHE, asset)) : null)
+/** The generation of the cache this build reads: `holiday-cache/<tag>/<asset>`. */
+const GEN = join(CACHE, REF)
+const cached = (asset) => (existsSync(join(GEN, asset)) ? readFileSync(join(GEN, asset)) : null)
 /**
  * The pinned reference in either URL shape: jsDelivr writes it beside the
  * repository as `HarmlessFunny/assets@<ref>`, the raw mirror as
@@ -237,13 +241,13 @@ check('a holiday slot is served as webp', mid?.startsWith('data:image/webp;base6
   mid === null ? 'null' : `${bytes(mid)} B`)
 check('and serving it took exactly one download', fetchLog.length === 1, JSON.stringify(fetchLog))
 check('pinned to the assets release tag, never to a branch',
-  revision(fetchLog[0]) === 'v0.1.0' && !fetchLog[0].includes('@main'), fetchLog[0])
+  revision(fetchLog[0]) === REF && !fetchLog[0].includes('@main'), fetchLog[0])
 check('from the holiday asset path, named by the definition',
   fetchLog[0].endsWith('/dsh-background-by-model/holiday/mid-autumn.webp'), fetchLog[0])
 check('the served bytes are the downloaded ones', mid !== null && bytes(mid) === WEBP.length)
-check('cached under holiday-cache/, keyed by ASSET and not by slot',
+check('cached under holiday-cache/<tag>/, keyed by ASSET and not by slot',
   cached('mid-autumn.webp')?.equals(WEBP) === true,
-  JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
+  JSON.stringify(existsSync(GEN) ? readdirSync(GEN) : []))
 
 const nat = await dataUrl('h-nationalday')
 check('the other holiday is a transfer of its own', asked('national-day.webp') === 1, JSON.stringify(fetchLog))
@@ -262,14 +266,14 @@ check('a second read is answered from the cache, with no second download',
 
 // The boot hydrate and the midnight rollover can both ask for the same cold
 // asset, and the rollover fires exactly when a machine that slept all day wakes.
-rmSync(join(CACHE, 'mid-autumn.webp'), { force: true })
+rmSync(join(GEN, 'mid-autumn.webp'), { force: true })
 const raced = await Promise.all([dataUrl('h-midautumn'), dataUrl('h-midautumn')])
 check('two simultaneous cold reads share one download',
   fetchLog.length === warm + 1 && raced[0] === raced[1] && raced[0] === mid,
   `${fetchLog.length - warm} new request(s)`)
 
 // A dead first mirror must cost a retry, not the holiday.
-rmSync(join(CACHE, 'national-day.webp'), { force: true })
+rmSync(join(GEN, 'national-day.webp'), { force: true })
 const beforeFallback = fetchLog.length
 downMirrors = ['cdn.jsdelivr.net']
 const viaFallback = await dataUrl('h-nationalday')
@@ -287,7 +291,7 @@ downMirrors = []
 
 // Every mirror down: a holiday with no bytes, which is the state the client is
 // built to fall through — never an exception and never a blank wallpaper.
-rmSync(join(CACHE, 'national-day.webp'), { force: true })
+rmSync(join(GEN, 'national-day.webp'), { force: true })
 downMirrors = ['cdn.jsdelivr.net', 'raw.githubusercontent.com']
 check('with every mirror down the holiday has no bytes, and does not throw',
   (await dataUrl('h-nationalday')) === null)
@@ -297,7 +301,7 @@ downMirrors = []
 // A CDN that answers 200 with an error page is the failure a status-code check
 // cannot see, and it must not be cached as if it were art.
 junkBody = true
-rmSync(join(CACHE, 'national-day.webp'), { force: true })
+rmSync(join(GEN, 'national-day.webp'), { force: true })
 check('a mirror answering 200 with a non-image is rejected, not cached',
   (await dataUrl('h-nationalday')) === null && cached('national-day.webp') === null)
 junkBody = false
@@ -305,11 +309,43 @@ junkBody = false
 // A cache file that is not an image is a MISS, not a permanent sentence: a
 // process killed mid-write would otherwise break the holiday beyond the reach of
 // anyone who does not know the file exists.
-writeFileSync(join(CACHE, 'mid-autumn.webp'), Buffer.from('not an image at all'))
+writeFileSync(join(GEN, 'mid-autumn.webp'), Buffer.from('not an image at all'))
 check('a corrupt cache entry is discarded and re-downloaded',
   (await dataUrl('h-midautumn')) === mid && cached('mid-autumn.webp')?.equals(WEBP) === true)
 // Put the cache back for the sections below, which read both holidays.
 await dataUrl('h-nationalday')
+
+// THE reason the cache is keyed by the pinned RELEASE and not by the asset name
+// alone: a build that pins a new tag must not be answered with the previous
+// generation's bytes — and it must not be answered silently, on a day nobody is
+// watching, which is the same failure the pinned reference itself exists to
+// prevent, one layer down. A stale generation is left behind by the update, so
+// it has to be dropped once the new art is on disk.
+const STALE = join(CACHE, 'v0.0.9')
+mkdirSync(STALE, { recursive: true })
+writeFileSync(join(STALE, 'mid-autumn.webp'), Buffer.from('an older generation'))
+rmSync(join(GEN, 'national-day.webp'), { force: true })
+const afterPrune = await dataUrl('h-nationalday')
+check('art missing from the pinned generation is re-downloaded, not read stale',
+  afterPrune === nat && cached('national-day.webp')?.equals(WEBP) === true)
+check('and the generation it superseded is dropped once the new art is on disk',
+  !existsSync(STALE) && existsSync(GEN), JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
+check('while the generation in use is left exactly where it is',
+  existsSync(join(GEN, 'mid-autumn.webp')) && existsSync(join(GEN, 'national-day.webp')),
+  JSON.stringify(existsSync(GEN) ? readdirSync(GEN) : []))
+
+// The upgrade path: 0.7.9 cached FLAT files (`holiday-cache/<asset>`), so an
+// install that already had the art has a second shape lying in the cache root.
+// It is never read — the path carries the tag now — and the same sweep takes it,
+// which is what makes an upgrade clean up after itself instead of leaving those
+// bytes there for good.
+writeFileSync(join(CACHE, 'mid-autumn.webp'), Buffer.from('the flat 0.7.9 layout'))
+rmSync(join(GEN, 'mid-autumn.webp'), { force: true })
+const afterLegacy = await dataUrl('h-midautumn')
+check('a flat cache file from the previous layout is never read, and is swept',
+  afterLegacy === mid && cached('mid-autumn.webp')?.equals(WEBP) === true
+  && !existsSync(join(CACHE, 'mid-autumn.webp')),
+  JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
 
 // A one-pixel PNG, to have real bytes to try to plant and to write normally.
 const png = Buffer.from(
@@ -818,7 +854,7 @@ check('and it cost exactly two requests, manifest first',
 // is one version of every byte the plugin fetches, so a profile cannot be
 // changed under a build that already pins it.
 check('and it is read at the assets release tag, not at a branch',
-  fetchLog.slice(beforeHead).every(u => u.includes('@v0.1.0') && revision(u) === 'v0.1.0'),
+  fetchLog.slice(beforeHead).every(u => u.includes(`@${REF}`) && revision(u) === REF),
   JSON.stringify(fetchLog.slice(beforeHead)))
 // THE trap of this shape: `holidays.items` legally carries h-midautumn and
 // h-nationalday, and a rule may name one too, while the store can never hold a
