@@ -1,5 +1,7 @@
 node_modules/
 .git/
+# Screenshots live in the assets repo, referenced by absolute jsDelivr URL.
+example_img/
 *.npmignore
 *.md
 !/README.md
