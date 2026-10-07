@@ -16,7 +16,7 @@
 # from shipping a tarball with no `lib/` at all: `files` would simply resolve to
 # nothing and npm would publish a broken package in silence.
 #
-# Three things about this file are load-bearing, and all of them are silent when
+# Four things about this file are load-bearing, and all of them are silent when
 # wrong:
 #
 #   * The trusted-publisher entry on npmjs.com pins this file's *name*
@@ -29,6 +29,12 @@
 #     opposite of the point of putting this in CI.
 #   * `lib/` must stay out of git. The "lib/ must not be tracked" step below is
 #     what turns that from a habit into a check.
+#   * A pre-release version goes to the `next` dist-tag, never to `latest`. npm
+#     publishes to `latest` by default whatever the version string looks like,
+#     so `0.8.0-test.1` published without `--tag` would be the version plain
+#     `npm install <pkg>` resolves to. The dist-tag is derived from the version
+#     below, and the registry is checked afterwards to confirm `latest` did not
+#     move.
 #
 # Read RELEASING.md before changing anything here. The job is written to be safe
 # to re-run: if the version is already on the registry it reconciles and stops,
@@ -130,19 +136,30 @@ jobs:
           fi
           echo "name=${name}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          # npm publishes to `latest` by default even when the version string is
+          # a pre-release, so a test build would silently become what
+          # `npm install` resolves to. Any pre-release goes to `next` instead.
+          case "${version}" in
+            *-*) distTag="next" ;;
+            *)   distTag="latest" ;;
+          esac
+          echo "dist-tag: ${distTag}"
+          echo "distTag=${distTag}" >> "${GITHUB_OUTPUT}"
 
       - name: Install an npm that can do trusted publishing
         run: |
           set -euo pipefail
-          # Node 22 ships npm 10, which predates trusted publishing. Pinned to
+          # Node 22 ships npm 10, which predates trusted publishing. 11.21.0 is
+          # the release that also allows OIDC to manage dist-tags, which this
+          # workflow does not need yet but a future promote step would. Pinned to
           # the major rather than @latest: `latest` can move to a release that
           # has dropped this Node line.
-          npm install -g 'npm@^11.5.1'
+          npm install -g 'npm@^11.21.0'
           installed="$(npm --version)"
           echo "npm ${installed}"
-          lowest="$(printf '%s\n%s\n' '11.5.1' "${installed}" | sort -V | head -1)"
-          if [ "${lowest}" != "11.5.1" ]; then
-            echo "::error::npm ${installed} is older than 11.5.1, which trusted publishing requires"
+          lowest="$(printf '%s\n%s\n' '11.21.0' "${installed}" | sort -V | head -1)"
+          if [ "${lowest}" != "11.21.0" ]; then
+            echo "::error::npm ${installed} is older than 11.21.0, which trusted publishing and OIDC dist-tags require"
             exit 1
           fi
 
@@ -258,19 +275,22 @@ jobs:
         if: steps.probe.outputs.published == 'false'
         env:
           VERSION: ${{ steps.release.outputs.version }}
+          DIST_TAG: ${{ steps.release.outputs.distTag }}
         run: |
           set -euo pipefail
-          echo "publishing ${PKG}@${VERSION} with an OIDC token — no npm token exists in this repository"
+          echo "publishing ${PKG}@${VERSION} to the ${DIST_TAG} tag with an OIDC token — no npm token exists in this repository"
           # --ignore-scripts on purpose: lib/ was already built by the pack step,
           # so this repacks exactly the bytes that were hashed above. Letting
           # prepack build again would make the reconciliation below depend on the
           # second build being byte-identical to the first, for no gain.
-          npm publish --ignore-scripts --registry "${REGISTRY}"
+          # --tag is not optional: without it npm would make a pre-release latest.
+          npm publish --ignore-scripts --tag "${DIST_TAG}" --registry "${REGISTRY}"
 
       - name: Wait for the registry to serve it, then match the bytes
         env:
           NAME: ${{ steps.release.outputs.name }}
           VERSION: ${{ steps.release.outputs.version }}
+          DIST_TAG: ${{ steps.release.outputs.distTag }}
           SHASUM: ${{ steps.pack.outputs.shasum }}
           FILE_COUNT: ${{ steps.pack.outputs.fileCount }}
         run: |
@@ -292,6 +312,25 @@ jobs:
             echo "::error::${NAME}@${VERSION} never became visible. The upload may still have succeeded — re-run this workflow: it detects an already-published version and only reconciles."
             exit 1
           fi
+
+          # Which tag the version landed on, and — for a pre-release — that it did
+          # not take `latest` with it.
+          curl -sS -H 'Cache-Control: no-cache' -o "${RUNNER_TEMP}/packument.json" \
+            "${REGISTRY}/${NAME}?cb=${RANDOM}"
+          node -e '
+            const tags = require(process.env.RUNNER_TEMP + "/packument.json")["dist-tags"]
+            const want = process.env.DIST_TAG
+            const version = process.env.VERSION
+            console.log("dist-tags: " + JSON.stringify(tags))
+            if (tags[want] !== version) {
+              console.error("::error::dist-tags." + want + " is " + tags[want] + ", expected " + version)
+              process.exit(1)
+            }
+            if (want !== "latest" && tags.latest === version) {
+              console.error("::error::this pre-release is what a plain `npm install` would resolve to")
+              process.exit(1)
+            }
+          '
 
           remote_shasum="$(node -p 'require(process.env.RUNNER_TEMP + "/published.json").dist.shasum')"
           remote_files="$(node -p 'require(process.env.RUNNER_TEMP + "/published.json").dist.fileCount')"
