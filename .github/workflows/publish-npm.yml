@@ -1,0 +1,340 @@
+# Publish to npm when a release tag is pushed.
+#
+# This is the CI half of RELEASING.md steps 7-9. It runs on a public tag push,
+# verifies the tagged commit, builds `lib/` (which is no longer committed — see
+# below), publishes, and reconciles the published bytes against the tarball it
+# packed. Authentication is OIDC ("trusted publishing"): no npm token is stored
+# in this repository or in Actions secrets, and npm attaches a provenance
+# attestation automatically.
+#
+# `lib/` is deliberately not in git. It is ~1 MB of generated bundle, it was
+# 100% of this repository's growth per release, and keeping it in step with
+# `src/` was a thing a human had to remember. Instead the build happens at pack
+# time, through package.json's `prepack`, which npm runs for both `npm pack` and
+# `npm publish` — so the published tarball is built from the tagged source and
+# cannot be stale. `prepack` is also what keeps a forgetful local `npm publish`
+# from shipping a tarball with no `lib/` at all: `files` would simply resolve to
+# nothing and npm would publish a broken package in silence.
+#
+# Three things about this file are load-bearing, and all of them are silent when
+# wrong:
+#
+#   * The trusted-publisher entry on npmjs.com pins this file's *name*
+#     (`publish-npm.yml`). Renaming the file breaks publishing until the entry
+#     is recreated, and the only symptom is `ENEEDAUTH` at the last step.
+#   * The entry also has to have "npm publish" ticked under allowed actions. A
+#     brand-new entry allows `npm stage publish` only, so the `npm publish`
+#     below would be refused. `npm stage publish` is not used here: staged
+#     versions wait for a maintainer to approve them with 2FA, which is the
+#     opposite of the point of putting this in CI.
+#   * `lib/` must stay out of git. The "lib/ must not be tracked" step below is
+#     what turns that from a habit into a check.
+#
+# Read RELEASING.md before changing anything here. The job is written to be safe
+# to re-run: if the version is already on the registry it reconciles and stops,
+# rather than trying (and failing) to publish the same version twice.
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# One publish per tag, and never cancel one in flight — a run cancelled between
+# `npm publish` and its registry check leaves the release un-reconciled, and the
+# re-run is cheap.
+concurrency:
+  group: npm-publish-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: https://registry.npmjs.org
+  # The workflow's copy of the package name. An early step asserts that
+  # package.json agrees, so a rename cannot silently publish elsewhere.
+  PKG: dsh-background-by-model
+
+jobs:
+  # One job, not a verify/publish pair. A split is only clean when the publishing
+  # half needs nothing built — which was true while `lib/` was committed. Now it
+  # needs `node_modules` for `prepack`, so the alternative would be shipping the
+  # built `lib/` across jobs as an artifact, which is more machinery than this
+  # release is worth.
+  release:
+    name: Build, publish, reconcile
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      # The whole authentication story: an OIDC token npm exchanges for a
+      # short-lived publish token. There is no npm token anywhere.
+      id-token: write
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v7
+        with:
+          # Full history: the tag object and origin/main are both inspected below.
+          fetch-depth: 0
+          # Nothing here pushes, so the job token has no reason to sit in .git/config.
+          persist-credentials: false
+
+      - name: The tag must be annotated, and its commit must be on main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          type="$(git for-each-ref --format='%(objecttype)' "refs/tags/${TAG}")"
+          if [ "${type}" != "tag" ]; then
+            echo "::error::${TAG} is a ${type:-missing ref}, not an annotated tag — use git tag -a"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::${TAG} points at $(git rev-parse --short HEAD), which is not on origin/main"
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        # No `version:` — it comes from package.json's packageManager field,
+        # so there is exactly one place to bump pnpm.
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          # Node 22 on purpose: 22.23.3 is the line this project is developed
+          # and tested on. Nothing here depends on the build being reproducible
+          # across Node majors any more, but the checks are only known to pass
+          # on this one.
+          node-version: '22'
+          # A release build must not consume a cache someone else could seed.
+          package-manager-cache: false
+
+      - name: Derive the version, and refuse if the tag disagrees
+        id: release
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          name="$(node -p 'require("./package.json").name')"
+          version="$(node -p 'require("./package.json").version')"
+          echo "tag ${TAG}  package.json ${name}@${version}"
+          if [ "${name}" != "${PKG}" ]; then
+            echo "::error::package.json names ${name}, but this workflow publishes ${PKG}"
+            exit 1
+          fi
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "::error::tag ${TAG} does not match package.json version ${version} — refusing to publish"
+            exit 1
+          fi
+          echo "name=${name}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install an npm that can do trusted publishing
+        run: |
+          set -euo pipefail
+          # Node 22 ships npm 10, which predates trusted publishing. Pinned to
+          # the major rather than @latest: `latest` can move to a release that
+          # has dropped this Node line.
+          npm install -g 'npm@^11.5.1'
+          installed="$(npm --version)"
+          echo "npm ${installed}"
+          lowest="$(printf '%s\n%s\n' '11.5.1' "${installed}" | sort -V | head -1)"
+          if [ "${lowest}" != "11.5.1" ]; then
+            echo "::error::npm ${installed} is older than 11.5.1, which trusted publishing requires"
+            exit 1
+          fi
+
+      - name: Install from the lockfile
+        run: pnpm install --frozen-lockfile --registry "${REGISTRY}"
+
+      - name: Run the checks
+        run: |
+          set -o pipefail
+          # `pnpm test` starts with tsdown, so this builds lib/ from src/.
+          pnpm test 2>&1 | tee "${RUNNER_TEMP}/pnpm-test.log"
+
+      - name: Every declared check must have reported
+        run: |
+          set -euo pipefail
+          log="${RUNNER_TEMP}/pnpm-test.log"
+          # Derive the expected count from package.json instead of hard-coding
+          # the "ten" that RELEASING.md has had to correct three times.
+          expected="$(node -e '
+            const scripts = require("./package.json").scripts
+            const checks = Object.keys(scripts).filter((k) => k.startsWith("check:"))
+            const unwired = checks.filter((k) => !scripts.test.includes(scripts[k]))
+            if (unwired.length) {
+              console.error("declared but not run by `test`: " + unwired.join(", "))
+              process.exit(1)
+            }
+            process.stdout.write(String(checks.length))
+          ')"
+          actual="$(grep -c 'ALL CHECKS PASSED' "${log}" || true)"
+          echo "checks declared in package.json: ${expected}"
+          echo "ALL CHECKS PASSED lines in the log: ${actual}"
+          if [ "${actual}" != "${expected}" ]; then
+            echo "::error::expected ${expected} checks to report, saw ${actual} — one did not run, or a check was added without wiring it into \`test\`"
+            exit 1
+          fi
+
+      - name: lib/ must not be tracked
+        run: |
+          set -euo pipefail
+          # The bundle is generated at pack time. If it ever comes back into git
+          # it would shadow the fresh build for everyone installing from a clone,
+          # and the repository would start growing by ~1 MB per release again.
+          tracked="$(git ls-files lib)"
+          if [ -n "${tracked}" ]; then
+            echo "::error::lib/ is tracked by git again:"
+            echo "${tracked}"
+            exit 1
+          fi
+          echo "lib/ is not tracked (build output: $(ls lib 2>/dev/null | tr '\n' ' '))"
+
+      - name: Pack from a clean slate, so prepack has to do the build
+        id: pack
+        run: |
+          set -euo pipefail
+          # Removing lib/ first is the point: it forces the pack to go through
+          # package.json's `prepack`, which is the same path a human's
+          # `npm publish` takes. If prepack ever breaks or is removed, the check
+          # below fails here instead of publishing a tarball with no bundle.
+          rm -rf lib
+          dest="${RUNNER_TEMP}/pack"
+          rm -rf "${dest}"
+          mkdir -p "${dest}"
+          npm pack --pack-destination "${dest}"
+          tarball="$(find "${dest}" -name '*.tgz' -print -quit)"
+          if [ -z "${tarball}" ]; then
+            echo "::error::npm pack produced no tarball"
+            exit 1
+          fi
+          shasum="$(sha1sum "${tarball}" | cut -d' ' -f1)"
+          # Read the contents out of the tarball itself rather than out of npm's
+          # --json output: prepack's build prints to stdout, which lands in the
+          # middle of that JSON and breaks it.
+          tar -tzf "${tarball}" | sed 's|^package/||' | sort > "${RUNNER_TEMP}/tarball.txt"
+          files="$(wc -l < "${RUNNER_TEMP}/tarball.txt")"
+          node -e '
+            const fs = require("fs")
+            const pkg = require("./package.json")
+            const promised = [...pkg.files, "package.json", "README.md", "README.zh.md", "LICENSE"]
+            const packed = fs.readFileSync(process.env.RUNNER_TEMP + "/tarball.txt", "utf8").trim().split("\n")
+            const missing = promised.filter((f) => !packed.includes(f))
+            if (missing.length) {
+              console.error("promised by package.json but missing from the tarball: " + missing.join(", "))
+              process.exit(1)
+            }
+            console.log("all " + promised.length + " files package.json promises are in the tarball")
+          '
+          echo "shasum=${shasum}" >> "${GITHUB_OUTPUT}"
+          echo "fileCount=${files}" >> "${GITHUB_OUTPUT}"
+          echo "packed $(basename "${tarball}") — ${files} files, sha1 ${shasum}"
+
+      - name: Is this version already on the registry?
+        id: probe
+        env:
+          NAME: ${{ steps.release.outputs.name }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The random query and Cache-Control are not decoration: the registry
+          # sits behind a CDN that will otherwise serve a cached 404 for minutes
+          # after a publish. Same trick as RELEASING.md step 8.
+          code="$(curl -sS -H 'Cache-Control: no-cache' -o "${RUNNER_TEMP}/published.json" \
+                    -w '%{http_code}' "${REGISTRY}/${NAME}/${VERSION}?cb=${RANDOM}")"
+          case "${code}" in
+            200) echo "published=true" >> "${GITHUB_OUTPUT}"
+                 echo "${NAME}@${VERSION} is already on the registry — this run will reconcile, not publish" ;;
+            404) echo "published=false" >> "${GITHUB_OUTPUT}"
+                 echo "${NAME}@${VERSION} is not on the registry yet" ;;
+            *)   echo "::error::registry answered HTTP ${code} for ${NAME}@${VERSION}"
+                 exit 1 ;;
+          esac
+
+      - name: Publish
+        if: steps.probe.outputs.published == 'false'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "publishing ${PKG}@${VERSION} with an OIDC token — no npm token exists in this repository"
+          # --ignore-scripts on purpose: lib/ was already built by the pack step,
+          # so this repacks exactly the bytes that were hashed above. Letting
+          # prepack build again would make the reconciliation below depend on the
+          # second build being byte-identical to the first, for no gain.
+          npm publish --ignore-scripts --registry "${REGISTRY}"
+
+      - name: Wait for the registry to serve it, then match the bytes
+        env:
+          NAME: ${{ steps.release.outputs.name }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SHASUM: ${{ steps.pack.outputs.shasum }}
+          FILE_COUNT: ${{ steps.pack.outputs.fileCount }}
+        run: |
+          set -euo pipefail
+          # npm prints "+ name@version" and means it, but the version is 404 on
+          # every CDN edge for another minute or two (0.6.0 took 105s). Poll.
+          code=""
+          for i in $(seq 1 20); do
+            sleep 15
+            code="$(curl -sS -H 'Cache-Control: no-cache' -o "${RUNNER_TEMP}/published.json" \
+                      -w '%{http_code}' "${REGISTRY}/${NAME}/${VERSION}?cb=${RANDOM}")"
+            if [ "${code}" = "200" ]; then
+              echo "visible after $((i * 15))s"
+              break
+            fi
+            echo "[$((i * 15))s] HTTP ${code} — not propagated yet"
+          done
+          if [ "${code}" != "200" ]; then
+            echo "::error::${NAME}@${VERSION} never became visible. The upload may still have succeeded — re-run this workflow: it detects an already-published version and only reconciles."
+            exit 1
+          fi
+
+          remote_shasum="$(node -p 'require(process.env.RUNNER_TEMP + "/published.json").dist.shasum')"
+          remote_files="$(node -p 'require(process.env.RUNNER_TEMP + "/published.json").dist.fileCount')"
+          has_provenance="$(node -p 'Boolean(require(process.env.RUNNER_TEMP + "/published.json").dist.attestations)')"
+
+          curl -sSL -o "${RUNNER_TEMP}/published.tgz" \
+            "${REGISTRY}/${NAME}/-/${NAME}-${VERSION}.tgz"
+          served="$(sha1sum "${RUNNER_TEMP}/published.tgz" | cut -d' ' -f1)"
+
+          {
+            echo "| | local \`npm pack\` | registry metadata | registry bytes |"
+            echo "|---|---|---|---|"
+            echo "| sha1 | \`${SHASUM}\` | \`${remote_shasum}\` | \`${served}\` |"
+            echo "| files | ${FILE_COUNT} | ${remote_files} | |"
+          } | tee "${RUNNER_TEMP}/reconcile.md"
+
+          failed=0
+          if [ "${remote_shasum}" != "${SHASUM}" ]; then
+            echo "::error::registry metadata shasum ${remote_shasum} != the tarball we packed (${SHASUM})"
+            failed=1
+          fi
+          if [ "${served}" != "${SHASUM}" ]; then
+            echo "::error::the tarball served by the registry hashes to ${served}, not ${SHASUM}"
+            failed=1
+          fi
+          if [ "${remote_files}" != "${FILE_COUNT}" ]; then
+            echo "::error::registry lists ${remote_files} files, we packed ${FILE_COUNT}"
+            failed=1
+          fi
+          if [ "${has_provenance}" != "true" ]; then
+            # Provenance is the point of moving this into CI; it should be there,
+            # but a missing attestation is not worth failing an otherwise good
+            # release over.
+            echo "::warning::no provenance attestation on ${NAME}@${VERSION}"
+          fi
+          [ "${failed}" = "0" ] || exit 1
+
+          {
+            echo "## ${NAME}@${VERSION}"
+            echo
+            cat "${RUNNER_TEMP}/reconcile.md"
+            echo
+            echo "provenance: ${has_provenance}"
+            echo
+            echo "install with \`dsh plugin --profile web add ${NAME}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

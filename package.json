@@ -51,6 +51,7 @@
   ],
   "scripts": {
     "bundle": "tsdown",
+    "prepack": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc -p tsconfig.json",
     "check:holiday": "node scripts/holiday-check.ts",

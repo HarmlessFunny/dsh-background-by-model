@@ -3,6 +3,10 @@ node_modules/
 # Screenshots live in the assets repo, referenced by absolute jsDelivr URL.
 example_img/
 *.npmignore
+# lib/ is build output. tsdown writes it, package.json's `prepack` rebuilds it
+# for `npm pack` / `npm publish`, and the publish workflow asserts it stays out
+# of git. Installers get it inside the published tarball instead.
+lib/
 *.md
 !/README.md
 !/CHANGELOG.md
