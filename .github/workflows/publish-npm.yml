@@ -314,18 +314,34 @@ jobs:
           fi
 
           # Which tag the version landed on, and — for a pre-release — that it did
-          # not take `latest` with it.
-          curl -sS -H 'Cache-Control: no-cache' -o "${RUNNER_TEMP}/packument.json" \
-            "${REGISTRY}/${NAME}?cb=${RANDOM}"
+          # not take `latest` with it. The dist-tags live on the package document
+          # and trail the version document, so this is a second wait, not a read:
+          # v0.8.0-test.1's publish was correct and this check still failed,
+          # because it asked once, seconds after the version document appeared.
+          tagged=""
+          for i in $(seq 1 20); do
+            curl -sS -H 'Cache-Control: no-cache' -o "${RUNNER_TEMP}/packument.json" \
+              "${REGISTRY}/${NAME}?cb=${RANDOM}"
+            if node -e '
+                  const tags = require(process.env.RUNNER_TEMP + "/packument.json")["dist-tags"]
+                  process.exit(tags[process.env.DIST_TAG] === process.env.VERSION ? 0 : 1)
+                '; then
+              tagged="yes"
+              echo "dist-tags.${DIST_TAG} points at ${VERSION} after $((i * 15))s"
+              break
+            fi
+            echo "[$((i * 15))s] dist-tags.${DIST_TAG} does not point at ${VERSION} yet"
+            sleep 15
+          done
+          if [ -z "${tagged}" ]; then
+            echo "::error::${NAME}@${VERSION} is published, but dist-tags.${DIST_TAG} still does not point at it. Re-run this workflow: it detects the published version and only reconciles."
+            exit 1
+          fi
           node -e '
             const tags = require(process.env.RUNNER_TEMP + "/packument.json")["dist-tags"]
             const want = process.env.DIST_TAG
             const version = process.env.VERSION
             console.log("dist-tags: " + JSON.stringify(tags))
-            if (tags[want] !== version) {
-              console.error("::error::dist-tags." + want + " is " + tags[want] + ", expected " + version)
-              process.exit(1)
-            }
             if (want !== "latest" && tags.latest === version) {
               console.error("::error::this pre-release is what a plain `npm install` would resolve to")
               process.exit(1)
