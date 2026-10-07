@@ -1,6 +1,13 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.7.10 / v0.7.9).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.8.0 / v0.7.10).
+
+## v0.8.0
+
+- **The bundle is built when the tarball is packed, instead of being committed** — `lib/` was ~1 MB of generated JavaScript in every release and effectively all of this repository's growth, while keeping it in step with `src/` was something a person had to remember. There is no `prepublishOnly` hook here, so a stale bundle shipped in silence and nothing in either flow would have noticed. It is now gitignored and built by `prepack`, which npm runs for both `npm pack` and `npm publish`, so what is published is always built from the tagged source. Nothing changes for anyone installing the package: the same three files arrive, built a minute earlier.
+- **The `github:` install route is gone, deliberately** — `dsh plugin --profile web add github:HarmlessFunny/dsh-background-by-model` fetched a tree that no longer contains `lib/` and has nothing in it that builds one, so it could only produce a plugin that would not load. npm is the only source now and the `npx` form follows it; the third method, a working copy built from source, says up front that the build is a step you have to run.
+- **Releases are published from GitHub Actions over OIDC, so the versions carry build provenance** — the npm token is out of the release path entirely, and npm attaches a provenance attestation binding each version to the commit and the workflow that produced it. Every version up to v0.7.10 was uploaded by hand and can claim nothing of the kind; from here they are checkable rather than merely asserted.
+- **The README and this file are cut back to the register of the v0.3.x entries** — a feature is introduced in a sentence, the ten checks are one line each, and the FAQ keeps all fifteen questions with each answer cut to the sentence carrying the fact. Nothing a user needs was removed; what went was the narration of how each change was arrived at.
 
 ## v0.7.10
 

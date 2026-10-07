@@ -270,15 +270,15 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
 
+### v0.8.0
+
+- **The bundle is built when the tarball is packed, not committed** — `lib/` was ~1 MB of generated JavaScript per release and effectively all of this repository's growth; it is now gitignored and built by `prepack`, so what npm serves is always built from the tagged source.
+- **Installing straight from a GitHub checkout is gone** — that tree has no `lib/` and nothing in it builds one, so npm is the only source. Releases also now come from GitHub Actions over OIDC and carry build provenance.
+
 ### v0.7.10
 
 - **The festival art's cache is keyed by the pinned release** — `holiday-cache/<tag>/<asset>`, so a build pinning a new tag starts from a directory nobody has written to instead of being answered with the previous generation's bytes.
 - **A superseded generation is pruned**, at the end of a successful cache write and never before it, so a release that turns out to be unreachable cannot cost you the art you already have.
-
-### v0.7.9
-
-- **Every asset reference is pinned to one release tag (`v0.1.0`)** — the README screenshots, the festival art and the recommended profile were reading three different revisions, and one tag now covers all three.
-- **The festival art's bytes are unchanged** by the rename, and the raw mirror carries the tag too, so the fallback still cannot mix revisions.
 
 ## Star History
 
