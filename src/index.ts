@@ -158,7 +158,7 @@ const HOLIDAY_FETCH_TIMEOUT = 10_000
 const PRESET_ASSETS_REPO = 'HarmlessFunny/assets'
 const PRESET_ASSETS_REF = 'v0.1.0'
 const PRESET_ASSET_DIR = 'dsh-background-by-model/preset'
-/** The shape gate: `{"version": 8}` — see SCHEMA_VERSION in ./schema. */
+/** The shape gate: `{"version": 9}` — see SCHEMA_VERSION in ./schema. */
 const PRESET_MANIFEST = 'preset.json'
 const PRESET_CONFIG = 'theme-config.json'
 /** Images are named after the slot they fill, exactly as they are on disk. */
@@ -271,7 +271,6 @@ async function migrateLegacy(raw: unknown): Promise<unknown> {
       blur: typeof r.blur === 'number' ? r.blur : 0,
     }],
     opacities: r.opacities,
-    blurs: r.blurs,
     settingsOpacity: r.settingsOpacity,
     chatTextOpacity: r.chatTextOpacity,
     trajectoryOpacity: r.trajectoryOpacity,
@@ -312,7 +311,7 @@ async function readConfig(): Promise<ThemeConfig> {
 // silently: the slider stays live in memory, the disk copy loses it, and the
 // next load quietly falls back to the default. Warn once per key so the drift
 // shows up in the host log instead.
-const LEGACY_CONFIG_KEYS = new Set(['color', 'bgMode', 'wallpaperOpacity', 'blur', 'bgState'])
+const LEGACY_CONFIG_KEYS = new Set(['color', 'bgMode', 'wallpaperOpacity', 'blur', 'bgState', 'blurs'])
 // Pre-0.7 / pre-0.7.5 rule fields: `normalizeRule` deliberately LIFTS these into
 // the image list, so they are not drift and must not be reported as such. `bgMode`
 // joined them in 0.7.5: the rule-level layout mode a schema-5 config carries is read
@@ -337,10 +336,11 @@ function warnUnknownConfigKeys(raw: unknown, normalized: ThemeConfig): void {
   // sanitizer in ./schema emits, so no second list can fall behind.
   const known = new Set(Object.keys(normalized))
   for (const key of Object.keys(r)) {
-    // Pre-0.3 top-level fields: migrateLegacy turns them into rule 1.
+    // Fields an older shape carried on purpose, not drift: the pre-0.3 ones
+    // `migrateLegacy` turns into rule 1, and `blurs`, which the sanitizer drops.
     if (!known.has(key) && !LEGACY_CONFIG_KEYS.has(key)) warned(key)
   }
-  const groups: Array<[string, object]> = [['blurs', normalized.blurs], ['opacities', normalized.opacities]]
+  const groups: Array<[string, object]> = [['opacities', normalized.opacities]]
   for (const [group, have] of groups) {
     const got = r[group]
     if (got === null || typeof got !== 'object') continue

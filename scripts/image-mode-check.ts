@@ -230,15 +230,15 @@ check('and every one of them comes from the composer',
 
 console.log('\n--- the interface parts are found by name, not by position ---')
 // The shell frame grew a bottom row and a drag handle AFTER the overlay, which
-// quietly turned "the three children before the overlay" into "the center column,
-// the collapsed right column and the bottom row". Nothing threw: the part sliders
-// wrote their styles onto elements nobody looks at, and the conversation frame —
-// whose [data-chat-flow] sits inside the real center column — stopped answering
-// its slider entirely. Each column is therefore named by the class suffix its CSS
-// module keeps across builds, the right column by the marker the host publishes,
-// and the positional answer survives ONLY as the `??` fallback.
-check('the three columns are named by the class suffixes their CSS module keeps',
-  /const PART_CLASS = \{ sidebar: 'sidebarCol', center: 'centerCol', rightbar: 'rightbarCol' \}/.test(WALL), true)
+// quietly turned "the children before the overlay" into "the center column, the
+// collapsed right column and the bottom row". Nothing threw: the sliders wrote
+// their styles onto elements nobody looks at, and the conversation frame — whose
+// [data-chat-flow] sits inside the real center column — stopped answering its
+// slider entirely. Each column the plugin still paints is named by the class
+// suffix its CSS module keeps across builds, the right column by the marker the
+// host publishes, and the positional answer survives ONLY as the `??` fallback.
+check('the columns the plugin paints are named by their CSS module\'s class suffixes',
+  /const PART_CLASS = \{ center: 'centerCol', rightbar: 'rightbarCol' \}/.test(WALL), true)
 // A `classList.contains('centerCol')` would be false for every column of every
 // build (the element carries `pI_x6G_centerCol`), so the hash prefix has to be
 // tolerated rather than matched away.
@@ -247,9 +247,13 @@ check('and the match is a suffix, because the hash prefix rotates between builds
 check('the right column is taken from the host marker, read off the frame itself',
   /frame\.querySelector<HTMLElement>\(':scope > \[data-rightbar-col\]'\)/.test(WALL), true)
 check('every column prefers its class name and only then its old position',
-  /sidebarEl = childWithClass\(frame, PART_CLASS\.sidebar\) \?\? at\(-3\)/.test(WALL)
-  && /centerEl = childWithClass\(frame, PART_CLASS\.center\) \?\? at\(-2\)/.test(WALL)
+  /centerEl = childWithClass\(frame, PART_CLASS\.center\) \?\? at\(-2\)/.test(WALL)
   && /detailsEl = rightbar \?\? at\(-1\)/.test(WALL), true)
+// The sidebar column used to be resolved too, for its own blur slider. Nothing
+// paints it now — its opacity is a palette token — so resolving it would be a
+// lookup with no reader, which is how a part slider quietly comes back.
+check('and the sidebar column is not resolved at all any more',
+  !/sidebarEl|PART_CLASS\.sidebar/.test(WALL), true)
 // The bug itself, pinned as the shape it had: an index read straight into a part
 // slot is what let the three assignments drift away from the frame the host
 // renders, without an error anywhere.
@@ -289,13 +293,42 @@ check('the item ships at zero, so no existing setup gets its pages repainted',
   /export const DEFAULT_PAGE_OPACITY = 0/.test(SCHEMA)
   && /pageOpacity: clamp01\(r\.pageOpacity, DEFAULT_PAGE_OPACITY\)/.test(SCHEMA), true)
 // The wiring hole this kind of item falls into: discovery on a beat nothing runs.
-// `applyPartBlurs` is the one pass the full apply and the frame observer share, and
-// the drag has to reach the same writer.
+// `applyInterfaceParts` is the one pass the full apply and the frame observer
+// share, and the drag has to reach the same writer.
 check('the surfaces are applied from the pass every apply runs, and from the drag',
-  /applyViewCards\(\)\s+applyPageSurfaces\(\)/.test(WALL)
+  /export function applyInterfaceParts\(fade = false\): void \{\s+applyViewCards\(fade\)\s+applyPageSurfaces\(\)\s*\}/.test(WALL)
+  && /applyInterfaceParts\(paletteMoved\)/.test(WALL)
+  && /applyInterfaceParts\(\)\s+applyPartOpacities\(rOps\(\)\)/.test(WALL)
   && /cfg\.pageOpacity = op\s+applyPageSurfaces\(\)/.test(UI), true)
 check('and the rule reaches the document from the plugin\'s own stylesheet',
   ENTRY.includes('${RIGHTBAR_STYLE_RULE}${PAGE_STYLE_RULE}'), true)
+
+console.log('\n--- the interface blur is gone: field, sliders and writers ---')
+// The Interface page carried a blur slider per surface until 0.8.1. What it
+// frosted was either the wallpaper behind a column — which the WALLPAPER layer's
+// own blur already does, per rule, and keeps doing (pinned above) — or a panel
+// nobody reads once it is translucent. Removing it is a job for the whole
+// wiring, and every half is a way it comes back: a field the old sanitizer
+// re-emits, a writer with no slider, a slider with no writer, a dictionary key
+// left behind so a row could be re-added without a word.
+const TYPES = read('src/client/types.ts')
+const I18N = read('src/client/i18n.ts')
+check('the shared shape declares no per-part blur',
+  !/PartBlurs|PART_BLUR_KEYS|DEFAULT_PART_BLURS/.test(SCHEMA), true)
+check('the config does not carry the field either',
+  !/^\s*blurs: PartBlurs/m.test(SCHEMA) && !/blurs: \{ \.\.\.DEFAULT_PART_BLURS \}/.test(SCHEMA), true)
+check('the render layer has no blur writer left',
+  !/dsh-any-blur|dsh-any-part-blur|setBlur|applyPartBlurs/.test(WALL), true)
+check('and the channel left the store, the entry and the page with it',
+  !/setBlurs/.test(TYPES) && !/setBlurs/.test(ENTRY) && !/setBlurs/.test(UI), true)
+check('the page offers no blur row, and no dictionary key survives to back one',
+  !/uiBlur/.test(UI) && !/uiBlur/.test(I18N), true)
+// The one thing a stale host could do about it: a schema-8 sanitizer rebuilds the
+// config from the keys it knows, so it would RE-ADD the field with its own
+// defaults (input at 60 px). The announced number is what keeps a new bundle
+// paired with such a process out of the write path.
+check('and the shape bump is announced past the config that owned the field',
+  announced >= 9, true)
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

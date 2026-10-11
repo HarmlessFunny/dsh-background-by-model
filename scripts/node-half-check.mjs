@@ -191,9 +191,11 @@ check('the left panel, the code plate and the inputs carry the profile\'s number
   first.opacities.sidebar === 0.1 && first.opacities.code === 0.81 && first.opacities.input === 0.88,
   JSON.stringify(first.opacities))
 check('the cards stay opaque', first.opacities.card === 1)
-check('and so do the blurs — only the input & controls are frosted, at 60 px',
-  first.blurs.input === 60 && first.blurs.bg === 0 && first.blurs.card === 0 && first.blurs.settings === 0,
-  JSON.stringify(first.blurs))
+// There is no per-surface interface blur any more (0.8.1). The profile carries
+// none, and a build that grew one back without a slider would frost the input for
+// every fresh install, since 60 px was its default.
+check('and the profile carries no interface blur at all', !('blurs' in first),
+  JSON.stringify(Object.keys(first)))
 check('the settings panel stays opaque', first.settingsOpacity === 1)
 check('the conversation text box and the trajectory view carry their tints',
   first.chatTextOpacity === 0.35 && first.trajectoryOpacity === 0.73,
@@ -514,6 +516,27 @@ check('a legacy rule gets the shipped rotation defaults',
 check('a colorless legacy rule lifts to a colorless image',
   lifted.images[0].color === null, JSON.stringify(lifted.images[0].color))
 
+console.log('\n--- the interface blur was removed (0.8.1), and an old file still loads ---')
+// Every 0.8.0 config on disk carries `blurs`. The sanitizer now drops it, which is
+// a migration rather than drift — and the drop has to be real, not cosmetic: a
+// reply that carried the field back would hand the DEFAULTS (input at 60 px) to a
+// build that has no slider for them, and the next write would persist that.
+const blurWarnings = []
+console.warn = (...a) => { blurWarnings.push(a.join(' ')) }
+await call('writeConfig', {
+  config: {
+    ...first,
+    blurs: { bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, rightbar: 0, input: 60 },
+  },
+})
+console.warn = realWarn
+const deblurred = await readConfig()
+check('the field is dropped from the shape',
+  !('blurs' in deblurred), JSON.stringify(Object.keys(deblurred)))
+check('and dropping it is not reported as drift — it is a migration',
+  !blurWarnings.some(w => w.includes('blurs')), JSON.stringify(blurWarnings))
+await call('writeConfig', { config: first })
+
 const themedLegacy = { ...legacyRule, id: 'r-themed', match: 'themed', color: [210, 0.5, 0.4] }
 const clearedLegacy = {
   ...legacyRule, id: 'r-cleared', match: 'cleared', color: [210, 0.5, 0.4],
@@ -634,9 +657,12 @@ check('a rule that names no image anywhere is still dropped',
 // switch transition (`transition`) is part of the config, 6 = the layout mode
 // belongs to an image (`images[].bgMode`) instead of to the rule, 7 = a rule
 // carries its wallpaper brightness (`brightness`), 8 = the config carries the
-// page tint (`pageOpacity`).
+// page tint (`pageOpacity`), 9 = the per-surface interface blur (`blurs`) is GONE
+// — the first bump for a removal, and it cuts the other way: a schema-8 sanitizer
+// rebuilds the config from the keys it knows, so it would re-add that field with
+// its own defaults.
 const announced = (await call('read')).value.schema
-check('the host announces the shape it sanitizes with', announced === 8, String(announced))
+check('the host announces the shape it sanitizes with', announced === 9, String(announced))
 // An emptied rule keeps the color it had: that color is what it paints while it
 // has no wallpaper, so it is not a field to clean up.
 await call('writeConfig', {

@@ -1,5 +1,5 @@
-import { rWp, rBgState, rBl, rWop, rBrightness, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rPageOpacity, rFadeMs, rTransition } from './state'
-import type { PartOpacities, PartBlurs } from './types'
+import { rWp, rBgState, rBl, rWop, rBrightness, rOps, rSop, rColor, rHasColor, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rPageOpacity, rFadeMs, rTransition } from './state'
+import type { PartOpacities } from './types'
 // The switch's decision is pure and checked without a browser
 // (scripts/transition-check.ts); this file only applies it to the two layers.
 import { transitionPlan } from './transition'
@@ -442,7 +442,7 @@ function applyCustomTokensNow(ops: PartOpacities): void {
         root.style.setProperty(OPACITY_VARS[name], withAlpha(tokens[name] ?? '#000', ops[g.part]))
       }
     }
-    // The Cordis panel keeps its own input-slider alpha (see INPUT_BLUR_RULE).
+    // The Cordis panel keeps its own input-slider alpha (see INPUT_STYLE_RULE).
     root.style.setProperty('--dsh-any-op-menu-cordis', withAlpha(tokens['--dsw-specific-menu'] ?? '#000', ops.input))
     const bgKey = `${baseTokenKey}|${ops.bg}`
     if (bgKey !== lastBgKey) { lastBgKey = bgKey; applyPartOpacities(ops, fadeable) }
@@ -466,7 +466,6 @@ const SETTINGS_PANEL_SEL = '[role="dialog"][aria-modal="true"][aria-labelledby]'
 export const SETTINGS_STYLE_RULE =
   `${SETTINGS_PANEL_SEL}{` +
   `background:var(--dsh-any-bg-settings-surface,var(--dsw-alias-bg-layer-2));` +
-  `backdrop-filter:var(--dsh-any-blur-settings,none);` +
   `}` +
   // Re-scope the dialog's layer tokens to plugin-owned variables so every
   // surface inside the dialog follows the settings opacity slider only. Gated on
@@ -476,31 +475,18 @@ export const SETTINGS_STYLE_RULE =
   `html[${THEMED_ATTR}] ${SETTINGS_PANEL_SEL}{` +
   `--dsw-alias-bg-layer-1:var(--dsh-any-bg-settings-layer-1);` +
   `--dsw-alias-bg-layer-2:var(--dsh-any-bg-settings-layer-2);` +
-  `--dsw-alias-bg-layer-3:var(--dsh-any-bg-settings-layer-3)}` +
-  // Option-panel blur inside the dialog, owned by the card blur slider.
-  `${SETTINGS_PANEL_SEL} .dab-card{backdrop-filter:var(--dsh-any-blur-card-panels,none);-webkit-backdrop-filter:var(--dsh-any-blur-card-panels,none)}`
+  `--dsw-alias-bg-layer-3:var(--dsh-any-bg-settings-layer-3)}`
 
-// Input/control surface blur. The composer card and the Cordis panel expose
-// stable host data attributes ([data-composer-card], [data-cordis-panel]), so
-// the backdrop is attached via a stylesheet rule rather than element discovery.
-// The Cordis panel shares the --dsw-specific-menu token with the dialog's
-// option boxes, but it stays owned by the input slider — the re-scope below
-// keeps it there now that the menu token itself follows the card slider. Note
-// the input slider must NOT drive the button-elevated-fill /
+// Input/control surfaces. The Cordis panel shares the --dsw-specific-menu token
+// with the dialog's option boxes, but it stays owned by the input slider — the
+// re-scope below keeps it there now that the menu token itself follows the card
+// slider. Note the input slider must NOT drive the button-elevated-fill /
 // button-floating-hover tokens: the settings panel's own controls (slider
 // thumbs, .dab-btn, segmented thumb) are painted from those same tokens, so
 // tinting them would bleach the panel's own UI.
 const CORDIS_PANEL_SEL = '[data-cordis-panel]'
-export const INPUT_BLUR_RULE =
-  `[data-composer-card],${CORDIS_PANEL_SEL}{` +
-  '-webkit-backdrop-filter:var(--dsh-any-input-blur,none);' +
-  'backdrop-filter:var(--dsh-any-input-blur,none)}' +
+export const INPUT_STYLE_RULE =
   `${CORDIS_PANEL_SEL}{--dsw-specific-menu:var(--dsh-any-op-menu-cordis)!important}`
-
-function applyInputBlur(px: number): void {
-  if (px > 0) document.documentElement.style.setProperty('--dsh-any-input-blur', `blur(${px}px)`)
-  else document.documentElement.style.removeProperty('--dsh-any-input-blur')
-}
 
 // Placeholder/hint text inside the composer and the plugin's own input
 // surfaces: rendered with the weak caption token (distinct from real input)
@@ -533,7 +519,7 @@ export function applySettingsOverrides(op: number): void {
   // applyCustomTokens rewrites with the homepage card alpha.
   write('--dsh-any-bg-settings-surface', '--dsw-alias-bg-layer-2')
   // Dialog-scoped layer overrides consumed by SETTINGS_STYLE_RULE; opacity
-  // follows the settings slider only (the card slider reaches panels via blur).
+  // follows the settings slider only.
   write('--dsh-any-bg-settings-layer-1', '--dsw-alias-bg-layer-1')
   write('--dsh-any-bg-settings-layer-2', '--dsw-alias-bg-layer-2')
   write('--dsh-any-bg-settings-layer-3', '--dsw-alias-bg-layer-3')
@@ -765,21 +751,13 @@ function fadeInlineFor(animate: boolean): string {
 // `!important` outranks the host's class rule. The `var()` fallback keeps the
 // host's own value until a rule with a color supplies one, so a color-less rule
 // changes nothing here.
-//
-// backdrop-filter stays on the container — that is where this card has always
-// put it, and it keeps the panel to a single filter pass — but only while the
-// panel is open: an always-on filter is what turned the collapsed panel into a
-// plate.
 export const RIGHTBAR_SEL =
   'div[data-sidebar-right-panel]:not(:has([data-dockkit-content],[data-dockkit-empty]))[data-sidebar-right-open],' +
   'div[data-sidebar-right-panel] [data-dockkit-content]:not([data-dockkit-float]),' +
   'div[data-sidebar-right-panel] [data-dockkit-empty]'
 export const RIGHTBAR_STYLE_RULE =
   `${RIGHTBAR_SEL}{` +
-  'background:var(--dsh-any-bg-rightbar,var(--dsw-alias-bg-base))!important}' +
-  'div[data-sidebar-right-panel][data-sidebar-right-open]{' +
-  '-webkit-backdrop-filter:var(--dsh-any-blur-rightbar,none);' +
-  'backdrop-filter:var(--dsh-any-blur-rightbar,none)}'
+  'background:var(--dsh-any-bg-rightbar,var(--dsw-alias-bg-base))!important}'
 
 /** Paint the file-preview panel's surface from its own slider. */
 export function applyRightbarOverrides(op: number): void {
@@ -792,52 +770,22 @@ export function applyRightbarOverrides(op: number): void {
   root.style.setProperty('--dsh-any-bg-rightbar', withAlpha(base, op))
 }
 
-/** Extra backdrop frost for the file-preview panel (0 = no frost of its own). */
-function applyRightbarBlur(px: number): void {
-  if (px > 0) document.documentElement.style.setProperty('--dsh-any-blur-rightbar', `blur(${px}px)`)
-  else document.documentElement.style.removeProperty('--dsh-any-blur-rightbar')
-}
-
-// ── Per-part interface blur ───────────────────────────────────────────────────
-// The three columns around the shell overlay do NOT sit at fixed offsets. The
-// composed frame is `sidebarCol centerCol rightbarCol bottomRow overlayLayer
-// handle`, so reading "the three children before the overlay" names the center
-// column, the (collapsed, zero-width) right column and the bottom row: every
-// part slider then writes where nobody looks and the conversation frame — whose
-// `[data-chat-flow]` lives inside the real center column — stops responding
-// entirely, with no error to show for it. Columns are therefore resolved by what
-// they publish about themselves, and the old positional answer is kept only as a
-// last resort.
-//
-// backdrop-filter must NEVER go directly on a host part: it turns the element
-// into a containing block for fixed-positioned descendants, which would trap
-// the host's settings dialog inside the column. Each blurred part carries an
-// isolated ::before underlay holding the backdrop-filter instead.
+// ── The composed frame's columns ─────────────────────────────────────────────
+// The columns around the shell overlay do NOT sit at fixed offsets. The composed
+// frame is `sidebarCol centerCol rightbarCol bottomRow overlayLayer handle`, so
+// reading "the children before the overlay" names the center column, the
+// (collapsed, zero-width) right column and the bottom row: a slider then writes
+// where nobody looks and the conversation frame — whose `[data-chat-flow]` lives
+// inside the real center column — stops responding entirely, with no error to
+// show for it. The columns the plugin paints are therefore resolved by what they
+// publish about themselves, and the old positional answer is kept only as a last
+// resort.
 let frameEl: HTMLElement | null = null
-let sidebarEl: HTMLElement | null = null
 let centerEl: HTMLElement | null = null
 let detailsEl: HTMLElement | null = null
 
 /** Class-name suffixes the harness's CSS modules end the column names with. */
-const PART_CLASS = { sidebar: 'sidebarCol', center: 'centerCol', rightbar: 'rightbarCol' } as const
-
-const PART_BLUR_CLASS = 'dab-part-blur'
-const PART_UNDERLAY_CLASS = 'dab-part-underlay'
-const PART_BLUR_RULE =
-  `${PART_BLUR_CLASS}{isolation:isolate}` +
-  `.${PART_UNDERLAY_CLASS}{position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;` +
-  `backdrop-filter:var(--dsh-any-part-blur,none);-webkit-backdrop-filter:var(--dsh-any-part-blur,none)}`
-
-let partBlurStyleEl: HTMLStyleElement | null = null
-
-function ensurePartBlurStyle(): void {
-  if (partBlurStyleEl?.isConnected) return
-  partBlurStyleEl = document.createElement('style')
-  partBlurStyleEl.dataset.plugin = 'dsh-background-by-model-parts'
-  markOwnSheet(partBlurStyleEl)
-  partBlurStyleEl.textContent = PART_BLUR_RULE
-  document.head.appendChild(partBlurStyleEl)
-}
+const PART_CLASS = { center: 'centerCol', rightbar: 'rightbarCol' } as const
 
 /**
  * Whether one of the element's class names ENDS with `suffix`.
@@ -877,44 +825,8 @@ function discoverParts(): void {
   const overlayIdx = Array.from(frame.children).indexOf(overlay)
   /** The direct child at `offset` relative to the overlay, when there is one. */
   const at = (offset: number): HTMLElement | null => (frame.children[overlayIdx + offset] as HTMLElement | undefined) ?? null
-  sidebarEl = childWithClass(frame, PART_CLASS.sidebar) ?? at(-3)
   centerEl = childWithClass(frame, PART_CLASS.center) ?? at(-2)
   detailsEl = rightbar ?? at(-1)
-}
-
-function setBlur(el: HTMLElement | null, px: number): void {
-  if (el === null) return
-  const underlay = el.querySelector<HTMLDivElement>(`:scope > .${PART_UNDERLAY_CLASS}`)
-  if (px > 0) {
-    ensurePartBlurStyle()
-    // The underlay is position:absolute and needs a positioned host: static
-    // columns get relative (a layout no-op for flex items) that is restored on
-    // clear; parts the host already positions keep their own scheme.
-    if (!el.classList.contains(PART_BLUR_CLASS) && getComputedStyle(el).position === 'static') {
-      el.style.position = 'relative'
-      el.setAttribute('data-dab-pos-patched', '1')
-    }
-    el.classList.add(PART_BLUR_CLASS)
-    if (underlay === null) {
-      const node = document.createElement('div')
-      node.className = PART_UNDERLAY_CLASS
-      el.prepend(node)
-    }
-    el.style.setProperty('--dsh-any-part-blur', `blur(${px}px)`)
-  } else {
-    el.classList.remove(PART_BLUR_CLASS)
-    el.style.removeProperty('--dsh-any-part-blur')
-    underlay?.remove()
-    if (el.getAttribute('data-dab-pos-patched') === '1') {
-      el.style.removeProperty('position')
-      el.removeAttribute('data-dab-pos-patched')
-    }
-  }
-}
-
-function applySettingsBlur(px: number): void {
-  if (px > 0) document.documentElement.style.setProperty('--dsh-any-blur-settings', `blur(${px}px)`)
-  else document.documentElement.style.removeProperty('--dsh-any-blur-settings')
 }
 
 /** Apply the main-background opacity to the center/details columns instead of
@@ -948,43 +860,18 @@ function applyPartOpacities(ops: PartOpacities, fade = false): void {
   }
 }
 
-/** Blur of the option panels inside the settings dialog (.dab-card), owned by
- *  the "dialog option panel" (card) blur slider. Written as a plugin-owned
- *  variable consumed by SETTINGS_STYLE_RULE — deliberately NOT applied to the
- *  homepage center/details columns, which this slider must never touch. */
-function applyCardPanelsBlur(px: number): void {
-  if (px > 0) document.documentElement.style.setProperty('--dsh-any-blur-card-panels', `blur(${px}px)`)
-  else document.documentElement.style.removeProperty('--dsh-any-blur-card-panels')
-}
-
-/** Apply per-part interface blur to the AppFrame columns + settings panel. */
-export function applyPartBlurs(blurs: PartBlurs): void {
-  discoverParts()
-  // The bg blur frosts the wallpaper behind the main content columns (center +
-  // details); the frame itself stays unblurred so the sidebar is never
-  // double-frosted by both the bg and sidebar sliders.
-  setBlur(frameEl, 0)
-  setBlur(sidebarEl, blurs.sidebar)
-  setBlur(centerEl, blurs.bg)
-  setBlur(detailsEl, blurs.bg)
-  applyCardPanelsBlur(blurs.card)
-  applySettingsBlur(blurs.settings)
-  applyInputBlur(blurs.input)
-  applyRightbarBlur(blurs.rightbar)
-  applyViewCards()
+/**
+ * Re-derive every plugin-owned interface surface that is not a palette token:
+ * the conversation view card and the function pages in the main slot.
+ *
+ * ONE pass, run by the full apply and by the frame observer: a page mounts and
+ * unmounts with a NAVIGATION, not with a slider, so its discovery has to happen
+ * on the same beat as everything else. `fade` carries the palette-moved case
+ * through to the inline-painted view card (see `applyCustomTokens`).
+ */
+export function applyInterfaceParts(fade = false): void {
+  applyViewCards(fade)
   applyPageSurfaces()
-}
-
-/** Live per-part blur update during slider drag (no full re-apply). */
-export function setPartBlur(part: keyof PartBlurs, v: number): void {
-  if (part === 'settings') { applySettingsBlur(v); return }
-  if (part === 'card') { applyCardPanelsBlur(v); return }
-  if (part === 'input') { applyInputBlur(v); return }
-  if (part === 'rightbar') { applyRightbarBlur(v); return }
-  if (part === 'chat' || part === 'trajectory') { applyViewCards(); return }
-  discoverParts()
-  if (part === 'bg') { setBlur(centerEl, v); setBlur(detailsEl, v) }
-  else setBlur(sidebarEl, v)
 }
 
 // ── Function pages in the main slot ─────────────────────────────────────────
@@ -1063,9 +950,10 @@ function pageIsShowing(): boolean { return discoverPageEls().length > 0 }
 /**
  * Point the 插件页面 item at whatever the main slot is showing.
  *
- * Called from `applyPartBlurs`, the one pass the full apply and the frame
- * observer both run: a page mounts and unmounts with a NAVIGATION, not with a
- * slider, so the discovery has to happen on the same beat as everything else.
+ * Called from `applyInterfaceParts`, the one pass the full apply and the frame
+ * observer both run, and from the item's own drag: a page mounts and unmounts
+ * with a NAVIGATION, not with a slider, so the discovery has to happen on the
+ * same beat as everything else.
  */
 export function applyPageSurfaces(): void {
   discoverParts()
@@ -1091,10 +979,9 @@ function removePageSurfaces(): void {
 
 // ── Conversation view treatments ────────────────────────────────────
 // The chat message column is styled as a real card (layer-1 surface + border +
-// 16px radius + 18px padding); the trajectory view gets NO card decoration —
-// its own panels fully cover the view root, so its opacity slider re-scopes the
-// layer tokens inside the view and its blur frosts the backdrop through the
-// standard root underlay.
+// 16px radius + 18px padding). The trajectory view gets NO card of its own: its
+// panels fully cover the view root, so that item re-scopes the layer tokens
+// inside the view instead (see `applyTrajectoryOverrides`).
 //
 // Host structure (deepseek-harness ui-conversation / ui-trajectory):
 //   ConversationRoot
@@ -1103,26 +990,21 @@ function removePageSurfaces(): void {
 //       [data-chat-flow]         ← chat column (flow content, NOT scrollable)
 //       [data-conversation-composer-overlay] ← trajectory view root
 //       [data-composer-seat]     — sticky composer, a sibling
-// Cards are ALWAYS styled once their host exists — sliders at zero only turn
+// The card is ALWAYS styled once its host exists — a slider at zero only turns
 // surface/border transparent, so the layout never reflows and the view cannot
-// jump when a slider leaves zero. Removal happens only at plugin teardown.
+// jump when the slider leaves zero. Removal happens only at plugin teardown.
 interface ViewCardSpec {
   sel: string
   mark: string
   /** Dataset key prefix holding the stashed pre-card inline values. */
   prev: string
   opacity: () => number
-  blur: () => number
   /** Generic heuristic fallback (chat card only, hosts without the marker). */
   fallback?: boolean
-  /** No card decoration — surfaces follow scoped layer tokens; only the blur
-   *  underlay is attached to the host element. */
-  plain?: boolean
 }
 
 const VIEW_CARDS: ViewCardSpec[] = [
-  { sel: '[data-chat-flow]', mark: 'data-dab-chat-card', prev: 'dabChatPrev', opacity: rChatTextOpacity, blur: () => rBlurs().chat, fallback: true },
-  { sel: '[data-conversation-composer-overlay]', mark: 'data-dab-traj-card', prev: 'dabTrajPrev', opacity: rTrajectoryOpacity, blur: () => rBlurs().trajectory, plain: true },
+  { sel: '[data-chat-flow]', mark: 'data-dab-chat-card', prev: 'dabChatPrev', opacity: rChatTextOpacity, fallback: true },
 ]
 
 const viewTargets: Array<HTMLElement | null> = VIEW_CARDS.map(() => null)
@@ -1166,7 +1048,7 @@ function discoverViewTarget(idx: number, spec: ViewCardSpec): HTMLElement | null
   const marked = centerEl.querySelector<HTMLElement>(spec.sel)
   const cached = viewTargets[idx]
   if (marked !== null) {
-    if (cached !== null && cached !== marked) { setBlur(cached, 0); restoreCardHost(cached, spec.mark, spec.prev, spec.plain === true) }
+    if (cached !== null && cached !== marked) restoreCardHost(cached, spec.mark, spec.prev)
     viewTargets[idx] = marked
     return marked
   }
@@ -1182,7 +1064,7 @@ function discoverViewTarget(idx: number, spec: ViewCardSpec): HTMLElement | null
   // a name that does not describe it.
   if (pageIsShowing()) return null
   // Marker-less hosts keep their layout until a slider moves.
-  if (spec.opacity() <= 0 && spec.blur() <= 0) return null
+  if (spec.opacity() <= 0) return null
   let best: HTMLElement | null = null
   let bestArea = 0
   for (const el of Array.from(centerEl.querySelectorAll<HTMLElement>('*'))) {
@@ -1204,17 +1086,16 @@ function discoverViewTarget(idx: number, spec: ViewCardSpec): HTMLElement | null
 }
 
 /** Stash the host's own inline values so teardown restores them exactly. */
-function stashCardPrev(el: HTMLElement, prev: string, plain: boolean): void {
+function stashCardPrev(el: HTMLElement, prev: string): void {
   const ds = el.dataset as Record<string, string | undefined>
   ds[prev + 'Bg'] = el.style.getPropertyValue('background')
-  if (plain) return
   ds[prev + 'Border'] = el.style.getPropertyValue('border')
   ds[prev + 'Radius'] = el.style.getPropertyValue('border-radius')
   ds[prev + 'Padding'] = el.style.getPropertyValue('padding')
 }
 
 /** Undo the inline styling, restoring the host's previous inline values. */
-function restoreCardHost(el: HTMLElement, mark: string, prev: string, plain: boolean): void {
+function restoreCardHost(el: HTMLElement, mark: string, prev: string): void {
   if (!el.hasAttribute(mark)) return
   const ds = el.dataset as Record<string, string | undefined>
   const restore = (prop: string, v: string | undefined): void => {
@@ -1222,12 +1103,10 @@ function restoreCardHost(el: HTMLElement, mark: string, prev: string, plain: boo
     else el.style.removeProperty(prop)
   }
   restore('background', ds[prev + 'Bg'])
-  if (!plain) {
-    restore('border', ds[prev + 'Border'])
-    restore('border-radius', ds[prev + 'Radius'])
-    restore('padding', ds[prev + 'Padding'])
-    delete ds[prev + 'Border']; delete ds[prev + 'Radius']; delete ds[prev + 'Padding']
-  }
+  restore('border', ds[prev + 'Border'])
+  restore('border-radius', ds[prev + 'Radius'])
+  restore('padding', ds[prev + 'Padding'])
+  delete ds[prev + 'Border']; delete ds[prev + 'Radius']; delete ds[prev + 'Padding']
   delete ds[prev + 'Bg']
   el.removeAttribute(mark)
 }
@@ -1236,7 +1115,7 @@ function restoreCardHost(el: HTMLElement, mark: string, prev: string, plain: boo
 function removeViewCards(): void {
   VIEW_CARDS.forEach((spec, i) => {
     const el = viewTargets[i]
-    if (el !== null) { setBlur(el, 0); restoreCardHost(el, spec.mark, spec.prev, spec.plain === true) }
+    if (el !== null) restoreCardHost(el, spec.mark, spec.prev)
     viewTargets[i] = null
   })
 }
@@ -1244,8 +1123,8 @@ function removeViewCards(): void {
 // ── Wide markdown tables ──────────────────────────────────────────────────────
 // DSH intentionally lets `.md-table-wide` bleed outside the text column. That
 // bleed only becomes visible once the chat surface gains a visible border, i.e.
-// when the chat region opacity or blur is non-zero. Under that same condition,
-// pull the table back inside the column and let it scroll horizontally.
+// when the chat region opacity is non-zero. Under that same condition, pull the
+// table back inside the column and let it scroll horizontally.
 const TABLE_FIX_RULE = [
   '.md-table-wide {',
   '  --dsh-table-spare: 0px !important;',
@@ -1261,9 +1140,9 @@ const TABLE_FIX_RULE = [
 ].join('\n')
 let tableFixStyleEl: HTMLStyleElement | null = null
 
-/** Toggle the wide-table clamp according to the chat region's opacity & blur. */
+/** Toggle the wide-table clamp according to the chat region's opacity. */
 function syncTableFix(): void {
-  const needed = rChatTextOpacity() > 0 || rBlurs().chat > 0
+  const needed = rChatTextOpacity() > 0
   if (!needed) {
     if (tableFixStyleEl !== null) { tableFixStyleEl.remove(); tableFixStyleEl = null }
     return
@@ -1277,7 +1156,7 @@ function syncTableFix(): void {
   if (!tableFixStyleEl.isConnected) document.head.appendChild(tableFixStyleEl)
 }
 
-/** Re-derive the conversation view cards from the current config. */
+/** Re-derive the conversation view card from the current config. */
 export function applyViewCards(fade = false): void {
   discoverParts()
   if (centerEl === null) return
@@ -1288,41 +1167,35 @@ export function applyViewCards(fade = false): void {
   VIEW_CARDS.forEach((spec, i) => {
     const target = discoverViewTarget(i, spec)
     if (target === null) return
-    const plain = spec.plain === true
     const opacity = spec.opacity()
-    const blurPx = spec.blur()
-    if (!plain) {
-      if (!target.hasAttribute(spec.mark)) stashCardPrev(target, spec.prev, false)
-      // Mirrors .dab-card (layer-1 background, border, 16px radius, 18px
-      // padding), written inline so it wins over host stylesheets; the opacity
-      // slider drives surface alpha and fades the border with it. The transition
-      // is inline for the same reason the background is: this card does not read
-      // the registered tokens, so a palette change would otherwise snap here.
-      const borderAlpha = opacity > 0 ? Math.min(1, opacity * 1.5) : (blurPx > 0 ? 0.35 : 0)
-      target.style.transition = transition
-      target.style.background = surface !== undefined ? withAlpha(surface, opacity) : 'transparent'
-      target.style.border = surface !== undefined ? `1px solid ${withAlpha(surface, borderAlpha)}` : '1px solid transparent'
-      target.style.borderRadius = '16px'
-      target.style.padding = '18px'
-    }
-    // Plain views write no inline styles — only the blur underlay is hosted here.
+    if (!target.hasAttribute(spec.mark)) stashCardPrev(target, spec.prev)
+    // Mirrors .dab-card (layer-1 background, border, 16px radius, 18px padding),
+    // written inline so it wins over host stylesheets; the opacity slider drives
+    // surface alpha and fades the border with it. The transition is inline for
+    // the same reason the background is: this card does not read the registered
+    // tokens, so a palette change would otherwise snap here.
+    const borderAlpha = opacity > 0 ? Math.min(1, opacity * 1.5) : 0
+    target.style.transition = transition
+    target.style.background = surface !== undefined ? withAlpha(surface, opacity) : 'transparent'
+    target.style.border = surface !== undefined ? `1px solid ${withAlpha(surface, borderAlpha)}` : '1px solid transparent'
+    target.style.borderRadius = '16px'
+    target.style.padding = '18px'
     target.setAttribute(spec.mark, '1')
-    setBlur(target, blurPx)
   })
   syncTableFix()
 }
 
 let partsObserver: MutationObserver | null = null
 
-/** Watch for the AppFrame mounting so persisted blurs land even when the shell
- *  renders after this plugin's apply. */
+/** Watch for the AppFrame mounting so persisted opacities land even when the
+ *  shell renders after this plugin's apply. */
 export function watchParts(): void {
   if (partsObserver !== null || typeof MutationObserver === 'undefined') return
   partsObserver = new MutationObserver(() => {
-    if (frameEl !== null && sidebarEl !== null && centerEl !== null && detailsEl !== null && document.body.contains(frameEl)
+    if (frameEl !== null && centerEl !== null && detailsEl !== null && document.body.contains(frameEl)
       // Keep re-applying while any card host is absent or was swapped by the host.
       && viewTargets.every(el => el !== null && document.body.contains(el))) return
-    applyPartBlurs(rBlurs())
+    applyInterfaceParts()
     applyPartOpacities(rOps())
   })
   partsObserver.observe(document.body, { childList: true, subtree: true })
@@ -1694,7 +1567,7 @@ export function applyWp(): void {
   if (url) {
     applyImageWp(url)
   } else if (wpEl !== null) {
-    // No background: tear down the layer but keep tokens/blur intact.
+    // No background: tear down the layer but keep the tokens intact.
     dropWpContainer()
   }
   // A rule without a saved color follows the system theme: the plugin owns no
@@ -1730,8 +1603,7 @@ export function applyWp(): void {
   applySettingsOverrides(rSop())
   applyTrajectoryOverrides(rTrajectoryOpacity())
   applyRightbarOverrides(rRightbarOpacity())
-  applyPartBlurs(rBlurs())
-  applyViewCards(paletteMoved)
+  applyInterfaceParts(paletteMoved)
 }
 
 export function teardownWp(): void {
@@ -1748,17 +1620,12 @@ export function teardownWp(): void {
   clearOwnedSurfaces()
   adoptHostScheme()
   invalidateHostPalette()
-  document.documentElement.style.removeProperty('--dsh-any-blur-settings')
-  document.documentElement.style.removeProperty('--dsh-any-blur-card-panels')
-  document.documentElement.style.removeProperty('--dsh-any-input-blur')
   document.documentElement.style.removeProperty('--dsh-any-bg-rightbar')
-  document.documentElement.style.removeProperty('--dsh-any-blur-rightbar')
   document.documentElement.style.removeProperty('--dsh-any-bg-page')
   for (const v of Object.values(OPACITY_VARS)) document.documentElement.style.removeProperty(v)
   if (tokensRaf !== null) { cancelAnimationFrame(tokensRaf); tokensRaf = null }
   pendingOps = null
   tableFixStyleEl?.remove(); tableFixStyleEl = null
-  setBlur(frameEl, 0); setBlur(sidebarEl, 0); setBlur(centerEl, 0); setBlur(detailsEl, 0)
   stopWatchingParts()
 }
 

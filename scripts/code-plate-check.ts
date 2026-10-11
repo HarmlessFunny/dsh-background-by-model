@@ -102,8 +102,10 @@ check('the key list carries the part',
   /PART_OPACITY_KEYS = \['bg', 'sidebar', 'card', 'code', 'input'\] as const/.test(schema), true)
 check('it ships on the profile\'s own 81%',
   /DEFAULT_PART_OPACITIES: PartOpacities = \{[^}]*\bcode: 0\.81\b[^}]*\}/.test(schema), true)
-check('the Interface page renders it, opacity only',
-  /\{ opKey: 'code', labelKey: 'uiOpacityCode', Icon: CodeIcon, noBlur: true \}/.test(page), true)
+check('the Interface page renders it',
+  /\{ opKey: 'code', labelKey: 'uiOpacityCode', Icon: CodeIcon \}/.test(page), true)
+check('on a page that carries opacity sliders and no blur row at all',
+  !/uiBlur/.test(page), true)
 check('the label exists in both dictionaries', [zh.uiOpacityCode, en.uiOpacityCode], ['代码块', 'Code blocks'])
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)

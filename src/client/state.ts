@@ -1,4 +1,4 @@
-import type { BgImage, BgRule, BgState, BgMode, HolidayRule, ThemeConfig, PartOpacities, PartBlurs, TransitionConfig } from './types'
+import type { BgImage, BgRule, BgState, BgMode, HolidayRule, ThemeConfig, PartOpacities, TransitionConfig } from './types'
 // The switch's decision (which effect, how long, whether it runs at all) is pure
 // and lives in ./transition — it is checked without a browser by
 // `scripts/transition-check.ts`, so the render layer only has to apply it.
@@ -7,9 +7,9 @@ import { resolveFadeMs } from './transition'
 // ../schema, shared verbatim with the node half — a field declared on one side
 // only used to be silently dropped by the other side's sanitizer.
 import {
-  DEFAULT_BG_STATE, DEFAULT_CHAT_TEXT_OPACITY, DEFAULT_PAGE_OPACITY, DEFAULT_PART_BLURS, DEFAULT_PART_OPACITIES,
+  DEFAULT_BG_STATE, DEFAULT_CHAT_TEXT_OPACITY, DEFAULT_PAGE_OPACITY, DEFAULT_PART_OPACITIES,
   DEFAULT_SETTINGS_OPACITY, DEFAULT_TRAJECTORY_OPACITY, DEFAULT_TRANSITION, DEFAULT_WALLPAPER_BRIGHTNESS,
-  PART_BLUR_KEYS, PART_OPACITY_KEYS, WALLPAPER_BRIGHTNESS_MAX,
+  PART_OPACITY_KEYS, WALLPAPER_BRIGHTNESS_MAX,
   clamp, clamp01, defaultRotation, freshThemeConfig, normalizeConfig, normalizeRotation, normalizeRule,
   ruleSlots,
 } from '../schema'
@@ -296,14 +296,6 @@ export function rOps(): PartOpacities {
   const out = {} as PartOpacities
   for (const k of PART_OPACITY_KEYS) {
     out[k] = clamp01(o[k], DEFAULT_PART_OPACITIES[k])
-  }
-  return out
-}
-export function rBlurs(): PartBlurs {
-  const b = cfg.blurs ?? {}
-  const out = {} as PartBlurs
-  for (const k of PART_BLUR_KEYS) {
-    out[k] = clamp(b[k], 0, 60, DEFAULT_PART_BLURS[k])
   }
   return out
 }

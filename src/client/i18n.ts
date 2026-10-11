@@ -3,12 +3,12 @@ export const NS = 'settings.anyBg'
 export const zh: Record<string, string> = {
   nav: '模型背景', brandTag: '按模型换背景',
   pageInterface: '界面', pageModelBg: '模型背景', pageProfile: '配置',
-  descInterface: '为主界面的各个区域单独调节透明度与模糊，营造空间层次感。这里的设置对所有模型生效',
+  descInterface: '为主界面的各个区域单独调节透明度，营造空间层次感。这里的设置对所有模型生效',
   descModelBg: '每条规则 = 一个匹配串 + 一组背景图与外观。切换模型时，从上往下找第一条匹配串出现在模型名里的规则；都没中就使用第 1 条。一条规则可以放多张图，按你设的节奏轮换',
   descProfile: '调整壁纸切换效果，并把当前全部规则连同图片导出备份，或从文件一键恢复',
 
   uiTitle: '主界面',
-  uiOpacity: '透明度', uiBlur: '模糊度',
+  uiOpacity: '透明度',
   uiOpacityBg: '主背景', uiOpacitySide: '左侧栏', uiOpacityCard: '卡片与菜单面板', uiOpacityCode: '代码块', uiOpacityInput: '输入框与控件',
   uiSop: '设置界面透明度', uiChatRegion: '对话文本框', uiTrajectory: '轨迹页', uiPage: '插件页面',
   uiPreview: '右侧栏',
@@ -61,7 +61,7 @@ export const zh: Record<string, string> = {
   ruleImagePendingHint: '这张图片还没有取到内容，稍后会自己出现（也可以直接替换它）',
   ruleColor: '主题色',
   ruleColorNone: '跟随系统主题',
-  ruleColorNoneHint: '未设颜色时跟随系统主题：界面用宿主的配色，壁纸与各部位的透明度、模糊照旧生效',
+  ruleColorNoneHint: '未设颜色时跟随系统主题：界面用宿主的配色，壁纸与各部位的透明度照旧生效',
   // Shown where a rule has NO color yet: pressing it picks a color, which is the
   // opposite of what the button above does, so it must not borrow that label.
   ruleColorPick: '自定义颜色',
@@ -89,7 +89,7 @@ export const zh: Record<string, string> = {
   // all three treat the WALLPAPER layer, while everything on the Interface page
   // treats interface surfaces. It is what keeps the two pages from reading as the
   // same controls listed twice.
-  ruleBlurHint: '这三条滑块都作用于壁纸层；界面页里的透明度与模糊作用于界面各区域，两者互不影响',
+  ruleBlurHint: '这三条滑块都作用于壁纸层；界面页里的透明度作用于界面各区域，两者互不影响',
 
   // ── 多图轮换 ──────────────────────────────────────────────────────────────
   // 默认关闭：轮换会真的花流量、内存和电，不能靠"默认"偷偷替用户做主。
@@ -192,12 +192,12 @@ export const zh: Record<string, string> = {
 export const en: Record<string, string> = {
   nav: 'Model background', brandTag: 'Per-model wallpaper',
   pageInterface: 'Interface', pageModelBg: 'Model background', pageProfile: 'Profile',
-  descInterface: 'Tune opacity and blur per surface to build depth. These settings are global and apply to every model',
+  descInterface: 'Tune opacity per surface to build depth. These settings are global and apply to every model',
   descModelBg: 'Each rule is a match string plus a set of wallpapers and one look. On a model switch the list is scanned top-down for the first match string contained in the model name; if nothing hits, rule 1 is used. A rule can hold several images and rotate through them on a rhythm you set',
   descProfile: 'Tune how the wallpaper switches, and back up every rule together with its image — or restore one from a file',
 
   uiTitle: 'Interface',
-  uiOpacity: 'Opacity', uiBlur: 'Blur',
+  uiOpacity: 'Opacity',
   uiOpacityBg: 'Main background', uiOpacitySide: 'Left panel', uiOpacityCard: 'Cards & menus', uiOpacityCode: 'Code blocks', uiOpacityInput: 'Input & controls',
   uiSop: 'Settings interface opacity', uiChatRegion: 'Conversation text frame', uiTrajectory: 'Trajectory view', uiPage: 'Plugin pages',
   uiPreview: 'Right panel',
@@ -247,7 +247,7 @@ export const en: Record<string, string> = {
   ruleImagePendingHint: 'This image has no content yet — it appears once it loads; you can also replace it',
   ruleColor: 'Theme color',
   ruleColorNone: 'Follow system theme',
-  ruleColorNoneHint: 'Without a color this rule follows the system theme: the host palette paints the interface while the wallpaper and every opacity/blur slider keep working',
+  ruleColorNoneHint: 'Without a color this rule follows the system theme: the host palette paints the interface while the wallpaper and every opacity slider keep working',
   // Shown where a rule has NO color yet: pressing it picks a color, which is the
   // opposite of what the button above does, so it must not borrow that label.
   ruleColorPick: 'Custom color',
@@ -268,7 +268,7 @@ export const en: Record<string, string> = {
   ruleBrightness: 'Background brightness',
   ruleBlur: 'Background blur',
   // One sentence for the three sliders above it — see the note on the zh entry.
-  ruleBlurHint: 'These three sliders all treat the wallpaper layer; the opacity and blur on the Interface page affect interface surfaces — they are independent',
+  ruleBlurHint: 'These three sliders all treat the wallpaper layer; the opacity on the Interface page affects interface surfaces — they are independent',
 
   // ── Multi-image rotation ──────────────────────────────────────────────────
   // Off by default: rotating really does spend bandwidth, memory and battery,

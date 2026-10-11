@@ -116,11 +116,11 @@ One switch on the Config page and nothing else: on 中秋节 and 国庆节 the w
 - **Theme color** — HSL wheel, numeric input, **Extract from this image** and an eyedropper. It belongs to the **image**, and an image with none follows the system theme rather than inheriting its rule's.
 - **Layout mode** — fit / fill / stretch / tile / center, stored per image; disabled on a rule that holds no picture, rather than hidden.
 - **Framing** — drag to pan and scroll to zoom, editable in fit mode only, stored per image and stable across window resizes.
-- **Background opacity** `0–100%`, **background brightness** `0–200%` (`100%` is the picture as saved) and **background blur** `0–60 px`, all three per rule. They treat the wallpaper layer only — the Interface tab's opacity and blur treat interface surfaces.
+- **Background opacity** `0–100%`, **background brightness** `0–200%` (`100%` is the picture as saved) and **background blur** `0–60 px`, all three per rule. They treat the wallpaper layer only — the Interface tab's opacity treats interface surfaces.
 
 ### Global settings (Interface tab)
 
-- **Opacity and blur per interface part** — main background, left panel, right panel, cards & menus, input & controls, settings panel, conversation text box and trajectory page, each with its own slider.
+- **Opacity per interface part** — main background, left panel, right panel, cards & menus, input & controls, settings panel, conversation text box, trajectory page and every plugin page, each with its own slider.
 - **A fresh install already looks like the author's own profile**, so a first run needs no download to look right.
 - **Independent of the theme color** — a rule with no color keeps every one of these sliders live.
 
@@ -139,7 +139,7 @@ Settings → **Theme** now has three tabs:
 
 | Tab | Scope | Contents |
 | --- | --- | --- |
-| **Interface** | Global, shared by every model | Opacity & blur for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
+| **Interface** | Global, shared by every model | Opacity for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box, trajectory page and every plugin page |
 | **Model Background** | Per rule, per image | The ordered rule list, the live match readout, and each rule's images (filmstrip), **per-image layout mode, framing and theme color**, plus the rule's opacity, brightness, blur and [rotation](#image-rotation) |
 | **Config** | — | The global [switch effect](#switch-effect-global), the whole rule set as a file — [recommended profile](#recommended-profile), import and export (`dsh-background-by-model-theme.json`) — plus the single [holiday background](#holiday-backgrounds) switch |
 
@@ -276,6 +276,7 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 - **Brightness and blur share one `filter`, composed in a single function** — a second assignment would have silently dropped one of them. Both the full apply and the live drag write through it.
 - **Every page the centre column shows is one row now (插件页面)**, opacity only: 插件, 自动化任务 and any page a plugin registers of its own are located by the slot they mount in rather than by name, so a page that does not exist yet is already covered. It ships at zero, where the plugin writes nothing at all.
 - **The interface parts are found by name instead of by position** — the frame grew rows after the overlay, and "the three children before it" had quietly become the wrong columns, so the part sliders were writing where nobody looks.
+- **The Interface tab's blur sliders are gone, and so is the capability behind them** — what they frosted was the wallpaper behind a column (the wallpaper layer's own blur already does that, per rule) or a backdrop nobody reads once a panel is translucent. The tab is opacity only now.
 
 ### v0.8.0
 

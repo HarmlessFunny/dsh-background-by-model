@@ -168,9 +168,8 @@ export type PartOpacities = Record<(typeof PART_OPACITY_KEYS)[number], number>
 // That reversed how these were chosen. Every one of them used to be picked per
 // key for safety, which is why the panel opened on a pale approximation of the
 // host rather than on anything anyone would actually run: `code` was fully opaque
-// because "a code block is read, not looked through", `bg` was 0.85 so the host
-// surface stayed visible under it, `input` blur was 0 because blur costs a
-// compositor layer. Two consequences are worth knowing. The main background now
+// because "a code block is read, not looked through", and `bg` was 0.85 so the
+// host surface stayed visible under it. Two consequences are worth knowing. The main background now
 // starts at 0%, so it is entirely the wallpaper — with no wallpaper yet, it is
 // the host's own canvas (the palette and its ink are unaffected: they come from
 // the colour, not from this alpha). And a config that does not mention one of
@@ -178,28 +177,13 @@ export type PartOpacities = Record<(typeof PART_OPACITY_KEYS)[number], number>
 // and a fresh install should never show two different panels.
 export const DEFAULT_PART_OPACITIES: PartOpacities = { bg: 0, sidebar: 0.1, card: 1, code: 0.81, input: 0.88 }
 
-/**
- * Interface blur (px, 0..60), global (Interface page):
- *   `bg`         main background (AppFrame grid)
- *   `sidebar`    sidebar column
- *   `card`       cards/panels (center + details columns, dialog option panels)
- *   `settings`   settings panel
- *   `chat`       conversation text region (message column of the chat view)
- *   `trajectory` trajectory view surface
- *   `rightbar`   file-preview panel — the right sidebar a file click opens
- *   `input`      input/control surfaces ([data-composer-card], [data-cordis-panel])
- */
-export const PART_BLUR_KEYS = ['bg', 'sidebar', 'card', 'settings', 'chat', 'trajectory', 'rightbar', 'input'] as const
-
-/** Per-part interface blur (px, 0..60), keyed BY the list above. */
-export type PartBlurs = Record<(typeof PART_BLUR_KEYS)[number], number>
-
-// The profile's blurs: every surface sharp except the input & controls, which
-// carry the 60 px the author runs (see the note above DEFAULT_PART_OPACITIES for
-// why the shipped numbers are the author's rather than a per-key safe value).
-export const DEFAULT_PART_BLURS: PartBlurs = {
-  bg: 0, sidebar: 0, card: 0, settings: 0, chat: 0, trajectory: 0, rightbar: 0, input: 60,
-}
+// There is deliberately NO per-part interface blur beside these. The Interface
+// page used to carry a blur slider per surface; what it frosted was either the
+// wallpaper behind a column (which the wallpaper layer's own blur already does,
+// per rule) or a panel whose backdrop nobody reads once it is translucent. The
+// whole capability — the field, the sliders, the underlays — was removed in
+// 0.8.1, and only the wallpaper layer's own `blur` (a BgRule field, see
+// `applyWpEffects`) is left.
 
 // ── Wallpaper switch transition (global) ───────────────────────────────────
 
@@ -421,8 +405,6 @@ export interface ThemeConfig {  /** Ordered rules: matching runs top→bottom, r
   rules: BgRule[]
   /** Global per-part opacities (Interface page). */
   opacities: PartOpacities
-  /** Global per-part blur (Interface page). */
-  blurs: PartBlurs
   /**
    * Global wallpaper-switch transition (Config page): the effect and easing
    * every change uses, plus where its duration comes from.
@@ -622,7 +604,6 @@ export function freshThemeConfig(): ThemeConfig {
   return {
     rules: [blankRule(BLANK_RULE_ID)],
     opacities: { ...DEFAULT_PART_OPACITIES },
-    blurs: { ...DEFAULT_PART_BLURS },
     transition: defaultTransition(),
     settingsOpacity: DEFAULT_SETTINGS_OPACITY,
     chatTextOpacity: DEFAULT_CHAT_TEXT_OPACITY,
@@ -690,11 +671,20 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  * had just dragged onto a page would be gone at the next reload, silently, with
  * every page back to the host's own paint. Nothing to lift the other way either —
  * an absent `pageOpacity` is the untouched zero, which is exactly what a schema-7
- * config was already showing (that build painted no page at all). The check is a
+ * config was already showing (that build painted no page at all). 8 → 9 is the
+ * REMOVAL of `blurs` (the Interface page's per-surface blur, gone in 0.8.1), and
+ * it is the same mechanism read backwards: a schema-8 sanitizer rebuilds the
+ * whole config from the keys it knows, so it would re-add the field on the first
+ * write — not with the user's numbers, which are gone, but with its own DEFAULTS
+ * (input & controls at 60 px). A config written by this shape therefore has to be
+ * announced as newer than the one that still owns the field, or an old host would
+ * silently frost the input for a build that no longer has the slider. An absent
+ * `blurs` in the other direction is the untouched state, since a schema-9 build
+ * ignores the field wherever it finds it. The check is a
  * plain `>=`, so an older
  * host lands in the hold-writes path automatically.
  */
-export const SCHEMA_VERSION = 8
+export const SCHEMA_VERSION = 9
 
 export function clamp(n: unknown, lo: number, hi: number, def: number): number {
   return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
@@ -1049,11 +1039,6 @@ export function normalizeConfig(raw: unknown): ThemeConfig {
     ? r.rules.map(normalizeRule).filter((x): x is BgRule => x !== null)
     : [blankRule(BLANK_RULE_ID)]
   const ops = (r.opacities ?? {}) as Partial<PartOpacities>
-  const bl = (r.blurs ?? {}) as Partial<PartBlurs>
-  const blurs = {} as PartBlurs
-  for (const k of PART_BLUR_KEYS) {
-    blurs[k] = clamp(bl[k], 0, 60, DEFAULT_PART_BLURS[k])
-  }
   const opacities = {} as PartOpacities
   for (const k of PART_OPACITY_KEYS) {
     opacities[k] = clamp01(ops[k], DEFAULT_PART_OPACITIES[k])
@@ -1061,7 +1046,6 @@ export function normalizeConfig(raw: unknown): ThemeConfig {
   return {
     rules,
     opacities,
-    blurs,
     transition: normalizeTransition(r.transition, legacyFadeMs(r.rules)),
     settingsOpacity: clamp01(r.settingsOpacity, DEFAULT_SETTINGS_OPACITY),
     chatTextOpacity: clamp01(r.chatTextOpacity, DEFAULT_CHAT_TEXT_OPACITY),

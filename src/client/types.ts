@@ -102,17 +102,17 @@ export interface Ctx {
 }
 
 // ── The persisted shape ────────────────────────────────────────────────────
-// BgState / BgImage / BgMode / BgRotation / PartOpacities / PartBlurs / BgRule /
+// BgState / BgImage / BgMode / BgRotation / PartOpacities / BgRule /
 // ThemeConfig / TransitionConfig are declared ONCE in ../schema and shared with
 // the node half, so a field can never exist on one side only (that drift is what
 // silently dropped a setting before). They are re-exported here because every
 // client module imports them from this module.
 import type {
-  BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs,
+  BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities,
   RotateOrder, ThemeConfig, TransitionConfig, TransitionEffect, TransitionEasing,
 } from '../schema'
 export type {
-  BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities, PartBlurs,
+  BgImage, BgRotation, BgRule, BgState, BgMode, HolidayRule, HolidaysConfig, PartOpacities,
   RotateOrder, ThemeConfig, TransitionConfig, TransitionEffect, TransitionEasing,
 }
 
@@ -326,7 +326,6 @@ export interface ThemeSectionProps {
   /** Derive ONE image's theme color from its own bytes (default: the first image). */
   extractColor: (id: string, slot?: string) => Promise<boolean>
   setOps: (ops: PartOpacities) => void
-  setBlurs: (blurs: PartBlurs) => void
   setSop: (v: number) => void
   /** Own the file-preview panel's opacity; null restores "follow the main background". */
   setRightbarOpacity: (v: number | null) => void
