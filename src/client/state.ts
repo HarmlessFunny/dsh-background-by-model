@@ -7,7 +7,7 @@ import { resolveFadeMs } from './transition'
 // ../schema, shared verbatim with the node half — a field declared on one side
 // only used to be silently dropped by the other side's sanitizer.
 import {
-  DEFAULT_BG_STATE, DEFAULT_CHAT_TEXT_OPACITY, DEFAULT_PART_BLURS, DEFAULT_PART_OPACITIES,
+  DEFAULT_BG_STATE, DEFAULT_CHAT_TEXT_OPACITY, DEFAULT_PAGE_OPACITY, DEFAULT_PART_BLURS, DEFAULT_PART_OPACITIES,
   DEFAULT_SETTINGS_OPACITY, DEFAULT_TRAJECTORY_OPACITY, DEFAULT_TRANSITION, DEFAULT_WALLPAPER_BRIGHTNESS,
   PART_BLUR_KEYS, PART_OPACITY_KEYS, WALLPAPER_BRIGHTNESS_MAX,
   clamp, clamp01, defaultRotation, freshThemeConfig, normalizeConfig, normalizeRotation, normalizeRule,
@@ -315,6 +315,8 @@ export function rRightbarOpacity(): number {
   const own = cfg.rightbarOpacity
   return typeof own === 'number' && isFinite(own) ? clamp01(own, 1) : rOps().bg
 }
+/** Tint behind whatever page the main slot is showing (0 = add nothing at all). */
+export function rPageOpacity(): number { return clamp01(cfg.pageOpacity, DEFAULT_PAGE_OPACITY) }
 
 // ── Normalization ──────────────────────────────────────────────────────────
 // The sanitizers are the shared ones from ../schema (the same code the node half

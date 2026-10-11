@@ -106,6 +106,11 @@ export const PreviewIcon = ({ size, className }: { size?: number; className?: st
   <Glyph size={size} className={className}><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2" /><path d="M9.4 2.2v11.6" /><path d="M11 5.6h1.2M11 8h1.2" /></Glyph>
 )
 
+/** A whole page of the main slot — a sheet, not one surface on it. */
+export const PageIcon = ({ size, className }: { size?: number; className?: string }) => (
+  <Glyph size={size} className={className}><path d="M3.6 2.2h5.2l3.6 3.6v8H3.6z" /><path d="M8.8 2.2v3.6h3.6" /></Glyph>
+)
+
 export const ChatIcon = ({ size, className }: { size?: number; className?: string }) => (
   <Glyph size={size} className={className}><path d="M13.4 4.4v4.4a2 2 0 0 1-2 2H6.2l-3.6 3V4.4a2 2 0 0 1 2-2h6.8a2 2 0 0 1 2 2z" /></Glyph>
 )

@@ -256,5 +256,46 @@ check('every column prefers its class name and only then its old position',
 check('and no column is read straight out of the child list any more',
   /(sidebarEl|centerEl|detailsEl) = \(frame\.children\[/.test(WALL), false)
 
+console.log('\n--- a function page is located by the slot it mounts in ---')
+// 插件, 自动化任务 and every page a plugin registers of its own each bring their own
+// root element and their own class name, so this item cannot be a selector: it is
+// whatever the main slot has mounted, which is what lets ONE row cover a page that
+// does not exist yet. Each pin below is a way that answer goes QUIETLY wrong — a
+// surface written on the box-less anchor paints nothing, the chat view is the
+// slot's other occupant, and a tint that is never applied while a page is on
+// screen is indistinguishable from a slider nobody moved.
+const UI = read('src/client/components/pages/InterfacePage.tsx')
+check('a page is the main slot\'s own child, never a class of its own',
+  /const PAGE_ANCHOR_SEL = '\[data-slot="main"\]'/.test(WALL)
+  && WALL.includes(':scope > ${PAGE_ANCHOR_SEL}'), true)
+// `display:contents` has no box, so a background written on it paints nothing:
+// stopping at the first child is the silent failure this walk exists to avoid.
+check('and the walk steps THROUGH a box-less anchor instead of settling on one',
+  WALL.includes("getComputedStyle(el).display !== 'contents'"), true)
+check('the chat view is told apart by its scrollport marker, not by position',
+  WALL.includes("root.querySelector('[data-conversation-scroll]') !== null"), true)
+check('and the chat card never falls back onto a page — that area is this item\'s',
+  /if \(pageIsShowing\(\)\) return null/.test(WALL), true)
+// The failure this pins is the TRANSPARENT page: the rule outranks the host's own
+// class rule, so a mark that outlives its variable leaves the page with no surface
+// at all. The fallback is the host's own token, and an unpainted page carries no
+// mark in the first place.
+check('the tint is a variable the mark reads, with the host\'s own surface behind it',
+  WALL.includes('[${PAGE_MARK}]{background:var(--dsh-any-bg-page,var(--dsw-alias-bg-base))!important}'), true)
+check('an unpainted page is marked NOTHING, rather than marked transparent',
+  /const paint = op > 0 && base !== undefined/.test(WALL)
+  && /const next = paint \? discoverPageEls\(\) : \[\]/.test(WALL), true)
+check('the item ships at zero, so no existing setup gets its pages repainted',
+  /export const DEFAULT_PAGE_OPACITY = 0/.test(SCHEMA)
+  && /pageOpacity: clamp01\(r\.pageOpacity, DEFAULT_PAGE_OPACITY\)/.test(SCHEMA), true)
+// The wiring hole this kind of item falls into: discovery on a beat nothing runs.
+// `applyPartBlurs` is the one pass the full apply and the frame observer share, and
+// the drag has to reach the same writer.
+check('the surfaces are applied from the pass every apply runs, and from the drag',
+  /applyViewCards\(\)\s+applyPageSurfaces\(\)/.test(WALL)
+  && /cfg\.pageOpacity = op\s+applyPageSurfaces\(\)/.test(UI), true)
+check('and the rule reaches the document from the plugin\'s own stylesheet',
+  ENTRY.includes('${RIGHTBAR_STYLE_RULE}${PAGE_STYLE_RULE}'), true)
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

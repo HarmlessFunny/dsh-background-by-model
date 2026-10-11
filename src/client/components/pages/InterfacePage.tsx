@@ -1,10 +1,10 @@
 import type { CSSProperties, ComponentType } from 'react'
 import type { ThemeSectionProps, PartOpacities, PartBlurs } from '../../types'
-import { cfg, rOps, rSop, rBlurs, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity } from '../../state'
+import { cfg, rOps, rSop, rBlurs, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rPageOpacity } from '../../state'
 import { saveConfig } from '../../rpc'
-import { applyCustomTokens, applySettingsOverrides, setPartBlur, applyViewCards, applyTrajectoryOverrides, applyRightbarOverrides } from '../../wallpaper'
+import { applyCustomTokens, applySettingsOverrides, setPartBlur, applyViewCards, applyTrajectoryOverrides, applyRightbarOverrides, applyPageSurfaces } from '../../wallpaper'
 import { LiveSlider } from '../LiveSlider'
-import { CanvasIcon, SidebarIcon, ChatIcon, GearIcon, TextIcon, TrajectoryIcon, PreviewIcon, InputIcon, CodeIcon } from '../icons'
+import { CanvasIcon, SidebarIcon, ChatIcon, GearIcon, TextIcon, TrajectoryIcon, PreviewIcon, InputIcon, CodeIcon, PageIcon } from '../icons'
 
 interface PartDef {
   labelKey: string
@@ -18,6 +18,13 @@ interface PartDef {
   isTrajectory?: boolean
   /** File-preview panel: the right sidebar a file click opens. */
   isRightbar?: boolean
+  /**
+   * A function page in the centre column (插件, 自动化任务, and every page a plugin
+   * registers of its own): tint opacity only, and this ONE row covers every page
+   * there is — they are located by the slot they mount in, never by name, so a
+   * page that does not exist yet is already covered.
+   */
+  isPage?: boolean
   /** Opacity only, deliberately no blur: a code block carries text, and frosting
    *  the wallpaper behind it only softens the plate under the syntax. */
   noBlur?: boolean
@@ -33,6 +40,7 @@ const PARTS: PartDef[] = [
   { isSettings: true, labelKey: 'uiSop', Icon: GearIcon },
   { isChat: true, labelKey: 'uiChatRegion', Icon: TextIcon },
   { isTrajectory: true, labelKey: 'uiTrajectory', Icon: TrajectoryIcon },
+  { isPage: true, labelKey: 'uiPage', Icon: PageIcon },
 ]
 
 export function InterfacePage({ p }: { p: ThemeSectionProps }) {
@@ -48,7 +56,7 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
 
       <div className="dab-grid-parts">
         {PARTS.map((part, i) => {
-          const { labelKey, Icon, isSettings, isChat, isTrajectory, isRightbar, noBlur } = part
+          const { labelKey, Icon, isSettings, isChat, isTrajectory, isRightbar, isPage, noBlur } = part
           const opKey = part.opKey
           // Homepage parts (bg/sidebar/card/input) bind to their own part only;
           // the settings panel (isSettings) binds exclusively to the 'settings'
@@ -58,7 +66,10 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
           // opacities. The chat region (isChat) and the trajectory view
           // (isTrajectory) own their own blur keys plus their own tint
           // opacities, and the file-preview panel (isRightbar) owns the right
-          // column's backdrop through the same deal. Every homepage opKey is
+          // column's backdrop through the same deal. A page row (isPage) owns no
+          // key at all: its target is whatever element the main slot has mounted,
+          // which is a question about the DOM rather than about the config.
+          // Every homepage opKey is
           // also a PartBlurs key (input included), so the shared blur slider
           // dereferences it directly.
           // `null` means this row has no blur of its own (see `noBlur`), which is
@@ -71,14 +82,19 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
               ? 'trajectory'
               : isRightbar
                 ? 'rightbar'
-                : isSettings ? 'settings' : noBlur ? null : (opKey! as keyof PartBlurs)
+                // A page is opacity-only like the code block, for its own reason:
+                // the frost behind the centre column is what the 主背景 item's
+                // blur already does, and the page root is usually the element
+                // that scrolls — a frost layer inside it would scroll away.
+                : isPage ? null
+                  : isSettings ? 'settings' : noBlur ? null : (opKey! as keyof PartBlurs)
           const opacity = isChat
             ? rChatTextOpacity()
             : isTrajectory
               ? rTrajectoryOpacity()
-              : isRightbar ? rRightbarOpacity() : isSettings ? rSop() : rOps()[opKey!]
+              : isRightbar ? rRightbarOpacity() : isPage ? rPageOpacity() : isSettings ? rSop() : rOps()[opKey!]
           return (
-            <section key={blurKey ?? opKey} className="dab-card dab-card-hover dab-rise" style={{ '--d': i + 1 } as CSSProperties}>
+            <section key={blurKey ?? opKey ?? labelKey} className="dab-card dab-card-hover dab-rise" style={{ '--d': i + 1 } as CSSProperties}>
               <div className="dab-part-head">
                 <div className="dab-part-ico"><Icon size={16} /></div>
                 <div className="dab-part-name">{t(labelKey)}</div>
@@ -99,6 +115,11 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
                     // background; from then on the card owns it.
                     cfg.rightbarOpacity = op
                     applyRightbarOverrides(op)
+                  } else if (isPage) {
+                    // No "detached" state to keep: zero already means "the host
+                    // paints this page", so the drag is the whole story.
+                    cfg.pageOpacity = op
+                    applyPageSurfaces()
                   } else if (isSettings) {
                     cfg.settingsOpacity = op
                     applySettingsOverrides(op)
@@ -122,6 +143,10 @@ export function InterfacePage({ p }: { p: ThemeSectionProps }) {
                     saveConfig()
                   } else if (isRightbar) {
                     setRightbarOpacity(op)
+                  } else if (isPage) {
+                    cfg.pageOpacity = op
+                    applyPageSurfaces()
+                    saveConfig()
                   } else if (isSettings) {
                     setSop(op)
                   } else {

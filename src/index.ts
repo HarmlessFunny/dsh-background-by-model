@@ -158,7 +158,7 @@ const HOLIDAY_FETCH_TIMEOUT = 10_000
 const PRESET_ASSETS_REPO = 'HarmlessFunny/assets'
 const PRESET_ASSETS_REF = 'v0.1.0'
 const PRESET_ASSET_DIR = 'dsh-background-by-model/preset'
-/** The shape gate: `{"version": 7}` — see SCHEMA_VERSION in ./schema. */
+/** The shape gate: `{"version": 8}` — see SCHEMA_VERSION in ./schema. */
 const PRESET_MANIFEST = 'preset.json'
 const PRESET_CONFIG = 'theme-config.json'
 /** Images are named after the slot they fill, exactly as they are on disk. */

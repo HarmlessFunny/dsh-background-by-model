@@ -1,4 +1,4 @@
-import { rWp, rBgState, rBl, rWop, rBrightness, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rFadeMs, rTransition } from './state'
+import { rWp, rBgState, rBl, rWop, rBrightness, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rPageOpacity, rFadeMs, rTransition } from './state'
 import type { PartOpacities, PartBlurs } from './types'
 // The switch's decision is pure and checked without a browser
 // (scripts/transition-check.ts); this file only applies it to the two layers.
@@ -972,6 +972,7 @@ export function applyPartBlurs(blurs: PartBlurs): void {
   applyInputBlur(blurs.input)
   applyRightbarBlur(blurs.rightbar)
   applyViewCards()
+  applyPageSurfaces()
 }
 
 /** Live per-part blur update during slider drag (no full re-apply). */
@@ -984,6 +985,108 @@ export function setPartBlur(part: keyof PartBlurs, v: number): void {
   discoverParts()
   if (part === 'bg') { setBlur(centerEl, v); setBlur(detailsEl, v) }
   else setBlur(sidebarEl, v)
+}
+
+// ── Function pages in the main slot ─────────────────────────────────────────
+// 插件, 自动化任务, and every page a plugin registers of its own (上下文洞察) are
+// all "the page the centre column is showing": each one brings its own root
+// element and its own CSS-module class name, and the shell swaps them through
+// ONE keyed slot — so a page can never be named, only located. The shell renders
+//
+//   div.pI_x6G_centerCol
+//     div[data-slot="main"]   ← the slot anchor: `display:contents`, no box
+//       <the page root>       ← the slot's active panel, one at a time
+//
+// so the page roots are the ANCHOR's children, and a page added later — by the
+// host or by any plugin — is covered with no change here. Two traps, both
+// silent: the anchor has no box (`display:contents`), so a surface written on it
+// paints nothing, which is why the walk steps THROUGH box-less elements instead
+// of settling on the first child; and the chat view is the same slot's other
+// occupant, excluded by its own scrollport marker because its tint belongs to
+// the 对话文本框 item.
+//
+// The tint is a plugin-owned variable read by PAGE_STYLE_RULE (injected by
+// index.tsx) and never an inline style: `.t-XoWW_page` paints itself from
+// `var(--dsw-alias-bg-base)`, and the page's own surface has to come back
+// EXACTLY as the host left it the moment the slider returns to zero — an
+// attribute the plugin removes is all that takes.
+const PAGE_ANCHOR_SEL = '[data-slot="main"]'
+export const PAGE_MARK = 'data-dab-page'
+/**
+ * `!important`, because the page's own background is a class rule of the host's
+ * and equal-specificity cascade order is not something to rely on. The fallback
+ * is the host's own surface token, so a mark that ever outlives its discovery
+ * paints what that page would have painted anyway.
+ */
+export const PAGE_STYLE_RULE = `[${PAGE_MARK}]{background:var(--dsh-any-bg-page,var(--dsw-alias-bg-base))!important}`
+
+/** The elements currently marked — unmarked again at zero or on teardown. */
+let pageEls: HTMLElement[] = []
+
+/** Every function page mounted in the centre column (empty while the chat is). */
+function discoverPageEls(): HTMLElement[] {
+  if (centerEl === null || !document.body.contains(centerEl)) return []
+  // The anchor is the column's own child; the descendant query is the net under
+  // a build that ever nests it one level deeper.
+  const anchor = centerEl.querySelector<HTMLElement>(`:scope > ${PAGE_ANCHOR_SEL}`) ?? centerEl.querySelector<HTMLElement>(PAGE_ANCHOR_SEL)
+  if (anchor === null) return []
+  const seen = new Set<HTMLElement>()
+  const out: HTMLElement[] = []
+  /** Step through `display:contents` wrappers to the element that owns a box. */
+  const boxed = (start: HTMLElement): HTMLElement | null => {
+    let el: HTMLElement = start
+    // Bounded like every other walk in this file: a cycle here would be a host
+    // bug, and hanging the frame observer on it is not a way to report one.
+    for (let depth = 0; depth < 10; depth++) {
+      if (getComputedStyle(el).display !== 'contents') return el
+      const next: Element | null = el.firstElementChild
+      if (!(next instanceof HTMLElement) || seen.has(next)) return null
+      seen.add(next)
+      el = next
+    }
+    return null
+  }
+  for (const child of Array.from(anchor.children)) {
+    if (!(child instanceof HTMLElement) || seen.has(child)) continue
+    seen.add(child)
+    const root = boxed(child)
+    // The conversation is the slot's other occupant: its scrollport names it.
+    if (root === null || root.querySelector('[data-conversation-scroll]') !== null) continue
+    out.push(root)
+  }
+  return out
+}
+
+/** Whether a function page is what the centre column is showing. */
+function pageIsShowing(): boolean { return discoverPageEls().length > 0 }
+
+/**
+ * Point the 插件页面 item at whatever the main slot is showing.
+ *
+ * Called from `applyPartBlurs`, the one pass the full apply and the frame
+ * observer both run: a page mounts and unmounts with a NAVIGATION, not with a
+ * slider, so the discovery has to happen on the same beat as everything else.
+ */
+export function applyPageSurfaces(): void {
+  discoverParts()
+  const base = palette()?.tokens['--dsw-alias-bg-base']
+  const op = rPageOpacity()
+  // Painted only while there is something to paint WITH and something to say: at
+  // zero — or on a host publishing no surface token — the plugin marks nothing
+  // and every page keeps the paint the host gave it.
+  const paint = op > 0 && base !== undefined
+  if (paint) document.documentElement.style.setProperty('--dsh-any-bg-page', withAlpha(base, op))
+  else document.documentElement.style.removeProperty('--dsh-any-bg-page')
+  const next = paint ? discoverPageEls() : []
+  for (const el of pageEls) if (!next.includes(el)) el.removeAttribute(PAGE_MARK)
+  for (const el of next) el.setAttribute(PAGE_MARK, '1')
+  pageEls = next
+}
+
+/** Hand every marked page back to the host untouched (teardown only). */
+function removePageSurfaces(): void {
+  for (const el of pageEls) el.removeAttribute(PAGE_MARK)
+  pageEls = []
 }
 
 // ── Conversation view treatments ────────────────────────────────────
@@ -1074,6 +1177,10 @@ function discoverViewTarget(idx: number, spec: ViewCardSpec): HTMLElement | null
   // mounted (hero phase, trajectory tab) — settling on the whole scrollport
   // there would wrap the entire page in the card.
   if (centerEl.querySelector('[data-conversation-scroll]') !== null) return null
+  // A function page is the 插件页面 item's surface: the chat card falling back onto
+  // it would tint and outline the same area from the other slider's value, under
+  // a name that does not describe it.
+  if (pageIsShowing()) return null
   // Marker-less hosts keep their layout until a slider moves.
   if (spec.opacity() <= 0 && spec.blur() <= 0) return null
   let best: HTMLElement | null = null
@@ -1632,6 +1739,7 @@ export function teardownWp(): void {
   clearCustomTokens()
   tokenStyleEl?.remove(); tokenStyleEl = null
   removeViewCards()
+  removePageSurfaces()
   document.documentElement.removeAttribute(THEMED_ATTR)
   document.body.style.removeProperty('color-scheme')
   // Every plugin-owned surface, including the AppFrame columns' inline
@@ -1645,6 +1753,7 @@ export function teardownWp(): void {
   document.documentElement.style.removeProperty('--dsh-any-input-blur')
   document.documentElement.style.removeProperty('--dsh-any-bg-rightbar')
   document.documentElement.style.removeProperty('--dsh-any-blur-rightbar')
+  document.documentElement.style.removeProperty('--dsh-any-bg-page')
   for (const v of Object.values(OPACITY_VARS)) document.documentElement.style.removeProperty(v)
   if (tokensRaf !== null) { cancelAnimationFrame(tokensRaf); tokensRaf = null }
   pendingOps = null

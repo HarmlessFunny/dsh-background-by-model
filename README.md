@@ -274,6 +274,8 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 - **The wallpaper layer has a brightness slider now**, between opacity and blur (`0–200%`, `100%` untouched, double-click to reset), stored per rule like the other two. They could dim a picture and frost it; nothing could lift an underexposed one.
 - **Brightness and blur share one `filter`, composed in a single function** — a second assignment would have silently dropped one of them. Both the full apply and the live drag write through it.
+- **Every page the centre column shows is one row now (插件页面)**, opacity only: 插件, 自动化任务 and any page a plugin registers of its own are located by the slot they mount in rather than by name, so a page that does not exist yet is already covered. It ships at zero, where the plugin writes nothing at all.
+- **The interface parts are found by name instead of by position** — the frame grew rows after the overlay, and "the three children before it" had quietly become the wrong columns, so the part sliders were writing where nobody looks.
 
 ### v0.8.0
 

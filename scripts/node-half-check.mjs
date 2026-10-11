@@ -633,9 +633,10 @@ check('a rule that names no image anywhere is still dropped',
 // theme color belongs to an image (`images[].color`, 0.7.1), 5 = the global
 // switch transition (`transition`) is part of the config, 6 = the layout mode
 // belongs to an image (`images[].bgMode`) instead of to the rule, 7 = a rule
-// carries its wallpaper brightness (`brightness`).
+// carries its wallpaper brightness (`brightness`), 8 = the config carries the
+// page tint (`pageOpacity`).
 const announced = (await call('read')).value.schema
-check('the host announces the shape it sanitizes with', announced === 7, String(announced))
+check('the host announces the shape it sanitizes with', announced === 8, String(announced))
 // An emptied rule keeps the color it had: that color is what it paints while it
 // has no wallpaper, so it is not a field to clean up.
 await call('writeConfig', {

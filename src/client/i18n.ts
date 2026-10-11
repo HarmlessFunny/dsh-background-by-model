@@ -10,7 +10,7 @@ export const zh: Record<string, string> = {
   uiTitle: '主界面',
   uiOpacity: '透明度', uiBlur: '模糊度',
   uiOpacityBg: '主背景', uiOpacitySide: '左侧栏', uiOpacityCard: '卡片与菜单面板', uiOpacityCode: '代码块', uiOpacityInput: '输入框与控件',
-  uiSop: '设置界面透明度', uiChatRegion: '对话文本框', uiTrajectory: '轨迹页',
+  uiSop: '设置界面透明度', uiChatRegion: '对话文本框', uiTrajectory: '轨迹页', uiPage: '插件页面',
   uiPreview: '右侧栏',
 
   // Only the diagnostics survive: the model/rule readout they used to sit under
@@ -199,7 +199,7 @@ export const en: Record<string, string> = {
   uiTitle: 'Interface',
   uiOpacity: 'Opacity', uiBlur: 'Blur',
   uiOpacityBg: 'Main background', uiOpacitySide: 'Left panel', uiOpacityCard: 'Cards & menus', uiOpacityCode: 'Code blocks', uiOpacityInput: 'Input & controls',
-  uiSop: 'Settings interface opacity', uiChatRegion: 'Conversation text frame', uiTrajectory: 'Trajectory view',
+  uiSop: 'Settings interface opacity', uiChatRegion: 'Conversation text frame', uiTrajectory: 'Trajectory view', uiPage: 'Plugin pages',
   uiPreview: 'Right panel',
 
   // Only the diagnostics survive: the model/rule readout they used to sit under

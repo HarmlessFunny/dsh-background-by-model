@@ -442,6 +442,16 @@ export interface ThemeConfig {  /** Ordered rules: matching runs top→bottom, r
    */
   rightbarOpacity: number | null
   /**
+   * Tint behind a function page in the centre column (0..1) — 插件, 自动化任务,
+   * and every page a plugin registers of its own (上下文洞察). ONE value for all of
+   * them: the pages bring their own root elements and their own class names, so
+   * they are told apart by where they are, never by what they are called.
+   *
+   * `0` means this plugin adds NOTHING: the page keeps the surface the host
+   * painted (see DEFAULT_PAGE_OPACITY for why the shipped value is that).
+   */
+  pageOpacity: number
+  /**
    * Extract a rule's theme color from its own image when the rule has none yet.
    * Only ever FILLS an empty color — a color the user picked or that an earlier
    * extraction produced is never overwritten, so this cannot fight the user.
@@ -464,6 +474,15 @@ export const DEFAULT_SETTINGS_OPACITY = 1
 export const DEFAULT_CHAT_TEXT_OPACITY = 0.35
 export const DEFAULT_TRAJECTORY_OPACITY = 0.73
 export const DEFAULT_RIGHTBAR_OPACITY: number | null = 0.45
+/**
+ * Function pages ship UNPAINTED — the one special surface whose "off" state is
+ * also its shipped state. The other three tints above paint a surface that was
+ * already there (the dialog, the text box, the trajectory view), so shipping the
+ * author's value only reproduces what he runs; this item ADDS a surface, and a
+ * non-zero default would repaint every page of every setup on upgrade. At zero
+ * the plugin writes nothing at all and the page keeps whatever the host painted.
+ */
+export const DEFAULT_PAGE_OPACITY = 0
 /** Picking an image should just work; the toggle is there for people who don't want it. */
 export const DEFAULT_AUTO_EXTRACT = true
 /**
@@ -609,6 +628,7 @@ export function freshThemeConfig(): ThemeConfig {
     chatTextOpacity: DEFAULT_CHAT_TEXT_OPACITY,
     trajectoryOpacity: DEFAULT_TRAJECTORY_OPACITY,
     rightbarOpacity: DEFAULT_RIGHTBAR_OPACITY,
+    pageOpacity: DEFAULT_PAGE_OPACITY,
     autoExtract: DEFAULT_AUTO_EXTRACT,
     holidays: { enabled: DEFAULT_HOLIDAYS_ENABLED, items: defaultHolidayRules() },
   }
@@ -623,7 +643,8 @@ export function freshThemeConfig(): ThemeConfig {
 export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
- * The persisted SHAPE this build writes: 7 = a rule carries `brightness` (the
+ * The persisted SHAPE this build writes: 8 = the page tint (`pageOpacity`) is part
+ * of the config; 7 = a rule carries `brightness` (the
  * wallpaper layer's 0–200 %, default 100); 6 = the layout mode belongs to an IMAGE
  * (`images[].bgMode`) and a rule has no mode of its own; 5 = the global
  * wallpaper-switch transition (`transition`) is part of the config; 4 = a theme
@@ -663,10 +684,17 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  * memory until the next reload and then be gone, silently, with the wallpaper
  * back at full. Nothing has to be lifted for the opposite direction — the field
  * is new here, and an absent one means the picture as saved, which is exactly what
- * a schema-6 config was already showing. The check is a plain `>=`, so an older
+ * a schema-6 config was already showing. 7 → 8 is the page tint (`pageOpacity`),
+ * which is the `images[].color` mechanism on a top-level scalar: a schema-7
+ * sanitizer rebuilds the whole config from the keys it knows, so the alpha a user
+ * had just dragged onto a page would be gone at the next reload, silently, with
+ * every page back to the host's own paint. Nothing to lift the other way either —
+ * an absent `pageOpacity` is the untouched zero, which is exactly what a schema-7
+ * config was already showing (that build painted no page at all). The check is a
+ * plain `>=`, so an older
  * host lands in the hold-writes path automatically.
  */
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 export function clamp(n: unknown, lo: number, hi: number, def: number): number {
   return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
@@ -1043,6 +1071,10 @@ export function normalizeConfig(raw: unknown): ThemeConfig {
     // shipped default — see normalizeRightbarOpacity for why the middle one must
     // not be treated as missing.
     rightbarOpacity: normalizeRightbarOpacity(r.rightbarOpacity),
+    // Pages are a plain alpha with no "never touched" state to keep apart from
+    // zero: a config written before this field existed reads as the untouched
+    // zero, which is the behaviour it was written under.
+    pageOpacity: clamp01(r.pageOpacity, DEFAULT_PAGE_OPACITY),
     // Only an explicit `false` turns it off, so a config written before this
     // option existed starts with the helpful default.
     autoExtract: r.autoExtract !== false,
