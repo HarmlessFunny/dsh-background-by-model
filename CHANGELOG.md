@@ -1,6 +1,10 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.8.1 / v0.8.0).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.8.2 / v0.8.1).
+
+## v0.8.2
+
+- **The dsh dependency floor moves to the host's own version (`>=0.2.1-alpha.2`)** — `engines.dsh`, the five `dsh-client-*` peers and `dsh-home-paths` still asked for the 0.1.7 generation while the harness in use is 0.2.1-alpha.2. Those five are the packages the host injects into the browser half, so the declaration is what says which generation this code was written against — with the old floor an install could pair it with the previous one. `dsh-invariants` cannot follow (npm has no 0.2.1-alpha.2 of it, and a 0.2.x host does not ship it), so it keeps `>=0.1.7-rc.2`; `@deepseek-ai/cordis` is untouched. The lockfile resolves the dsh family to 0.2.1-alpha.2, and `pnpm test` is ten checks, all green against it.
 
 ## v0.8.1
 
