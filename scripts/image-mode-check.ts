@@ -228,5 +228,33 @@ check('the filter is written on both layers at both sites',
 check('and every one of them comes from the composer',
   (WALL.match(/= wpFilter\(\)/g) ?? []).length, 2)
 
+console.log('\n--- the interface parts are found by name, not by position ---')
+// The shell frame grew a bottom row and a drag handle AFTER the overlay, which
+// quietly turned "the three children before the overlay" into "the center column,
+// the collapsed right column and the bottom row". Nothing threw: the part sliders
+// wrote their styles onto elements nobody looks at, and the conversation frame —
+// whose [data-chat-flow] sits inside the real center column — stopped answering
+// its slider entirely. Each column is therefore named by the class suffix its CSS
+// module keeps across builds, the right column by the marker the host publishes,
+// and the positional answer survives ONLY as the `??` fallback.
+check('the three columns are named by the class suffixes their CSS module keeps',
+  /const PART_CLASS = \{ sidebar: 'sidebarCol', center: 'centerCol', rightbar: 'rightbarCol' \}/.test(WALL), true)
+// A `classList.contains('centerCol')` would be false for every column of every
+// build (the element carries `pI_x6G_centerCol`), so the hash prefix has to be
+// tolerated rather than matched away.
+check('and the match is a suffix, because the hash prefix rotates between builds',
+  /function hasClassSuffix\(el: HTMLElement, suffix: string\): boolean \{[\s\S]*?name\.endsWith\(suffix\)/.test(WALL), true)
+check('the right column is taken from the host marker, read off the frame itself',
+  /frame\.querySelector<HTMLElement>\(':scope > \[data-rightbar-col\]'\)/.test(WALL), true)
+check('every column prefers its class name and only then its old position',
+  /sidebarEl = childWithClass\(frame, PART_CLASS\.sidebar\) \?\? at\(-3\)/.test(WALL)
+  && /centerEl = childWithClass\(frame, PART_CLASS\.center\) \?\? at\(-2\)/.test(WALL)
+  && /detailsEl = rightbar \?\? at\(-1\)/.test(WALL), true)
+// The bug itself, pinned as the shape it had: an index read straight into a part
+// slot is what let the three assignments drift away from the frame the host
+// renders, without an error anywhere.
+check('and no column is read straight out of the child list any more',
+  /(sidebarEl|centerEl|detailsEl) = \(frame\.children\[/.test(WALL), false)
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

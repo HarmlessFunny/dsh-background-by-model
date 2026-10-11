@@ -799,9 +799,15 @@ function applyRightbarBlur(px: number): void {
 }
 
 // ── Per-part interface blur ───────────────────────────────────────────────────
-// The AppFrame columns use hashed CSS-module classes, so parts are located
-// structurally: the shell overlay carries a stable data attribute and the
-// sidebar/center/details columns are its three preceding siblings.
+// The three columns around the shell overlay do NOT sit at fixed offsets. The
+// composed frame is `sidebarCol centerCol rightbarCol bottomRow overlayLayer
+// handle`, so reading "the three children before the overlay" names the center
+// column, the (collapsed, zero-width) right column and the bottom row: every
+// part slider then writes where nobody looks and the conversation frame — whose
+// `[data-chat-flow]` lives inside the real center column — stops responding
+// entirely, with no error to show for it. Columns are therefore resolved by what
+// they publish about themselves, and the old positional answer is kept only as a
+// last resort.
 //
 // backdrop-filter must NEVER go directly on a host part: it turns the element
 // into a containing block for fixed-positioned descendants, which would trap
@@ -811,6 +817,9 @@ let frameEl: HTMLElement | null = null
 let sidebarEl: HTMLElement | null = null
 let centerEl: HTMLElement | null = null
 let detailsEl: HTMLElement | null = null
+
+/** Class-name suffixes the harness's CSS modules end the column names with. */
+const PART_CLASS = { sidebar: 'sidebarCol', center: 'centerCol', rightbar: 'rightbarCol' } as const
 
 const PART_BLUR_CLASS = 'dab-part-blur'
 const PART_UNDERLAY_CLASS = 'dab-part-underlay'
@@ -830,16 +839,47 @@ function ensurePartBlurStyle(): void {
   document.head.appendChild(partBlurStyleEl)
 }
 
+/**
+ * Whether one of the element's class names ENDS with `suffix`.
+ *
+ * A SUFFIX test, deliberately not `classList.contains`: the harness emits these
+ * classes from a CSS module, so a column carries `pI_x6G_centerCol` and matching
+ * the whole string `centerCol` is false for every column of every build. The
+ * failure mode is the quiet one — the class never matches, the part falls through
+ * to a weaker guess and a setting disappears without an error.
+ */
+function hasClassSuffix(el: HTMLElement, suffix: string): boolean {
+  for (const name of Array.from(el.classList)) {
+    if (name === suffix || name.endsWith(suffix)) return true
+  }
+  return false
+}
+
+/** The frame's direct child whose class list carries `suffix` (null when absent). */
+function childWithClass(frame: HTMLElement, suffix: string): HTMLElement | null {
+  for (const el of Array.from(frame.children)) {
+    if (el instanceof HTMLElement && hasClassSuffix(el, suffix)) return el
+  }
+  return null
+}
+
 function discoverParts(): void {
   const overlay = document.querySelector<HTMLElement>('[data-shell-overlay]')
   if (overlay === null) return
   const frame = overlay.parentElement
   if (frame === null) return
   frameEl = frame
-  const idx = Array.from(frame.children).indexOf(overlay)
-  sidebarEl = (frame.children[idx - 3] as HTMLElement | undefined) ?? null
-  centerEl = (frame.children[idx - 2] as HTMLElement | undefined) ?? null
-  detailsEl = (frame.children[idx - 1] as HTMLElement | undefined) ?? null
+  // The right column's own marker is preferred, read from the frame's direct
+  // children only so a descendant reusing it cannot win. It is the host saying
+  // "this is the right column" — still the right answer while its panel is
+  // closed and the column has a zero box.
+  const rightbar = frame.querySelector<HTMLElement>(':scope > [data-rightbar-col]') ?? childWithClass(frame, PART_CLASS.rightbar)
+  const overlayIdx = Array.from(frame.children).indexOf(overlay)
+  /** The direct child at `offset` relative to the overlay, when there is one. */
+  const at = (offset: number): HTMLElement | null => (frame.children[overlayIdx + offset] as HTMLElement | undefined) ?? null
+  sidebarEl = childWithClass(frame, PART_CLASS.sidebar) ?? at(-3)
+  centerEl = childWithClass(frame, PART_CLASS.center) ?? at(-2)
+  detailsEl = rightbar ?? at(-1)
 }
 
 function setBlur(el: HTMLElement | null, px: number): void {
