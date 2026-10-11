@@ -23,7 +23,7 @@
   "author": "Tkingxiao",
   "type": "module",
   "engines": {
-    "dsh": ">=0.1.7-rc.2"
+    "dsh": ">=0.2.1-alpha.2"
   },
   "exports": {
     ".": {
@@ -67,7 +67,7 @@
     "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/code-plate-check.ts && node scripts/image-mode-check.ts && node scripts/rules-view-check.ts && node scripts/preset-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-home-paths": ">=0.2.1-alpha.2",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
@@ -76,15 +76,15 @@
     "unrun": "^0.3.1"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-home-paths": ">=0.2.1-alpha.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-client-locale": ">=0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-store": ">=0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-connection": ">=0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-ui-theme": ">=0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-locale": ">=0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-store": ">=0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-ui-theme": ">=0.2.1-alpha.2",
     "@deepseek-ai/dsh-invariants": ">=0.1.7-rc.2",
     "react": "^18.2.0"
   },

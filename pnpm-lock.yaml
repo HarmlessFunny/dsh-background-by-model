@@ -12,23 +12,23 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2
       '@deepseek-ai/dsh-client-connection':
-        specifier: '>=0.1.7-rc.2'
-        version: 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)))
+        specifier: '>=0.2.1-alpha.2'
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2))
       '@deepseek-ai/dsh-client-locale':
-        specifier: '>=0.1.7-rc.2'
-        version: 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)
+        specifier: '>=0.2.1-alpha.2'
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-store':
-        specifier: '>=0.1.7-rc.2'
-        version: 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)
+        specifier: '>=0.2.1-alpha.2'
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-ui-settings':
-        specifier: '>=0.1.7-rc.2'
-        version: 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)
+        specifier: '>=0.2.1-alpha.2'
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-ui-theme':
-        specifier: '>=0.1.7-rc.2'
-        version: 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)
+        specifier: '>=0.2.1-alpha.2'
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-home-paths':
-        specifier: ^0.1.0-rc.6
-        version: 0.1.0-rc.6(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2))
+        specifier: '>=0.2.1-alpha.2'
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-invariants':
         specifier: '>=0.1.7-rc.2'
         version: 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)
@@ -75,62 +75,65 @@ packages:
   '@deepseek-ai/cosmokit@1.8.5':
     resolution: {integrity: sha512-LXsrlem9z8dq4sLflj2yuCuYX7KqhdzF5hZly3eZyuTo8d6oDSOXuEgC5DbQWKW+lksm6zmOutQLsP/ma6wR6A==}
 
-  '@deepseek-ai/dsh-brand@0.1.7-rc.2':
-    resolution: {integrity: sha512-cvcvlNRuiFqZNNqyxdu7wcpiBjd9xa/0MpuhRvee43zBp9uED2p5JolZr5/2EKJf57gYx9k9bedb+Zbyiqnpkw==}
-    peerDependencies:
-      '@deepseek-ai/cordis': ~4.0.4
+  '@deepseek-ai/cosmokit@1.8.6-alpha.1':
+    resolution: {integrity: sha512-qtuYVBRu7VrD1jLHvaM5sSShtBVgff/0R5vx57fsHUeeobvvv5TmtnTrs0+h4H263kF3ie25VO70Ija8R1eaow==}
 
-  '@deepseek-ai/dsh-client-connection@0.1.7-rc.2':
-    resolution: {integrity: sha512-Wc2ANM5NO3Ri+p8wBoVnPxTYxz++zYSuEoVOhd498WMY779w0RCgWfRzHekPY5ftJX/G02qzWNHe0yBIoTpXXw==}
+  '@deepseek-ai/dsh-brand@0.2.1-alpha.2':
+    resolution: {integrity: sha512-2cpJzyu0IbyRXwZMBSEy+tWxj1OvhgiQwSTY1GlhEcPi+VF0nvT2pJIa/i43kH+0hs48r4tFX/v/tczK6d//Hg==}
     peerDependencies:
-      '@deepseek-ai/cordis': ~4.0.4
-      '@deepseek-ai/dsh-scope': 0.1.7-rc.2
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
 
-  '@deepseek-ai/dsh-client-locale@0.1.7-rc.2':
-    resolution: {integrity: sha512-zkRt/JrBvS7w1TPi/dOo0QCqjkcAApq7nNoeIL2lX0VlzwHD86Hrg/n/YJJlg1i0nvOEtZDibR9FGwa/X2wpvA==}
+  '@deepseek-ai/dsh-client-connection@0.2.1-alpha.2':
+    resolution: {integrity: sha512-NaurwRq7N1RZ/pX8qQ7DTsFcHT//NNfA8E9Fi1UlKkKcEB3+svCgK0wVxA1ouuWQzIknY76AmpFIgM3EjjjBKA==}
     peerDependencies:
-      '@deepseek-ai/cordis': ~4.0.4
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
+      '@deepseek-ai/dsh-scope': 0.2.1-alpha.2
 
-  '@deepseek-ai/dsh-client-store@0.1.7-rc.2':
-    resolution: {integrity: sha512-8nF4gqy/3yvSN3KsuHX61DVP1Z2YjC93wkB2uGVS5xg4iyD1KgCqWB2S+fVAdQ7END9PDzWhZTk71AYnkSh7LA==}
+  '@deepseek-ai/dsh-client-locale@0.2.1-alpha.2':
+    resolution: {integrity: sha512-DqAlZVpGjydjpkIwW0GPIr5uTEIKDs1uXngeaoNnJneF944iXdBOzp3ZQffJ8jxdg0YMud0GZtQp2ZjWpBuHrg==}
     peerDependencies:
-      '@deepseek-ai/cordis': ~4.0.4
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
 
-  '@deepseek-ai/dsh-client-ui-settings@0.1.7-rc.2':
-    resolution: {integrity: sha512-RAZXUt25mVibi2fnZyHhRArAtmNYIbyEUcAx/nc0i01V8dabnZkUCuGDRLjUeB4X6aPAOrlqLCliNcATuHD+hw==}
+  '@deepseek-ai/dsh-client-store@0.2.1-alpha.2':
+    resolution: {integrity: sha512-MB4Wi/SOhPIy9cubSe8IHcxp1pDH+Bph1DVkJnyUsrj4cXWLaD8/o0oxVoLTn3bfBihRXBkNFwK4H+OSh5HTzg==}
     peerDependencies:
-      '@deepseek-ai/cordis': ~4.0.4
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
 
-  '@deepseek-ai/dsh-client-ui-theme@0.1.7-rc.2':
-    resolution: {integrity: sha512-sgI50PPgGwhxXR+xEUa0zTAg80S2RaQOLsuuVdfliZPbVLjodme7/bbc8cnPQ+ZV9oU5Q3to+yXxAQByuIKjRQ==}
+  '@deepseek-ai/dsh-client-ui-settings@0.2.1-alpha.2':
+    resolution: {integrity: sha512-kVNTzpbNwQsxc7V8BO5+Ycs+ZQQxg+0KQV1IDrocec1v4OvdAkfS47G15q0on5tBe8mpynFNXSroLr0zgED0UQ==}
     peerDependencies:
-      '@deepseek-ai/cordis': ~4.0.4
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
 
-  '@deepseek-ai/dsh-credentials@0.1.7-rc.2':
-    resolution: {integrity: sha512-Zi5MCL+o2bphuvWcfFsaRmg6eIafkjCa758+DVB2ac2tt5hzXLoKhwSku4YVhvhZYJan8TP87abIzyGr5z1X5g==}
+  '@deepseek-ai/dsh-client-ui-theme@0.2.1-alpha.2':
+    resolution: {integrity: sha512-gAw5znc1j80D0Xb8GIGJ1q/UweNkJhXLRn+m+DLLbhWh7+Eyv1EsjlTFoJsO7c7r7MsGPl9KmwCE2FZ0nUlj3Q==}
     peerDependencies:
-      '@deepseek-ai/cordis': ~4.0.4
-      '@deepseek-ai/dsh-invariants': 0.1.7-rc.2
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
 
-  '@deepseek-ai/dsh-home-paths@0.1.0-rc.6':
-    resolution: {integrity: sha512-gIiUBmqB3L8inFr+hvjZv2/i6EVJOHIHCHg7bBFVhcl4HDK94+8wUCXTLGy80tcuISzIQiIaLuJq/NhSmV9Amw==}
+  '@deepseek-ai/dsh-credentials@0.2.1-alpha.2':
+    resolution: {integrity: sha512-3K30MkY+8Ms+bMb2KeQtrFvjlwoqhCXVg8uzGnDJWMmnmRiqomWK/Gnx9Njv86QC/Gj4+PWHZeZEwd65z2AO7Q==}
     peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.1
-      '@deepseek-ai/dsh-invariants': ^0.1.0-rc.6
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
+
+  '@deepseek-ai/dsh-home-paths@0.2.1-alpha.2':
+    resolution: {integrity: sha512-ESeto9Jn8Ya24pm7grggkpedsqUjDjk8Atl1fUzvAJnfSTZNLVbiO37HrGmZQmf3DQKktErq7XKi58uNwHNEoQ==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
 
   '@deepseek-ai/dsh-invariants@0.1.7-rc.2':
     resolution: {integrity: sha512-GY2lY2TUUH2Qk1ZnrB3Q5+lXSh4webn1kbt5nQfhojVmNbist/f3dJC8JJa7XXOUNvqAgqRN9IZ4egbDZ9LLxQ==}
     peerDependencies:
       '@deepseek-ai/cordis': ~4.0.4
 
-  '@deepseek-ai/dsh-scope@0.1.7-rc.2':
-    resolution: {integrity: sha512-rk/OM5ej6/V8pCNczEqQ3BkKx3DuPeFGzNUsEZo8hF+tnkF/EhsxMWSXC/yP/uLKeNkSsVHzjFpaQR0qr0J3gQ==}
+  '@deepseek-ai/dsh-scope@0.2.1-alpha.2':
+    resolution: {integrity: sha512-lDS7dKz0qm2TBAwU6cIa0OokJgvPZegdN+wAYZvA4I8wsV3RkHBfctTi+g7Fp2I2iy0C5G0SM4MVtC6JHpXiNw==}
     peerDependencies:
-      '@deepseek-ai/cordis': ~4.0.4
-      '@deepseek-ai/dsh-invariants': 0.1.7-rc.2
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
 
   '@deepseek-ai/schemastery@3.18.4':
     resolution: {integrity: sha512-SSXO6tYuyrIqKVbmOnIq0s+riUywYzouFMcnBluHF9n4KMo2G8HvEzhCYj6pj2617/glOjbJuVInJ9hfONsjkg==}
+
+  '@deepseek-ai/schemastery@3.18.5-alpha.1':
+    resolution: {integrity: sha512-HojoBv1wMQn6N8nDgTgWbc/f4EFAlg/ZsIYN2AChnEDoFOmcWd3+MDzhozNffmywywzV7pcouHRR4x37YZfcjA==}
 
   '@oxc-project/types@0.144.0':
     resolution: {integrity: sha512-nuhZIOLuI6TFQ32I/WnUx+SCPY7SdSKwgnFHydAuoS1+Z4BRcaP+RRJmGzl9lw+0OFF7UmaESf7KQRXaNLHypg==}
@@ -369,133 +372,157 @@ packages:
     resolution: {integrity: sha512-C/0zV5IhgVdYhGJTwrY0v8dknxlhiKwtVJkMUaexu9/QvRmzlV4vfU3hZlUSgqc2BxQHntL1mCVbDq8j0FRFDw==}
     cpu: [arm64]
     os: [android]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-darwin-arm64@0.8.7':
     resolution: {integrity: sha512-/u+REDMI4a0/lsJXTM4c53/w31OGZLOReZIyg62uhgLs0kc8NHsj/nOcxTdlQjq5gi0zhdkccD9LaLTXcdzPvw==}
     cpu: [arm64]
     os: [darwin]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-darwin-x64@0.8.7':
     resolution: {integrity: sha512-sMMzFOwCo4WXR+/6zIBThOocSC50iIIZZdfiIDbaLvj0Ax/rWt/iavyfEAqajyvzydLyCqR/ZItdLWSRlu1umw==}
     cpu: [x64]
     os: [darwin]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-freebsd-x64@0.8.7':
     resolution: {integrity: sha512-MpdpKXix9P+Y1rKgjvcNeNtGjXeL1CmttNhYINrWls8kRpm4xM/oBGTmn6w7to8lAlwj5jm8q03dQPl5mRv4Qw==}
     cpu: [x64]
     os: [freebsd]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-linux-arm-gnu@0.8.7':
     resolution: {integrity: sha512-rr1srFLlPAmC1vtxfc9C1YLDe3iH09YjfSeeIidBqKhzx1MATjOAq4mjlRUOnhr/L27MotWIYOFKwVsd5JZFOg==}
     cpu: [arm]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-linux-arm-musl@0.8.7':
     resolution: {integrity: sha512-eAufXh8qBRpiSO6ueaMDL+yyoXIGLhpUce72YbcACtZU2qhExwBIJyEtQf5kH2Ki0X2aqkSjSfog4OPtKXan3Q==}
     cpu: [arm]
     os: [linux]
     libc: [musl]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-linux-arm64-gnu@0.8.7':
     resolution: {integrity: sha512-gw4w6wPoHObBrdIC4duVWLmJOvpdE25j5D7yrM5mACNlK4klRz/lv8hK+ssQk9EJHBgZjSaqZIJVFgqNYbfv7A==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-linux-arm64-musl@0.8.7':
     resolution: {integrity: sha512-L68N6Y4XkqcIaKo3Ra88JEvBEH4AHff44A4INcrxeVWZ8CZtu2tCpfVxe3hR8qQQMcvBSQlDn24KpkCKEhVvfA==}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-linux-x64-gnu@0.8.7':
     resolution: {integrity: sha512-dzyAbltJmf3Cqlb8HcFuYIf5Yn0fl1vTr3XJ9HiVNNvOlhqPSArOqtw9vI1p6/VTXTjrMLXlU+s+/kNHiIy/Cw==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-linux-x64-musl@0.8.7':
     resolution: {integrity: sha512-Otw4MH3404q0Bbvl+YTdW9aoUV5vXmUw8260bWvt1XlaoIX/ceSgI4ygheRDMfBPoHt6FDayQaO9OLVUZAgkFA==}
     cpu: [x64]
     os: [linux]
     libc: [musl]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-win32-arm64@0.8.7':
     resolution: {integrity: sha512-qo/jyrzryiBuKEsFiuWaBCBe3tRMynQ0qFWFgOEjcCMQeZfBm+wKiVEUEFXXLc7bh8YezguAWp0Mtnhq4ARNyA==}
     cpu: [arm64]
     os: [win32]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-win32-x64@0.8.7':
     resolution: {integrity: sha512-D5lDsVDx6m00E6bWySlWdH72Ca4TPSaphDqB6QjU6MpuNLIJqoGoatYyq2rOmBE8Zv/kunot/o58KGL03P3eiA==}
     cpu: [x64]
     os: [win32]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-parser/binding-android-arm64@0.8.7':
     resolution: {integrity: sha512-eGKYiUDX7Y0V7tDTmg+JTVnXnjMqfXXsorZ+EDf5kxwchQ3Or1HS14MzI2fw+jFhHR85fCWt+mtX33Yao73hIQ==}
     cpu: [arm64]
     os: [android]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-darwin-arm64@0.8.7':
     resolution: {integrity: sha512-Re0RHelKLnjEURulY2/KxW+Ngb8zuNA4BRZuMwgGQNzVumT6u4U2N2hc01oeYVNVof0i7GrXE4UCNBgbpRRnjQ==}
     cpu: [arm64]
     os: [darwin]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-darwin-x64@0.8.7':
     resolution: {integrity: sha512-Hn8DROtQkjlA1ACbPgj4a7eP9IuVOI504oiTwpkWPbpaDWD9KdmnVYCqW+1LfenNK/g7O9NhWGpXEdaCNX7lIA==}
     cpu: [x64]
     os: [darwin]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-freebsd-x64@0.8.7':
     resolution: {integrity: sha512-bAP2OV8wRuzplX/jYxv9+vvqQT8JxyNphI8fLfXGL054Xs+4/J5u33cIm3y4rxY8rdoLmmdiJs2Tq7r7lrDRfA==}
     cpu: [x64]
     os: [freebsd]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-linux-arm-gnu@0.8.7':
     resolution: {integrity: sha512-kTYwJQQgmZeAWdDIWabiReIZMpmfLueIj1tCmjStUtFGhR1Z0qwxonKVfUC4N7h/VhGGzLZ//7O1kgt1QKqgCg==}
     cpu: [arm]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-linux-arm-musl@0.8.7':
     resolution: {integrity: sha512-uL4jE8HPT2BLlxAXyD10LqgPuXa9eDa0BKpCdSANmzIJghq/2eZo3/gQNtaxPZMupWoxjYzSad9IXrwu7aYPXQ==}
     cpu: [arm]
     os: [linux]
     libc: [musl]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-linux-arm64-gnu@0.8.7':
     resolution: {integrity: sha512-3gVN4pWSKZmXiNX7cU164dR9MPvesCHnlH6nPfpK+yQsCuYphjKKplcb4SnZBrhiqmXbgb2HR0c2TS0IZUPhgA==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-linux-arm64-musl@0.8.7':
     resolution: {integrity: sha512-S0mwfEjoLpxzXeZw802Wa4RaELsQiPtWqG6INcy8j4GtvNFtl4LCX3eGO1XLn9pyLAISLzTRyU3zUCBUPin8lg==}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-linux-x64-gnu@0.8.7':
     resolution: {integrity: sha512-lnbWdPmerE5D1uH1G4IEZKnPzCrWCStRGrtgpSIe1RibAo5bZIjDbbbPYXmMHCEh4F+x/JaJpElh26a3r+BPbg==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-linux-x64-musl@0.8.7':
     resolution: {integrity: sha512-769uwndMvMzUvATWbAcEvyLHKA+DzhHSCl/obBUrRdYfRo26yxui6S8y3z7uJ+Naup7UKrDxrpK7OnQkxkl9KQ==}
     cpu: [x64]
     os: [linux]
     libc: [musl]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-win32-arm64@0.8.7':
     resolution: {integrity: sha512-mEB/9PlaAkisJ6KWGz0zvywXoU6+80dTlR2LwS7s/jcXXoU6fm2+sitBZXtqu3+Q4DcDgPxM45uWMCzPs0TSRw==}
     cpu: [arm64]
     os: [win32]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-win32-x64@0.8.7':
     resolution: {integrity: sha512-8vNB2DP0ou61nGb8tc/qfi41gfyDXz1MHr2zqL3nR+cJ6CEbiuWV/l/a/vv151gCgiZLLAyGkQGENpozdg716w==}
     cpu: [x64]
     os: [win32]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-toolchain/types@0.8.7':
     resolution: {integrity: sha512-2Z53dNxAJL6UvFoIrDZvYf3zlO8s4VJK4O2hhaB4mXVwwpX/7ajtss3cmfqKvamlNLWyt9FSWs4eoYdlbxpnHA==}
@@ -690,63 +717,65 @@ snapshots:
 
   '@deepseek-ai/cosmokit@1.8.5': {}
 
-  '@deepseek-ai/dsh-brand@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)':
+  '@deepseek-ai/cosmokit@1.8.6-alpha.1': {}
+
+  '@deepseek-ai/dsh-brand@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
 
-  '@deepseek-ai/dsh-client-connection@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)))':
+  '@deepseek-ai/dsh-client-connection@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2))':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
-      '@deepseek-ai/dsh-credentials': 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2))
-      '@deepseek-ai/dsh-scope': 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2))
-      '@deepseek-ai/schemastery': 3.18.4
+      '@deepseek-ai/dsh-credentials': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-scope': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/schemastery': 3.18.5-alpha.1
       zod: 4.4.3
-    transitivePeerDependencies:
-      - '@deepseek-ai/dsh-invariants'
 
-  '@deepseek-ai/dsh-client-locale@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)':
+  '@deepseek-ai/dsh-client-locale@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
-      '@deepseek-ai/schemastery': 3.18.4
+      '@deepseek-ai/schemastery': 3.18.5-alpha.1
 
-  '@deepseek-ai/dsh-client-store@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)':
+  '@deepseek-ai/dsh-client-store@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
 
-  '@deepseek-ai/dsh-client-ui-settings@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)':
+  '@deepseek-ai/dsh-client-ui-settings@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
-      '@deepseek-ai/schemastery': 3.18.4
+      '@deepseek-ai/schemastery': 3.18.5-alpha.1
 
-  '@deepseek-ai/dsh-client-ui-theme@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)':
+  '@deepseek-ai/dsh-client-ui-theme@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
-      '@deepseek-ai/schemastery': 3.18.4
+      '@deepseek-ai/schemastery': 3.18.5-alpha.1
 
-  '@deepseek-ai/dsh-credentials@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2))':
+  '@deepseek-ai/dsh-credentials@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
-      '@deepseek-ai/dsh-brand': 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)
-      '@deepseek-ai/dsh-invariants': 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-brand': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)
 
-  '@deepseek-ai/dsh-home-paths@0.1.0-rc.6(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2))':
+  '@deepseek-ai/dsh-home-paths@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
-      '@deepseek-ai/dsh-invariants': 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)
 
   '@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
       '@deepseek-ai/schemastery': 3.18.4
 
-  '@deepseek-ai/dsh-scope@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.7-rc.2(@deepseek-ai/cordis@4.0.2))':
+  '@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
-      '@deepseek-ai/dsh-invariants': 0.1.7-rc.2(@deepseek-ai/cordis@4.0.2)
 
   '@deepseek-ai/schemastery@3.18.4':
     dependencies:
       '@deepseek-ai/cosmokit': 1.8.5
+      '@standard-schema/spec': 1.1.0
+
+  '@deepseek-ai/schemastery@3.18.5-alpha.1':
+    dependencies:
+      '@deepseek-ai/cosmokit': 1.8.6-alpha.1
       '@standard-schema/spec': 1.1.0
 
   '@oxc-project/types@0.144.0': {}
