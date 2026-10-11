@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { BgMode, BgRule, ThemeSectionProps, ThemeStoreState } from '../../types'
 import { cfg } from '../../state'
+// The wallpaper-brightness range and its neutral value come from the shared shape,
+// exactly like the colour conversions below come from ./utils/color: the slider's
+// `max` and the render layer's clamp must be the same number, and a second literal
+// here is how a slider ends up offering a value the sanitizer then trims.
+import { DEFAULT_WALLPAPER_BRIGHTNESS, WALLPAPER_BRIGHTNESS_MAX } from '../../../schema'
 import { neighbourAfter, resolveTab } from '../../rules-view'
 import { ROTATE_PRESETS } from '../../rotation'
 import { readImg } from '../../utils/image'
@@ -917,6 +922,16 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify, sel, onSel
                   label={t('ruleOpacity')} min={0} max={100} step={1}
                   def={Math.round(rule.wallpaperOpacity * 100)} fmt={v => `${v}%`}
                   onChange={v => p.setRule(rule.id, { wallpaperOpacity: v / 100 })} />
+                {/* Brightness sits BETWEEN the other two because that is where the
+                    filter composes it (see `wpFilter` in ./wallpaper): the wallpaper
+                    is tinted, then lit, then frosted. `def` falls back to the shared
+                    100 for a rule whose config predates the field, so the knob reads
+                    the same value the render layer is painting. Double-clicking it
+                    therefore restores the picture untouched. */}
+                <LiveSlider
+                  label={t('ruleBrightness')} min={0} max={WALLPAPER_BRIGHTNESS_MAX} step={1}
+                  def={rule.brightness ?? DEFAULT_WALLPAPER_BRIGHTNESS} fmt={v => `${v}%`}
+                  onChange={v => p.setRule(rule.id, { brightness: v })} />
                 <LiveSlider
                   label={t('ruleBlur')} min={0} max={60} step={1}
                   def={rule.blur} fmt={v => `${v}px`}

@@ -1,4 +1,4 @@
-import { rWp, rBgState, rBl, rWop, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rFadeMs, rTransition } from './state'
+import { rWp, rBgState, rBl, rWop, rBrightness, rOps, rSop, rColor, rHasColor, rBlurs, rBgMode, rChatTextOpacity, rTrajectoryOpacity, rRightbarOpacity, rFadeMs, rTransition } from './state'
 import type { PartOpacities, PartBlurs } from './types'
 // The switch's decision is pure and checked without a browser
 // (scripts/transition-check.ts); this file only applies it to the two layers.
@@ -1503,14 +1503,39 @@ function applyImageWp(url: string): void {
   fadeTimer = window.setTimeout(() => finishFade(idx), plan.durationMs + 160)
 }
 
+/**
+ * The `filter` a wallpaper layer carries, from the active rule's brightness and
+ * blur.
+ *
+ * ONE declaration, because the two are one CSS property: assigning `filter` twice
+ * would leave whichever ran last, so a rule that is both brightened and blurred
+ * would silently lose one of them. Brightness is written first and blur second for
+ * a reason that is visible: blurring a dimmed picture softens the highlights the
+ * dimming just brought down, while dimming an already-blurred one simply darkens
+ * the result — and the order a user reads the sliders in (brightness above blur,
+ * see ModelBgPage) is the order the filter composes in.
+ *
+ * The neutral brightness is LEFT OUT rather than written as `brightness(100%)`.
+ * A layer with neither effect gets `''`, which is what an untouched wallpaper has
+ * always carried, and keeps the layer off the compositor's filter path entirely.
+ */
+function wpFilter(): string {
+  const parts: string[] = []
+  const brightness = rBrightness()
+  if (brightness !== 100) parts.push(`brightness(${brightness}%)`)
+  const blur = rBl()
+  if (blur > 0) parts.push(`blur(${blur}px)`)
+  return parts.join(' ')
+}
+
 function applyWpEffects(): void {
   if (wpEl === null || layers === null) return
   wpEl.style.opacity = String(rWop())
-  // The blur sits on each LAYER rather than on the container: with the filter on
-  // the parent, every frame of an opacity fade would re-run a full-screen blur
-  // instead of just re-compositing the blurred surface.
-  const blur = rBl()
-  const filter = blur > 0 ? `blur(${blur}px)` : ''
+  // The filter sits on each LAYER rather than on the container: with it on the
+  // parent, every frame of an opacity fade would re-run a full-screen filter pass
+  // instead of just re-compositing the treated surface. `wpFilter` is the ONE
+  // place the two effects sharing that property are composed.
+  const filter = wpFilter()
   layers[0].el.style.filter = filter
   layers[1].el.style.filter = filter
 }
@@ -1593,10 +1618,17 @@ export function setWpOpacity(v: number): void {
   if (wpEl) wpEl.style.opacity = String(v)
 }
 
-/** Live wallpaper-blur updates during slider drag (no full re-apply). */
-export function setWpBlur(v: number): void {
+/**
+ * Live wallpaper-filter updates during a slide, with no full re-apply.
+ *
+ * Deliberately parameterless: the filter composes TWO settings (brightness and
+ * blur), so a function trusting one caller's value would write half of it and
+ * drop the other. Both are read back from the active rule instead (./state),
+ * which is the same store the drag has already written to before calling this.
+ */
+export function setWpFilter(): void {
   if (layers === null) return
-  const filter = v > 0 ? `blur(${v}px)` : ''
+  const filter = wpFilter()
   layers[0].el.style.filter = filter
   layers[1].el.style.filter = filter
 }

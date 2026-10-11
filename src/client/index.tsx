@@ -1210,15 +1210,18 @@ export function apply(ctx: Ctx): void {
           if (url !== null) images[slot] = url
         }
         const payload = {
-          // 6 = the global switch transition (`transition`) is part of the config.
-          // 5 and older still import: every field this file predates is defaulted
-          // by the shared sanitizer, so an older theme restores unchanged.
+          // 7 = a rule carries its wallpaper brightness (`brightness`). 6 and older
+          // still import: every field this file predates is defaulted by the shared
+          // sanitizer, so an older theme restores unchanged — and a brightness the
+          // file predates means the picture as saved, which is what it was already
+          // showing.
           //
-          // 5 = a theme color belongs to an image (`images[].color`). 4 and older
-          // still import: their image entries carry no `color` key at all, which is
-          // exactly the shape `normalizeImage` lifts the rule's color onto, so a
-          // theme file written before that feature restores its look unchanged.
-          version: 6,
+          // 6 = the layout mode belongs to the image (`images[].bgMode`), 5 = the
+          // global switch transition (`transition`) is part of the config, 4 = a
+          // theme color belongs to an image (`images[].color`). Every one of those
+          // still imports: the shared sanitizer lifts or defaults what it does not
+          // find, which is why the number here only ever has to move forward.
+          version: SCHEMA_VERSION,
           exportedAt: new Date().toISOString(),
           config: cfg,
           images,

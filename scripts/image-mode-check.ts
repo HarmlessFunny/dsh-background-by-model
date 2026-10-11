@@ -194,5 +194,39 @@ console.log('\n--- the shape bump, which is what protects the lifted value ---')
 check('the announced shape moved past the config that had the mode on the rule',
   announced > 5, true)
 
+console.log('\n--- the wallpaper layer\'s brightness shares the filter with the blur ---')
+// Brightness and blur are ONE CSS property, which is the whole hazard: assigning
+// `filter` twice leaves whichever ran last, so a rule that is both brightened and
+// dimmed would silently lose one of them. Both numbers come from the shared shape
+// (the slider's `max` and the render layer's clamp have to be the same value), and
+// the absence of a key has to mean "untouched".
+check('the ceiling and the neutral value live in the shared shape, not in the UI',
+  /export const WALLPAPER_BRIGHTNESS_MAX = 200/.test(SCHEMA)
+  && /export const DEFAULT_WALLPAPER_BRIGHTNESS = 100/.test(SCHEMA), true)
+check('the render layer reads the brightness from the active rule, absence included',
+  /export function rBrightness\(\): number \{[\s\S]*?activeRule\(\)\?\.brightness[\s\S]*?DEFAULT_WALLPAPER_BRIGHTNESS\)/.test(STATE),
+  true)
+check('the panel drives its range from the same constant',
+  /max=\{WALLPAPER_BRIGHTNESS_MAX\}/.test(PANEL)
+  && /from '\.\.\/\.\.\/\.\.\/schema'/.test(PANEL), true)
+check('and a rule with no key reads as the neutral value, not as zero',
+  /rule\.brightness \?\? DEFAULT_WALLPAPER_BRIGHTNESS/.test(PANEL), true)
+// ONE composer, and every assignment goes through it: the blur and the brightness
+// are joined in a single string, and the neutral brightness is left out so an
+// untouched wallpaper keeps the empty `filter` it has always had.
+check('one function composes the filter from both settings',
+  /function wpFilter\(\): string \{[\s\S]*?brightness\(\$\{brightness\}%\)[\s\S]*?blur\(\$\{blur\}px\)[\s\S]*?return parts\.join\(' '\)/.test(WALL),
+  true)
+check('the neutral brightness is omitted rather than written out',
+  /if \(brightness !== 100\) parts\.push/.test(WALL), true)
+// Every assignment goes through the ONE composer: two sites (the full apply and
+// the live drag), each writing both layers, and each taking its string from
+// `wpFilter()` rather than building a `blur(…)` of its own — which is exactly the
+// shape that would drop a layer's brightness when the blur slider moved.
+check('the filter is written on both layers at both sites',
+  (WALL.match(/el\.style\.filter = filter/g) ?? []).length, 4)
+check('and every one of them comes from the composer',
+  (WALL.match(/= wpFilter\(\)/g) ?? []).length, 2)
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

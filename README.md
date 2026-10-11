@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 > Forked from [`Tkingxiao/dsh-any-background`](https://github.com/Tkingxiao/dsh-any-background) and renamed to `dsh-background-by-model`.
 
-A **DeepSeek Harness** appearance plugin built around an **ordered list of model rules**: each rule carries its own images, opacity and blur, and each image its own layout mode, framing and theme color. Switch the model and the background switches with it, through the global [switch effect](#switch-effect-global) you choose on the Config page.
+A **DeepSeek Harness** appearance plugin built around an **ordered list of model rules**: each rule carries its own images, opacity, brightness and blur, and each image its own layout mode, framing and theme color. Switch the model and the background switches with it, through the global [switch effect](#switch-effect-global) you choose on the Config page.
 
 > **v0.3.0 was a breaking release** — video wallpapers, generated backgrounds and the single global theme color were removed. See the [v0.3.0 entry in CHANGELOG.md](./CHANGELOG.md#v030).
 
@@ -61,7 +61,7 @@ One interface, one config — only the current model differs:
 <p align="center">
   <img src="https://cdn.jsdelivr.net/gh/HarmlessFunny/assets@v0.1.0/dsh-background-by-model/rule-editor.webp" alt="One rule's editor" width="660">
   <br/>
-  <em>One rule on the Model Background tab · the wallpaper, its opacity and its blur belong to the rule; the layout mode, the framing and the theme color belong to the image being edited</em>
+  <em>One rule on the Model Background tab · the wallpaper, its opacity, its brightness and its blur belong to the rule; the layout mode, the framing and the theme color belong to the image being edited</em>
 </p>
 
 <p align="center">
@@ -74,7 +74,7 @@ One interface, one config — only the current model differs:
 
 An ordered list of rules, matched first-hit against the current model's name, with rule 1 as the fallback.
 
-- **Rules** — add, remove, reorder and name them; each carries its own match string, opacity and blur.
+- **Rules** — add, remove, reorder and name them; each carries its own match string, opacity, brightness and blur.
 - **Images per rule** — a filmstrip filled by file picker, drag & drop or a list of URLs; reorder it, promote one to first, or replace one in place (which keeps its position in the rotation). A rule may also hold none, and an empty rule still matches while it has a theme color of its own, so emptying one is a visible state rather than a trap.
 - **Live match readout** — the Model Background tab shows which model was read and which rule it resolved to.
 - **Import / export** — the whole rule set as `dsh-background-by-model-theme.json` with every image inlined; files written by earlier releases still import.
@@ -116,7 +116,7 @@ One switch on the Config page and nothing else: on 中秋节 and 国庆节 the w
 - **Theme color** — HSL wheel, numeric input, **Extract from this image** and an eyedropper. It belongs to the **image**, and an image with none follows the system theme rather than inheriting its rule's.
 - **Layout mode** — fit / fill / stretch / tile / center, stored per image; disabled on a rule that holds no picture, rather than hidden.
 - **Framing** — drag to pan and scroll to zoom, editable in fit mode only, stored per image and stable across window resizes.
-- **Background opacity** `0–100%` and **background blur** `0–60 px`, both per rule.
+- **Background opacity** `0–100%`, **background brightness** `0–200%` (`100%` is the picture as saved) and **background blur** `0–60 px`, all three per rule. They treat the wallpaper layer only — the Interface tab's opacity and blur treat interface surfaces.
 
 ### Global settings (Interface tab)
 
@@ -140,7 +140,7 @@ Settings → **Theme** now has three tabs:
 | Tab | Scope | Contents |
 | --- | --- | --- |
 | **Interface** | Global, shared by every model | Opacity & blur for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box and trajectory page |
-| **Model Background** | Per rule, per image | The ordered rule list, the live match readout, and each rule's images (filmstrip), **per-image layout mode, framing and theme color**, plus the rule's opacity, blur and [rotation](#image-rotation) |
+| **Model Background** | Per rule, per image | The ordered rule list, the live match readout, and each rule's images (filmstrip), **per-image layout mode, framing and theme color**, plus the rule's opacity, brightness, blur and [rotation](#image-rotation) |
 | **Config** | — | The global [switch effect](#switch-effect-global), the whole rule set as a file — [recommended profile](#recommended-profile), import and export (`dsh-background-by-model-theme.json`) — plus the single [holiday background](#holiday-backgrounds) switch |
 
 The old **Color** tab is gone — the theme color is now a property of each rule — and the old **Background** tab became **Model Background**.
@@ -270,15 +270,15 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
 
+### v0.8.1
+
+- **The wallpaper layer has a brightness slider now**, between opacity and blur (`0–200%`, `100%` untouched, double-click to reset), stored per rule like the other two. They could dim a picture and frost it; nothing could lift an underexposed one.
+- **Brightness and blur share one `filter`, composed in a single function** — a second assignment would have silently dropped one of them. Both the full apply and the live drag write through it.
+
 ### v0.8.0
 
 - **The bundle is built when the tarball is packed, not committed** — `lib/` was ~1 MB of generated JavaScript per release and effectively all of this repository's growth; it is now gitignored and built by `prepack`, so what npm serves is always built from the tagged source.
 - **Installing straight from a GitHub checkout is gone** — that tree has no `lib/` and nothing in it builds one, so npm is the only source. Releases also now come from GitHub Actions over OIDC and carry build provenance.
-
-### v0.7.10
-
-- **The festival art's cache is keyed by the pinned release** — `holiday-cache/<tag>/<asset>`, so a build pinning a new tag starts from a directory nobody has written to instead of being answered with the previous generation's bytes.
-- **A superseded generation is pruned**, at the end of a successful cache write and never before it, so a release that turns out to be unreachable cannot cost you the art you already have.
 
 ## Star History
 

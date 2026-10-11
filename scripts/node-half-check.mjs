@@ -632,9 +632,10 @@ check('a rule that names no image anywhere is still dropped',
 // rules it cannot read. 3 = a rule may keep an empty image list (0.7), 4 = a
 // theme color belongs to an image (`images[].color`, 0.7.1), 5 = the global
 // switch transition (`transition`) is part of the config, 6 = the layout mode
-// belongs to an image (`images[].bgMode`) instead of to the rule.
+// belongs to an image (`images[].bgMode`) instead of to the rule, 7 = a rule
+// carries its wallpaper brightness (`brightness`).
 const announced = (await call('read')).value.schema
-check('the host announces the shape it sanitizes with', announced === 6, String(announced))
+check('the host announces the shape it sanitizes with', announced === 7, String(announced))
 // An emptied rule keeps the color it had: that color is what it paints while it
 // has no wallpaper, so it is not a field to clean up.
 await call('writeConfig', {
@@ -754,6 +755,56 @@ console.warn = realWarn
 check('drift inside transition is reported',
   trWarnings.some(w => w.includes('transition.bogus')), JSON.stringify(trWarnings))
 check('and the unknown transition key is not persisted', !('bogus' in (await readConfig()).transition))
+
+// ── the wallpaper layer's brightness ───────────────────────────────────────
+// The third of the three per-rule wallpaper sliders (opacity, brightness, blur).
+// Its whole risk is the ABSENT key: every config written before the setting
+// existed has none, and the only correct reading of that is "the picture as it was
+// saved". A sanitizer that filled the default IN instead would rewrite every
+// existing rule list on the first write; one that resolved it to 0 would black out
+// everybody's wallpaper on upgrade.
+console.log('\n--- a rule\'s wallpaper brightness ---')
+await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: 40 }] } })
+const dimmed = (await readConfig()).rules[0]
+check('a chosen brightness round-trips', dimmed.brightness === 40, String(dimmed.brightness))
+await call('writeConfig', {
+  config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: 9999 }] },
+})
+check('the ceiling is enforced, and 200% is it',
+  (await readConfig()).rules[0].brightness === 200, String((await readConfig()).rules[0].brightness))
+await call('writeConfig', {
+  config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: -20 }] },
+})
+check('black is the floor, not a negative number',
+  (await readConfig()).rules[0].brightness === 0, String((await readConfig()).rules[0].brightness))
+await call('writeConfig', {
+  config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: 'bright' }] },
+})
+check('junk falls back to untouched',
+  (await readConfig()).rules[0].brightness === 100, String((await readConfig()).rules[0].brightness))
+// The absent case, which is the one that matters most: a rule written before the
+// field existed comes back with NO key at all, so nothing on this side has
+// rewritten a config to state what its owner was already looking at. A default
+// baked in here would also mean a client that renders the absence itself (see
+// `rBrightness`) could no longer tell "untouched" from "chosen at 100".
+await call('writeConfig', { config: { ...first, rules: [multiRule] } })
+const untouched = (await readConfig()).rules[0]
+check('a rule written before the setting keeps no brightness key at all',
+  !('brightness' in untouched), JSON.stringify(Object.keys(untouched)))
+// A holiday's brightness is the user's, like its opacity and framing — see the
+// fixture the holiday block writes, which carries no such key and must stay 100.
+check('a holiday without one is untouched',
+  (await readConfig()).holidays.items.every(i => i.brightness === 100),
+  JSON.stringify((await readConfig()).holidays.items.map(i => i.brightness)))
+// And the field is DECLARED, so the drift guard stays quiet about it: a warning
+// here would mean the browser half can write a brightness the node half has never
+// heard of, which is the silent-loss bug the guard exists to make audible.
+const brightWarnings = []
+console.warn = (...a) => { brightWarnings.push(a.join(' ')) }
+await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: 60 }] } })
+console.warn = realWarn
+check('brightness is a declared rule field, not drift',
+  !brightWarnings.some(w => w.includes('rules[].brightness')), JSON.stringify(brightWarnings))
 
 // Every image of one rule is independent bytes on disk — that is what makes a
 // per-image delete safe and a rotation possible at all.

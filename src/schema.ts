@@ -308,11 +308,41 @@ export interface BgRule {
   // release that had it here is lifted, image by image, on read.
   /** Wallpaper layer opacity (0..1). */
   wallpaperOpacity: number
+  /**
+   * Wallpaper layer brightness, in percent: `0` is a black screen, `100` the
+   * picture exactly as its file has it, `WALLPAPER_BRIGHTNESS_MAX` the ceiling.
+   *
+   * OPTIONAL, and that is the one thing about it worth knowing: every config
+   * written before this setting existed has no such key, and the absence has to
+   * keep meaning "untouched" all the way to the render layer rather than being
+   * filled in with a number somewhere. `rBrightness` (./client/state) is where the
+   * absence becomes `DEFAULT_WALLPAPER_BRIGHTNESS`, and it is deliberately the
+   * only place: a default written into the config would make an upgrade rewrite
+   * everybody's rule list to say what they were already looking at.
+   */
+  brightness?: number
   /** Wallpaper layer blur (px, 0..60) — NOT the interface part blur. */
   blur: number
   /** How the rule cycles `images`; off by default. */
   rotate: BgRotation
 }
+
+/**
+ * Ceiling on the wallpaper layer's brightness, in percent.
+ *
+ * 0 % is a black screen and 100 % is the picture as it was saved, so the range a
+ * slider has to reach is 0–100 to darken and 100–`WALLPAPER_BRIGHTNESS_MAX` to
+ * lift a picture that is too dark to read against. The ceiling is not 100: the
+ * whole point of the control is the bright half for an underexposed photo or a
+ * dim monitor, and it is the HALF above 100 that a wallpaper-extraction palette
+ * cannot compensate for. 200 % is where a second stop stops telling two dark
+ * pictures apart — everything above it is blown out to white — so the slider
+ * spends its travel where it changes something.
+ */
+export const WALLPAPER_BRIGHTNESS_MAX = 200
+
+/** The brightness a rule starts on: the picture exactly as its file has it. */
+export const DEFAULT_WALLPAPER_BRIGHTNESS = 100
 
 /** Every slot a rule owns, in order. The one thing the render and store layers
  *  ask of the image list, so a rule's slots are never enumerated ad hoc. */
@@ -511,6 +541,7 @@ export function defaultHolidayRule(def: HolidayDef): HolidayRule {
     enabled: true,
     color,
     wallpaperOpacity: 1,
+    brightness: DEFAULT_WALLPAPER_BRIGHTNESS,
     blur: 0,
     rotate: defaultRotation(),
   }
@@ -553,7 +584,7 @@ export function blankRule(id: string): BgRule {
     id,
     images: [],
     match: '', enabled: true, color: null,
-    wallpaperOpacity: 1, blur: 0,
+    wallpaperOpacity: 1, brightness: DEFAULT_WALLPAPER_BRIGHTNESS, blur: 0,
     rotate: defaultRotation(),
   }
 }
@@ -592,7 +623,8 @@ export function freshThemeConfig(): ThemeConfig {
 export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
- * The persisted SHAPE this build writes: 6 = the layout mode belongs to an IMAGE
+ * The persisted SHAPE this build writes: 7 = a rule carries `brightness` (the
+ * wallpaper layer's 0–200 %, default 100); 6 = the layout mode belongs to an IMAGE
  * (`images[].bgMode`) and a rule has no mode of its own; 5 = the global
  * wallpaper-switch transition (`transition`) is part of the config; 4 = a theme
  * color belongs to an IMAGE (`images[].color`), and a rule's own color is what an
@@ -625,10 +657,16 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  * write after such a pairing (the visible failure: a rotation where one picture
  * was set to 拉伸 comes back 适应), and a schema-6 one has to LIFT the mode a
  * schema-5 config carries at the RULE level onto every image or each existing
- * wallpaper would land on the default. The check is a plain `>=`, so an older host
- * lands in the hold-writes path automatically.
+ * wallpaper would land on the default. 6 → 7 is `brightness`, which is the
+ * `images[].color` mechanism once more: a schema-6 sanitizer rebuilds each rule
+ * from the keys it knows, so a brightness the user just dragged would live in
+ * memory until the next reload and then be gone, silently, with the wallpaper
+ * back at full. Nothing has to be lifted for the opposite direction — the field
+ * is new here, and an absent one means the picture as saved, which is exactly what
+ * a schema-6 config was already showing. The check is a plain `>=`, so an older
+ * host lands in the hold-writes path automatically.
  */
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 export function clamp(n: unknown, lo: number, hi: number, def: number): number {
   return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
@@ -841,7 +879,17 @@ export function normalizeRule(raw: unknown): BgRule | null {
   // "on" and cannot be turned off until another picture arrives. The normalizer is
   // the one place load, import and persist all pass through.
   if (images.length < 2) rotate.enabled = false
-  return {
+  // Absent (every config written before this setting existed) means the picture
+  // exactly as it was saved, which is what those configurations were already
+  // showing — so the key is LEFT OFF rather than written as `undefined`. That is
+  // not a nicety: `normalizeRuleInPlace` copies the sanitizer's output back onto
+  // the live rule with `Object.assign`, which copies keys and not values, so a
+  // literal `undefined` here would overwrite the resolved default on every patch
+  // — a slider that reads 100 while the render layer holds nothing.
+  const brightness = r.brightness === undefined
+    ? undefined
+    : clamp(r.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, DEFAULT_WALLPAPER_BRIGHTNESS)
+  const rule: BgRule = {
     id,
     images,
     match: typeof r.match === 'string' ? r.match : '',
@@ -851,6 +899,8 @@ export function normalizeRule(raw: unknown): BgRule | null {
     blur: clamp(r.blur, 0, 60, 0),
     rotate,
   }
+  if (brightness !== undefined) rule.brightness = brightness
+  return rule
 }
 
 /**
@@ -877,6 +927,12 @@ export function normalizeHolidayRule(def: HolidayDef, raw: unknown): HolidayRule
     // this feature existed starts with every holiday usable.
     enabled: r.enabled !== false,
     wallpaperOpacity: clamp01(r.wallpaperOpacity, base.wallpaperOpacity),
+    // A festival's brightness is the user's, exactly like its opacity and its
+    // framing beside them: how bright a holiday wallpaper sits against the
+    // interface is a taste question, and a bright festival picture is the one
+    // most likely to want toning down. `base` carries the shipped 100, so an
+    // absent key (or a holiday entry written before this setting) is untouched.
+    brightness: clamp(r.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, base.brightness ?? DEFAULT_WALLPAPER_BRIGHTNESS),
     blur: clamp(r.blur, 0, 60, base.blur),
     // A holiday's own framing is still the user's: which part of the festival art
     // fills the screen is a taste question, and the editor allows it. Its MODE and

@@ -1,6 +1,14 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.8.0 / v0.7.10).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.8.1 / v0.8.0).
+
+## v0.8.1
+
+- **The wallpaper layer gains a brightness slider, next to opacity and blur** — the two existing sliders could take a picture down and frost it, but nothing could lift one: an underexposed photo, a night shot or a dim monitor meant editing the file before it went in. The new **背景亮度 / Background brightness** slider sits between them (`0–200%`, `100%` untouched, double-click to reset) and belongs to the rule, exactly like the other two, so each model's wallpaper keeps its own exposure. A festival wallpaper's brightness is yours as well, like its opacity and framing; its slot, mode and colors stay the definition's.
+- **The two effects that share `filter` are composed in ONE place (a fix waiting to happen)** — brightness and blur are one CSS property, so a second assignment anywhere would have left whichever ran last and silently dropped the other. There is now a single `wpFilter()` that builds the string from the active rule (brightness first, blur second, and the neutral brightness left out so an untouched wallpaper keeps the empty `filter` it always had), and both the full apply and the live drag write through it. The old standalone `setWpBlur` helper had no callers and is now the parameterless `setWpFilter`.
+- **`brightness` is optional in the shape on purpose** — every config written before this release lacks the key, and the absence has to keep meaning "the picture as it was saved" all the way to the render layer: `normalizeRule` leaves the key off rather than baking a default in (so an upgrade never rewrites a rule list to state what its owner was already looking at), and `rBrightness` is the one place the absence becomes `100`. A literal `undefined` there would have been copied over the live rule by `Object.assign`, which copies keys and not values — the slider reading 100 while the layer held nothing.
+- **`SCHEMA_VERSION` moves to 7** — the field is new on the node side too, and a schema-6 sanitizer rebuilds each rule from the keys it knows, so a brightness the user just dragged would survive in memory until the next reload and then be gone in silence. Nothing has to be lifted the other way: an absent key already means untouched. A theme file exported by this build carries version 7 in the same change, and a v6 profile still imports.
+- **Gates** — `check:node` pins the round trip (the chosen value, the 200 % ceiling, the 0 floor, junk falling back to 100) and the absent key surviving a write with **no** key at all, plus that brightness is a declared rule field rather than drift. `check:image-mode` pins the shared constants, the panel's `?? DEFAULT_WALLPAPER_BRIGHTNESS` fallback, the single composer and that all four filter assignments go through it. `pnpm test` is ten checks, all passing.
 
 ## v0.8.0
 

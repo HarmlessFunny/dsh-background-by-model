@@ -22,7 +22,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 // the asset names (the date maths belongs to the browser half).
 import { HOLIDAYS } from './holiday'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
-import { SCHEMA_VERSION, SLOT_RE, normalizeConfig } from './schema'
+import { SCHEMA_VERSION, SLOT_RE, DEFAULT_WALLPAPER_BRIGHTNESS, normalizeConfig } from './schema'
 import type { BgState, ThemeConfig } from './schema'
 // Which download failures are worth another round, and how long to wait before
 // it — shared with the browser half, which owns what a failed attempt keeps (see
@@ -158,7 +158,7 @@ const HOLIDAY_FETCH_TIMEOUT = 10_000
 const PRESET_ASSETS_REPO = 'HarmlessFunny/assets'
 const PRESET_ASSETS_REF = 'v0.1.0'
 const PRESET_ASSET_DIR = 'dsh-background-by-model/preset'
-/** The shape gate: `{"version": 6}` — see SCHEMA_VERSION in ./schema. */
+/** The shape gate: `{"version": 7}` — see SCHEMA_VERSION in ./schema. */
 const PRESET_MANIFEST = 'preset.json'
 const PRESET_CONFIG = 'theme-config.json'
 /** Images are named after the slot they fill, exactly as they are on disk. */
@@ -264,6 +264,10 @@ async function migrateLegacy(raw: unknown): Promise<unknown> {
       enabled: true,
       color: Array.isArray(r.color) ? r.color : null,
       wallpaperOpacity: typeof r.wallpaperOpacity === 'number' ? r.wallpaperOpacity : 1,
+      // The pre-0.3 store had no brightness control at all, so the only honest
+      // value to give the migrated rule is the one the picture has always been
+      // shown at: untouched.
+      brightness: typeof r.brightness === 'number' ? r.brightness : DEFAULT_WALLPAPER_BRIGHTNESS,
       blur: typeof r.blur === 'number' ? r.blur : 0,
     }],
     opacities: r.opacities,

@@ -8,7 +8,8 @@ import { resolveFadeMs } from './transition'
 // only used to be silently dropped by the other side's sanitizer.
 import {
   DEFAULT_BG_STATE, DEFAULT_CHAT_TEXT_OPACITY, DEFAULT_PART_BLURS, DEFAULT_PART_OPACITIES,
-  DEFAULT_SETTINGS_OPACITY, DEFAULT_TRAJECTORY_OPACITY, DEFAULT_TRANSITION, PART_BLUR_KEYS, PART_OPACITY_KEYS,
+  DEFAULT_SETTINGS_OPACITY, DEFAULT_TRAJECTORY_OPACITY, DEFAULT_TRANSITION, DEFAULT_WALLPAPER_BRIGHTNESS,
+  PART_BLUR_KEYS, PART_OPACITY_KEYS, WALLPAPER_BRIGHTNESS_MAX,
   clamp, clamp01, defaultRotation, freshThemeConfig, normalizeConfig, normalizeRotation, normalizeRule,
   ruleSlots,
 } from '../schema'
@@ -250,6 +251,19 @@ export function rColor(): [number, number, number] { return activeColor() ?? [22
  */
 export function rBgMode(): BgMode { return activeImage()?.bgMode ?? 'fit' }
 export function rWop(): number { return clamp01(activeRule()?.wallpaperOpacity, 1) }
+/**
+ * Brightness of the wallpaper layer, in percent (100 = the picture exactly as the
+ * file has it).
+ *
+ * Read from the ACTIVE rule like the opacity and blur beside it, and defaulted the
+ * same way: a rule whose `brightness` key is absent — every config written before
+ * the setting existed — is left alone, so an upgrade changes nothing on screen.
+ * The default and the ceiling live in ../schema, so the render layer holds no
+ * numbers of its own (see ./wallpaper's `wpFilter`).
+ */
+export function rBrightness(): number {
+  return clamp(activeRule()?.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, DEFAULT_WALLPAPER_BRIGHTNESS)
+}
 export function rBl(): number { return clamp(activeRule()?.blur, 0, 60, 0) }
 /** Framing of the CURRENT image (per image, see BgImage). */
 export function rBgState(): BgState { return activeImage()?.bgState ?? DEFAULT_BG_STATE }
