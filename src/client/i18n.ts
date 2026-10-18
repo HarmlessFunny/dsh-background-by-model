@@ -82,14 +82,12 @@ export const zh: Record<string, string> = {
   ruleLayout: '布局模式',
   ruleLayoutNoImage: '添加图片后可分别设置每张图的布局模式',
   ruleFramingEdit: '编辑位置',
-  ruleOpacity: '背景透明度',
-  ruleBrightness: '背景亮度',
-  ruleBlur: '背景模糊',
-  // One sentence for the three sliders above it, because they share one subject:
-  // all three treat the WALLPAPER layer, while everything on the Interface page
-  // treats interface surfaces. It is what keeps the two pages from reading as the
-  // same controls listed twice.
-  ruleBlurHint: '这三条滑块都作用于壁纸层；界面页里的透明度作用于界面各区域，两者互不影响',
+  ruleOpacity: '图片透明度',
+  ruleBrightness: '图片亮度',
+  ruleBlur: '图片模糊',
+  // The merged slider's menu. It names what the track edits, and each option
+  // borrows the label that effect had when it had a track of its own.
+  ruleEffectPick: '调节项',
 
   // ── 多图轮换 ──────────────────────────────────────────────────────────────
   // 默认关闭：轮换会真的花流量、内存和电，不能靠"默认"偷偷替用户做主。
@@ -264,11 +262,11 @@ export const en: Record<string, string> = {
   ruleLayout: 'Layout mode',
   ruleLayoutNoImage: 'Add an image to give each one its own layout mode',
   ruleFramingEdit: 'Edit position',
-  ruleOpacity: 'Background opacity',
-  ruleBrightness: 'Background brightness',
-  ruleBlur: 'Background blur',
-  // One sentence for the three sliders above it — see the note on the zh entry.
-  ruleBlurHint: 'These three sliders all treat the wallpaper layer; the opacity on the Interface page affects interface surfaces — they are independent',
+  ruleOpacity: 'Image opacity',
+  ruleBrightness: 'Image brightness',
+  ruleBlur: 'Image blur',
+  // The merged slider's menu — see the note on the zh entry.
+  ruleEffectPick: 'Effect',
 
   // ── Multi-image rotation ──────────────────────────────────────────────────
   // Off by default: rotating really does spend bandwidth, memory and battery,

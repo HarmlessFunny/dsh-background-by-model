@@ -29,6 +29,15 @@ const BG_MODES: Array<{ mode: BgMode; key: string }> = [
 /** Seed color a rule starts from when the user picks one for the first time. */
 const SEED_COLOR: [number, number, number] = [220, 0.55, 0.25]
 
+/**
+ * Which wallpaper field the merged effect slider is editing.
+ *
+ * The three effects share one track because they answer one question — how the
+ * wallpaper looks — and three stacked sliders made the card read as three
+ * settings of equal weight. The menu names the target; the slider stays.
+ */
+type WallpaperField = 'opacity' | 'brightness' | 'blur'
+
 function toHex(rgb: [number, number, number]): string {
   return '#' + rgb.map(v => Math.round(v).toString(16).padStart(2, '0')).join('')
 }
@@ -73,6 +82,11 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
   const [selImage, setSelImage] = useState<Record<string, number>>({})
   const selIdxOf = (id: string): number => selImage[id] ?? 0
   const setSelIdxOf = (id: string, i: number): void => setSelImage(m => (m[id] === i ? m : { ...m, [id]: i }))
+
+  // Which of the three wallpaper effects the merged slider edits. Held by the
+  // PAGE, not the card: switching rules unmounts the card, and someone comparing
+  // two rules' blur should not have to re-open the menu for each one.
+  const [wpField, setWpField] = useState<WallpaperField>('opacity')
 
   /** Select a rule as the edited one; keyboard stepping shares this. */
   const selectRule = (id: string): void => { pickedRef.current = true; setSelId(id) }
@@ -149,6 +163,7 @@ export function ModelBgPage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
                 // through the page too, because it owns the selection the deleted
                 // rule may be holding.
                 sel={selIdxOf(rule.id)} onSel={i => setSelIdxOf(rule.id, i)}
+                field={wpField} onField={setWpField}
                 onRemove={() => removeRule(rule.id)} />
             )
           })()}
@@ -284,7 +299,71 @@ function RulesTabs({ rules, activeId, liveId, p, onSelect, onAdd }: {
   )
 }
 
-function RuleCard({ p, rule, index, total, active, liveIndex, notify, sel, onSel, onRemove }: {
+/**
+ * The rule's three wallpaper effects on ONE row: the menu names the target and a
+ * single track edits it.
+ *
+ * The three ranges are not interchangeable — opacity and brightness are
+ * percentages (brightness ceilings at the shared `WALLPAPER_BRIGHTNESS_MAX`),
+ * blur is pixels — so changing the menu swaps the whole track: limits, formatter
+ * and writer together. It never reinterprets one track under another name. The
+ * `key` remounts the input so `defaultValue` starts at the new field's current
+ * value; LiveSlider's drag-live path then works exactly as it did when the three
+ * tracks were stacked.
+ */
+function WallpaperEffectRow({ p, rule, field, onField }: {
+  p: ThemeSectionProps
+  rule: BgRule
+  field: WallpaperField
+  onField: (field: WallpaperField) => void
+}) {
+  const { t } = p
+  // Brightness sits BETWEEN opacity and blur in the menu because that is the
+  // order `wpFilter` composes them in (see ./wallpaper): the wallpaper is tinted,
+  // then lit, then frosted — and it is the order the stacked sliders read in.
+  // `def` for brightness falls back to the shared 100 for a rule whose config
+  // predates the field, so the knob reads the value the render layer paints;
+  // double-clicking any field restores that field's neutral value.
+  const spec = field === 'opacity'
+    ? {
+        label: t('ruleOpacity'), min: 0, max: 100, step: 1,
+        def: Math.round(rule.wallpaperOpacity * 100), fmt: (v: number) => `${v}%`,
+        onChange: (v: number) => p.setRule(rule.id, { wallpaperOpacity: v / 100 }),
+      }
+    : field === 'brightness'
+      ? {
+          label: t('ruleBrightness'), min: 0, max: WALLPAPER_BRIGHTNESS_MAX, step: 1,
+          def: rule.brightness ?? DEFAULT_WALLPAPER_BRIGHTNESS, fmt: (v: number) => `${v}%`,
+          onChange: (v: number) => p.setRule(rule.id, { brightness: v }),
+        }
+      : {
+          label: t('ruleBlur'), min: 0, max: 60, step: 1,
+          def: rule.blur, fmt: (v: number) => `${v}px`,
+          onChange: (v: number) => p.setRule(rule.id, { blur: v }),
+        }
+
+  return (
+    <div className="dab-wp-row">
+      {/* The menu is the row's label, so the track carries no label of its own:
+          the same word above the same number twice would only add height. */}
+      <select
+        className="dab-select"
+        value={field}
+        aria-label={t('ruleEffectPick')}
+        onChange={e => onField(e.target.value as WallpaperField)}>
+        <option value="opacity">{t('ruleOpacity')}</option>
+        <option value="brightness">{t('ruleBrightness')}</option>
+        <option value="blur">{t('ruleBlur')}</option>
+      </select>
+      <LiveSlider
+        key={field} ariaLabel={spec.label}
+        min={spec.min} max={spec.max} step={spec.step} def={spec.def}
+        fmt={spec.fmt} onChange={spec.onChange} />
+    </div>
+  )
+}
+
+function RuleCard({ p, rule, index, total, active, liveIndex, notify, sel, onSel, field, onField, onRemove }: {
   p: ThemeSectionProps
   rule: BgRule
   index: number
@@ -296,6 +375,9 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify, sel, onSel
   /** Which of this rule's images is being EDITED (owned by the page, see above). */
   sel: number
   onSel: (i: number) => void
+  /** Which wallpaper effect the merged slider edits (page-owned, survives a tab switch). */
+  field: WallpaperField
+  onField: (field: WallpaperField) => void
   /** Delete this rule (the page moves the editor to a neighbour). */
   onRemove: () => void
 }) {
@@ -918,25 +1000,7 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify, sel, onSel
               )}
 
               <div style={{ marginTop: 16 }}>
-                <LiveSlider
-                  label={t('ruleOpacity')} min={0} max={100} step={1}
-                  def={Math.round(rule.wallpaperOpacity * 100)} fmt={v => `${v}%`}
-                  onChange={v => p.setRule(rule.id, { wallpaperOpacity: v / 100 })} />
-                {/* Brightness sits BETWEEN the other two because that is where the
-                    filter composes it (see `wpFilter` in ./wallpaper): the wallpaper
-                    is tinted, then lit, then frosted. `def` falls back to the shared
-                    100 for a rule whose config predates the field, so the knob reads
-                    the same value the render layer is painting. Double-clicking it
-                    therefore restores the picture untouched. */}
-                <LiveSlider
-                  label={t('ruleBrightness')} min={0} max={WALLPAPER_BRIGHTNESS_MAX} step={1}
-                  def={rule.brightness ?? DEFAULT_WALLPAPER_BRIGHTNESS} fmt={v => `${v}%`}
-                  onChange={v => p.setRule(rule.id, { brightness: v })} />
-                <LiveSlider
-                  label={t('ruleBlur')} min={0} max={60} step={1}
-                  def={rule.blur} fmt={v => `${v}px`}
-                  onChange={v => p.setRule(rule.id, { blur: v })} />
-                <p className="dab-hint" style={{ marginTop: 10 }}>{t('ruleBlurHint')}</p>
+                <WallpaperEffectRow p={p} rule={rule} field={field} onField={onField} />
               </div>
 
               {/* ── rotation ──────────────────────────────────────────────── */}

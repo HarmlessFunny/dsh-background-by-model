@@ -179,6 +179,16 @@ export const UI_CSS = `
 .dab-slider:hover::-webkit-slider-thumb,.dab-slider:focus-visible::-webkit-slider-thumb{transform:scale(1.22)}
 .dab-slider:active::-webkit-slider-thumb{transform:scale(1.34)}
 .dab-slider::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--dsw-alias-button-elevated-fill,#fff);border:2px solid var(--dsw-alias-brand-primary)}
+/* The wallpaper effects share one track and one row: the menu that names the
+   target sits BESIDE the track, not above it, so the merged control is no taller
+   than a single slider used to be. The track takes the remaining width and the
+   menu sizes itself to its longest option (which is what keeps the English
+   "Background brightness" from clipping at a width chosen for Chinese). */
+.dab-wp-row{display:flex;align-items:center;gap:10px}
+.dab-wp-row .dab-slider-block{flex:1;min-width:0}
+.dab-select{flex:none;max-width:50%;height:34px;padding:0 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-button-elevated-fill);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:12.5px;font-weight:550;outline:none;cursor:pointer;transition:border-color .2s,box-shadow .2s}
+.dab-select:hover{border-color:var(--dsw-alias-brand-primary)}
+.dab-select:focus-visible{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent)}
 
 /* ── interface part cards ────────────────────────────────────────────────── */
 .dab-grid-parts{display:grid;grid-template-columns:repeat(auto-fill,minmax(256px,1fr));gap:13px}

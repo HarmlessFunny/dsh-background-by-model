@@ -207,7 +207,10 @@ check('the render layer reads the brightness from the active rule, absence inclu
   /export function rBrightness\(\): number \{[\s\S]*?activeRule\(\)\?\.brightness[\s\S]*?DEFAULT_WALLPAPER_BRIGHTNESS\)/.test(STATE),
   true)
 check('the panel drives its range from the same constant',
-  /max=\{WALLPAPER_BRIGHTNESS_MAX\}/.test(PANEL)
+  // The three wallpaper effects now share one track, so the brightness limit is
+  // written into that track's spec rather than onto a JSX `max` attribute — still
+  // read from the shared shape, never spelled as a second 200.
+  /max: WALLPAPER_BRIGHTNESS_MAX/.test(PANEL)
   && /from '\.\.\/\.\.\/\.\.\/schema'/.test(PANEL), true)
 check('and a rule with no key reads as the neutral value, not as zero',
   /rule\.brightness \?\? DEFAULT_WALLPAPER_BRIGHTNESS/.test(PANEL), true)

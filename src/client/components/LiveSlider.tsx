@@ -8,9 +8,14 @@ import type { CSSProperties } from 'react'
  * the canonical default. The track fill is a gradient driven by the --pct
  * custom property, updated imperatively alongside the thumb.
  */
-export function LiveSlider({ min, max, step, def, fmt, label, onInput, onChange }: {
+export function LiveSlider({ min, max, step, def, fmt, label, ariaLabel, onInput, onChange }: {
   min: number; max: number; step: number; def: number
-  fmt: (v: number) => string; label?: string; onInput?: (v: number) => void; onChange: (v: number) => void
+  fmt: (v: number) => string; label?: string
+  /** Accessible name for a track whose caller renders the label elsewhere (or not
+   * at all) — the merged wallpaper slider names its target in the menu beside it,
+   * so a second visible label above the track would be the same word twice. */
+  ariaLabel?: string
+  onInput?: (v: number) => void; onChange: (v: number) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const valRef = useRef<HTMLSpanElement>(null)
@@ -39,6 +44,10 @@ export function LiveSlider({ min, max, step, def, fmt, label, onInput, onChange 
     onChange(v)
   }
 
+  // The visible label and the accessible name are the same words; a caller that
+  // renders the name elsewhere passes it as `ariaLabel` and gets no second line.
+  const name = label ?? ariaLabel
+
   return (
     <div className="dab-slider-block">
       {label ? <span className="dab-slider-label">{label}</span> : null}
@@ -47,7 +56,8 @@ export function LiveSlider({ min, max, step, def, fmt, label, onInput, onChange 
           ref={inputRef} type="range" className="dab-slider"
           style={{ '--pct': ((def - min) / (max - min)) * 100 } as CSSProperties}
           min={min} max={max} step={step} defaultValue={def}
-          title={label ? `${label} · ${fmt(def)}` : fmt(def)}
+          aria-label={name}
+          title={name !== undefined ? `${name} · ${fmt(def)}` : fmt(def)}
           onDoubleClick={() => apply(def)}
           onInput={e => {
             const el = e.target as HTMLInputElement
