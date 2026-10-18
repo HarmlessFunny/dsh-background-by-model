@@ -1,6 +1,6 @@
 {
   "name": "dsh-background-by-model",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "Appearance plugin for DeepSeek Harness: an ordered list of model rules, each carrying its own wallpapers — every image with its own framing and theme color — plus layout mode, opacity, brightness and blur; the background follows the model you switch to, and a rule can rotate through several images on its own rhythm.",
   "keywords": [
     "deepseek-harness",
@@ -35,7 +35,10 @@
     "./client": {
       "default": "./lib/client.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./rpc-host": {
+      "default": "./lib/rpc-host.js"
+    }
   },
   "main": "lib/index.js",
   "directories": {
@@ -44,6 +47,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/rpc-host.js",
     "lib/client.js",
     "CHANGELOG.md",
     "CHANGELOG.zh.md",
@@ -63,8 +67,10 @@
     "check:rules": "node scripts/rules-view-check.ts",
     "check:preset": "node scripts/preset-check.ts",
     "check:ui": "node scripts/ui-strings-check.ts",
+    "check:watchdogs": "node scripts/watchdogs-check.ts",
+    "check:scheme": "node scripts/scheme-check.ts",
     "check:node": "node scripts/node-half-check.mjs",
-    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/code-plate-check.ts && node scripts/image-mode-check.ts && node scripts/rules-view-check.ts && node scripts/preset-check.ts && node scripts/ui-strings-check.ts && node scripts/node-half-check.mjs"
+    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/code-plate-check.ts && node scripts/image-mode-check.ts && node scripts/rules-view-check.ts && node scripts/preset-check.ts && node scripts/ui-strings-check.ts && node scripts/watchdogs-check.ts && node scripts/scheme-check.ts && node scripts/node-half-check.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-home-paths": ">=0.2.1-alpha.2",

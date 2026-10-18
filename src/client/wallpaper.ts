@@ -50,6 +50,11 @@ function clearCustomTokens(): void {
   // token rule and the part opacities describe a stylesheet that no longer exists.
   baseTokenKey = ''
   lastBgKey = ''
+  // The themed gate goes with the rule it gates. Leaving it on <html> after the
+  // variables it makes reachable are gone is exactly the declared-but-unset
+  // state THEMED_ATTR exists to prevent (transparent panels), and a teardown that
+  // only cleared this sheet used to leave it behind.
+  document.documentElement.removeAttribute(THEMED_ATTR)
 }
 
 /** Drop every surface the plugin owns: the variables the scoped
@@ -248,6 +253,20 @@ function resolveHostDark(): boolean {
 }
 
 /**
+ * A scheme verdict for the third caller: "whoever is in force". Reads the host
+ * preference the browser half published, falling back to the host's own boot
+ * flag and then the OS query — the same two rungs `resolveHostDark` uses.
+ */
+export function hostSchemeIsDark(): boolean {
+  return resolveHostDark()
+}
+
+/** Whether this plugin is the one holding the scheme flag right now. */
+function ownsSchemeFlag(): boolean {
+  return document.body.getAttribute(DARK_ATTR) === OWN_SCHEME
+}
+
+/**
  * Keep `data-ds-dark-theme` in the HOST's own form (a boolean attribute) while
  * the plugin does not own a palette.
  *
@@ -257,17 +276,23 @@ function resolveHostDark(): boolean {
  * its light palette on a dark system, the readback then hands those light
  * surfaces back to the plugin, and the interface stays light until some
  * unrelated event happens to re-run an apply. Restoring the flag from the
- * resolved scheme closes that hole, and the write is skipped when it already
- * matches so this never churns the theme observer.
+ * resolved scheme closes that hole.
+ *
+ * It must not PUSH a host scheme either, though, and that is the other half of
+ * the same hole: the verdict it works from is the plugin's own last reading,
+ * which is already stale by the time the host has dropped the flag without
+ * telling anyone. Writing the stale verdict turns a host that just went dark
+ * back to light and sticks it there — the flag now "matches", so every later
+ * pass skips it. So only the OWNER of the flag is corrected: the plugin's own
+ * value is replaced, and a flag nobody has claimed is left to the host.
+ *
+ * The write is skipped when it already matches, so this never churns the theme
+ * observer.
  */
 export function adoptHostScheme(): void {
-  const dark = resolveHostDark()
-  const current = document.body.getAttribute(DARK_ATTR)
-  if (dark) {
-    if (current !== '') document.body.setAttribute(DARK_ATTR, '')
-  } else if (current !== null) {
-    document.body.removeAttribute(DARK_ATTR)
-  }
+  if (!ownsSchemeFlag()) return
+  if (resolveHostDark()) document.body.setAttribute(DARK_ATTR, '')
+  else document.body.removeAttribute(DARK_ATTR)
 }
 
 /** Re-read the host palette and repaint from it when it moved. Called while a
@@ -459,38 +484,29 @@ function applyCustomTokensNow(ops: PartOpacities): void {
 // ── Settings panel opacity ─────────────────────────────────────────────────────
 // The settings modal is the only aria-modal dialog identifying itself with
 // aria-labelledby, so this selector scopes translucency to the settings panel.
-// The surface (--dsw-alias-bg-layer-2) is re-emitted with an alpha through a
-// plugin-owned variable so the panel keeps its color while fading.
 
 const SETTINGS_PANEL_SEL = '[role="dialog"][aria-modal="true"][aria-labelledby]'
 export const SETTINGS_STYLE_RULE =
   `${SETTINGS_PANEL_SEL}{` +
   `background:var(--dsh-any-bg-settings-surface,var(--dsw-alias-bg-layer-2));` +
   `}` +
-  // Re-scope the dialog's layer tokens to plugin-owned variables so every
-  // surface inside the dialog follows the settings opacity slider only. Gated on
-  // the plugin owning a palette (see THEMED_ATTR): these three declarations have
-  // no host fallback, so they may only be live while `applySettingsOverrides`
-  // writes the variables they read.
+  // The dialog's layer tokens follow the settings slider only. Gated on THEMED_ATTR:
+  // no host fallback, so they may only be live while the variables they read are
+  // written.
   `html[${THEMED_ATTR}] ${SETTINGS_PANEL_SEL}{` +
   `--dsw-alias-bg-layer-1:var(--dsh-any-bg-settings-layer-1);` +
   `--dsw-alias-bg-layer-2:var(--dsh-any-bg-settings-layer-2);` +
   `--dsw-alias-bg-layer-3:var(--dsh-any-bg-settings-layer-3)}`
 
-// Input/control surfaces. The Cordis panel shares the --dsw-specific-menu token
-// with the dialog's option boxes, but it stays owned by the input slider — the
-// re-scope below keeps it there now that the menu token itself follows the card
-// slider. Note the input slider must NOT drive the button-elevated-fill /
-// button-floating-hover tokens: the settings panel's own controls (slider
-// thumbs, .dab-btn, segmented thumb) are painted from those same tokens, so
-// tinting them would bleach the panel's own UI.
+// Input/control surfaces. The Cordis panel shares --dsw-specific-menu with the
+// dialog's option boxes but stays owned by the input slider. The input slider must
+// NOT drive the button-fill tokens: the panel's own controls are painted from them.
 const CORDIS_PANEL_SEL = '[data-cordis-panel]'
 export const INPUT_STYLE_RULE =
   `${CORDIS_PANEL_SEL}{--dsw-specific-menu:var(--dsh-any-op-menu-cordis)!important}`
 
-// Placeholder/hint text inside the composer and the plugin's own input
-// surfaces: rendered with the weak caption token (distinct from real input)
-// plus italic, so an empty box is never mistaken for typed content.
+// Placeholder text: the weak caption token plus italic, so an empty box is never
+// mistaken for typed content.
 export const PLACEHOLDER_RULE =
   '[data-composer-card] textarea::placeholder,' +
   '[data-composer-card] input::placeholder,' +
@@ -503,10 +519,8 @@ export const PLACEHOLDER_RULE =
   '{color:var(--dsh-any-placeholder,var(--dsw-alias-label-caption,#8a8f98))!important;font-style:italic;opacity:.85}'
 
 export function applySettingsOverrides(op: number): void {
-  // Follows whichever palette is in force: the rule's own tokens, or the host's
-  // own surfaces while the rule follows the system theme. A token the palette
-  // does not carry has its variable REMOVED — leaving the previous color's value
-  // behind is exactly the stale surface this used to show.
+  // Follows whichever palette is in force. A token the palette does not carry has
+  // its variable REMOVED — keeping the previous colour is the stale surface bug.
   const tokens = palette()?.tokens ?? {}
   const root = document.documentElement
   const write = (name: string, token: string): void => {
@@ -514,21 +528,18 @@ export function applySettingsOverrides(op: number): void {
     if (value === undefined) root.style.removeProperty(name)
     else root.style.setProperty(name, withAlpha(value, op))
   }
-  // Always written explicitly (including 100%) — removing them would make
-  // SETTINGS_STYLE_RULE fall back to the body layer tokens that
-  // applyCustomTokens rewrites with the homepage card alpha.
+  // Always written, 100% included: removing them would let SETTINGS_STYLE_RULE fall
+  // back to the body layer tokens, which carry the card alpha.
   write('--dsh-any-bg-settings-surface', '--dsw-alias-bg-layer-2')
-  // Dialog-scoped layer overrides consumed by SETTINGS_STYLE_RULE; opacity
-  // follows the settings slider only.
+  // Dialog-scoped layers consumed by SETTINGS_STYLE_RULE.
   write('--dsh-any-bg-settings-layer-1', '--dsw-alias-bg-layer-1')
   write('--dsh-any-bg-settings-layer-2', '--dsw-alias-bg-layer-2')
   write('--dsh-any-bg-settings-layer-3', '--dsw-alias-bg-layer-3')
 }
 
 // ── Trajectory view opacity ──────────────────────────────────────────────
-// The trajectory view's own panels fully cover the root, so retinting only the
-// root background is invisible. Re-scope the view root's layer tokens to
-// plugin-owned variables so every surface follows the trajectory slider.
+// The view's own panels fully cover the root, so retinting the root alone is
+// invisible: the root's layer tokens are re-scoped to plugin-owned variables.
 export const TRAJECTORY_STYLE_RULE =
   // Gated like the settings re-scope: see THEMED_ATTR.
   `html[${THEMED_ATTR}] [data-conversation-composer-overlay]{` +
@@ -538,8 +549,7 @@ export const TRAJECTORY_STYLE_RULE =
   '--dsw-alias-bg-layer-3:var(--dsh-any-traj-layer-3)}'
 
 export function applyTrajectoryOverrides(op: number): void {
-  // Always written explicitly so the view stays owned by this slider at 100%,
-  // and removed per token the palette lacks (see applySettingsOverrides).
+  // Written explicitly so the view stays owned at 100%; removed per missing token.
   const tokens = palette()?.tokens ?? {}
   const root = document.documentElement
   const write = (name: string, token: string): void => {
@@ -724,33 +734,20 @@ function fadeInlineFor(animate: boolean): string {
 }
 
 // ── File-preview panel (right sidebar) ────────────────────────────────────
-// Clicking a file opens the host's right panel, whose visible surface is painted
-// from `background: var(--dsw-alias-bg-base)` — the exact token the
-// main-background slider re-emits with its own alpha. The panel was therefore a
-// second, unnamed copy of the main background with no control of its own; this
-// card takes it over, on whichever element the host paints that surface.
+// The panel's visible surface is `var(--dsw-alias-bg-base)` — the very token the
+// main-background slider re-emits — so without this it is a second, unnamed copy
+// of that slider. This card paints whichever element the host actually paints:
 //
-// dsh 0.1.7 moved the paint off the panel: the container lost its background and
-// became the slide / fullscreen viewport, and it stays mounted at its full width
-// for the whole session — collapsing it only slides the dock out (`transform` +
-// `visibility`, never `display`). A surface (plus a backdrop-filter) written on
-// that container therefore covers the empty right half of the frame even with
-// the panel closed, which is the permanent frosted plate 0.1.7 shows. The dock's
-// own tab hosts are what the host paints now, so the card follows them:
+//   0.1.7+  the dock's tab hosts (`[data-dockkit-content]` / `[data-dockkit-empty]`),
+//           hidden with `visibility`, so the card rides the host's own open/close
+//           and slide transitions. Floating panes are excluded, as the host does.
+//   older   the panel itself (its container lost the background in 0.1.7 and stays
+//           mounted at full width, which is how a permanent frosted plate appeared).
+//           `:has()` keeps the two apart so the alpha is never painted twice.
 //
-//   0.1.7+  the dock's tab hosts — `[data-dockkit-content]` (and the
-//           `[data-dockkit-empty]` seat of an empty pane), painted by the host
-//           from the same token and hidden with `visibility`, so the card rides
-//           the host's own open/close and slide transitions for free. Floating
-//           panes are excluded exactly as the host excludes them.
-//   older   the panel itself, which used to carry that background on its hashed
-//           class. `:has()` keeps the two apart, so the alpha is never painted
-//           twice over on a 0.1.7 host.
-//
-// The selectors use data attributes (not the hashed CSS-module classes) and
-// `!important` outranks the host's class rule. The `var()` fallback keeps the
-// host's own value until a rule with a color supplies one, so a color-less rule
-// changes nothing here.
+// Data attributes (not the hashed classes) plus `!important` outrank the host's
+// class rule; the `var()` fallback keeps the host's own value until a colour
+// supplies one, so a colour-less rule changes nothing here.
 export const RIGHTBAR_SEL =
   'div[data-sidebar-right-panel]:not(:has([data-dockkit-content],[data-dockkit-empty]))[data-sidebar-right-open],' +
   'div[data-sidebar-right-panel] [data-dockkit-content]:not([data-dockkit-float]),' +
@@ -771,15 +768,11 @@ export function applyRightbarOverrides(op: number): void {
 }
 
 // ── The composed frame's columns ─────────────────────────────────────────────
-// The columns around the shell overlay do NOT sit at fixed offsets. The composed
-// frame is `sidebarCol centerCol rightbarCol bottomRow overlayLayer handle`, so
-// reading "the children before the overlay" names the center column, the
-// (collapsed, zero-width) right column and the bottom row: a slider then writes
-// where nobody looks and the conversation frame — whose `[data-chat-flow]` lives
-// inside the real center column — stops responding entirely, with no error to
-// show for it. The columns the plugin paints are therefore resolved by what they
-// publish about themselves, and the old positional answer is kept only as a last
-// resort.
+// The frame's children are NOT at fixed offsets (`sidebarCol centerCol rightbarCol
+// bottomRow overlayLayer handle`), so "the children before the overlay" would paint
+// the zero-width right column and the bottom row while the conversation frame
+// stopped responding, with no error. Columns are therefore found by what they
+// publish about themselves; the positional answer is only the last resort.
 let frameEl: HTMLElement | null = null
 let centerEl: HTMLElement | null = null
 let detailsEl: HTMLElement | null = null
@@ -790,11 +783,10 @@ const PART_CLASS = { center: 'centerCol', rightbar: 'rightbarCol' } as const
 /**
  * Whether one of the element's class names ENDS with `suffix`.
  *
- * A SUFFIX test, deliberately not `classList.contains`: the harness emits these
- * classes from a CSS module, so a column carries `pI_x6G_centerCol` and matching
- * the whole string `centerCol` is false for every column of every build. The
- * failure mode is the quiet one — the class never matches, the part falls through
- * to a weaker guess and a setting disappears without an error.
+ * A SUFFIX test, not `classList.contains`: the host emits these classes from a CSS
+ * module, so a column carries `pI_x6G_centerCol` and an exact match is false for
+ * every column of every build — quietly, with the part falling through to a weaker
+ * guess.
  */
 function hasClassSuffix(el: HTMLElement, suffix: string): boolean {
   for (const name of Array.from(el.classList)) {
@@ -817,10 +809,8 @@ function discoverParts(): void {
   const frame = overlay.parentElement
   if (frame === null) return
   frameEl = frame
-  // The right column's own marker is preferred, read from the frame's direct
-  // children only so a descendant reusing it cannot win. It is the host saying
-  // "this is the right column" — still the right answer while its panel is
-  // closed and the column has a zero box.
+  // The right column's own marker is preferred, read from direct children only so
+  // a descendant reusing it cannot win. It stays right while the panel is closed.
   const rightbar = frame.querySelector<HTMLElement>(':scope > [data-rightbar-col]') ?? childWithClass(frame, PART_CLASS.rightbar)
   const overlayIdx = Array.from(frame.children).indexOf(overlay)
   /** The direct child at `offset` relative to the overlay, when there is one. */
@@ -844,11 +834,9 @@ function applyPartOpacities(ops: PartOpacities, fade = false): void {
     return
   }
   frameEl.style.background = 'transparent'
-  // The columns are painted INLINE, so they do not read the registered tokens and
-  // would snap while everything inheriting them fades; `fade` carries the same
-  // duration, and is false whenever only an alpha moved (a drag must not lag).
-  // `none` is written in that case rather than '' — an empty value would leave
-  // whatever the host declared on the element.
+  // Painted INLINE, so these columns would snap while everything inheriting the
+  // tokens fades; `fade` carries the duration, and is false when only an alpha
+  // moved (a drag must not lag). `none`, not '', which would leave the host's value.
   const transition = fadeInlineFor(fade)
   if (centerEl !== null) {
     centerEl.style.transition = transition
@@ -861,13 +849,11 @@ function applyPartOpacities(ops: PartOpacities, fade = false): void {
 }
 
 /**
- * Re-derive every plugin-owned interface surface that is not a palette token:
- * the conversation view card and the function pages in the main slot.
+ * Re-derive every plugin-owned interface surface that is not a palette token: the
+ * conversation view card and the function pages in the main slot.
  *
- * ONE pass, run by the full apply and by the frame observer: a page mounts and
- * unmounts with a NAVIGATION, not with a slider, so its discovery has to happen
- * on the same beat as everything else. `fade` carries the palette-moved case
- * through to the inline-painted view card (see `applyCustomTokens`).
+ * ONE pass, run by the full apply and the frame observer — a page mounts and
+ * unmounts with a NAVIGATION, so its discovery happens on the same beat.
  */
 export function applyInterfaceParts(fade = false): void {
   applyViewCards(fade)
@@ -875,35 +861,30 @@ export function applyInterfaceParts(fade = false): void {
 }
 
 // ── Function pages in the main slot ─────────────────────────────────────────
-// 插件, 自动化任务, and every page a plugin registers of its own (上下文洞察) are
-// all "the page the centre column is showing": each one brings its own root
-// element and its own CSS-module class name, and the shell swaps them through
-// ONE keyed slot — so a page can never be named, only located. The shell renders
+// 插件, 自动化任务 and every page a plugin registers of its own (上下文洞察) are
+// "the page the centre column is showing": each brings its own root element and
+// hashed class names, and the shell swaps them through ONE keyed slot — so a page
+// can be located, never named. The shell renders
 //
 //   div.pI_x6G_centerCol
 //     div[data-slot="main"]   ← the slot anchor: `display:contents`, no box
 //       <the page root>       ← the slot's active panel, one at a time
 //
-// so the page roots are the ANCHOR's children, and a page added later — by the
-// host or by any plugin — is covered with no change here. Two traps, both
-// silent: the anchor has no box (`display:contents`), so a surface written on it
-// paints nothing, which is why the walk steps THROUGH box-less elements instead
-// of settling on the first child; and the chat view is the same slot's other
-// occupant, excluded by its own scrollport marker because its tint belongs to
-// the 对话文本框 item.
+// so the page roots are the ANCHOR's children, and a page added later is covered
+// with no change here. Two traps, both silent: the anchor has no box, so a surface
+// written on it paints nothing (hence the walk through box-less elements); and the
+// chat view is the same slot's other occupant, excluded by its own scrollport
+// marker because its tint belongs to the 对话文本框 item.
 //
-// The tint is a plugin-owned variable read by PAGE_STYLE_RULE (injected by
-// index.tsx) and never an inline style: `.t-XoWW_page` paints itself from
-// `var(--dsw-alias-bg-base)`, and the page's own surface has to come back
-// EXACTLY as the host left it the moment the slider returns to zero — an
-// attribute the plugin removes is all that takes.
+// The tint is a plugin-owned variable read by PAGE_STYLE_RULE, never an inline
+// style: the page paints itself from `var(--dsw-alias-bg-base)` and has to come
+// back EXACTLY as the host left it at zero — an attribute the plugin removes.
 const PAGE_ANCHOR_SEL = '[data-slot="main"]'
 export const PAGE_MARK = 'data-dab-page'
 /**
- * `!important`, because the page's own background is a class rule of the host's
- * and equal-specificity cascade order is not something to rely on. The fallback
- * is the host's own surface token, so a mark that ever outlives its discovery
- * paints what that page would have painted anyway.
+ * `!important`, because the page's own background is a host class rule and cascade
+ * order at equal specificity is not something to rely on. The fallback is the
+ * host's own token, so a stale mark paints what the page would have painted.
  */
 export const PAGE_STYLE_RULE = `[${PAGE_MARK}]{background:var(--dsh-any-bg-page,var(--dsw-alias-bg-base))!important}`
 
@@ -913,8 +894,8 @@ let pageEls: HTMLElement[] = []
 /** Every function page mounted in the centre column (empty while the chat is). */
 function discoverPageEls(): HTMLElement[] {
   if (centerEl === null || !document.body.contains(centerEl)) return []
-  // The anchor is the column's own child; the descendant query is the net under
-  // a build that ever nests it one level deeper.
+  // The anchor is the column's own child; the descendant query is the net under a
+  // build that ever nests it one level deeper.
   const anchor = centerEl.querySelector<HTMLElement>(`:scope > ${PAGE_ANCHOR_SEL}`) ?? centerEl.querySelector<HTMLElement>(PAGE_ANCHOR_SEL)
   if (anchor === null) return []
   const seen = new Set<HTMLElement>()
@@ -922,8 +903,8 @@ function discoverPageEls(): HTMLElement[] {
   /** Step through `display:contents` wrappers to the element that owns a box. */
   const boxed = (start: HTMLElement): HTMLElement | null => {
     let el: HTMLElement = start
-    // Bounded like every other walk in this file: a cycle here would be a host
-    // bug, and hanging the frame observer on it is not a way to report one.
+    // Bounded: a cycle here would be a host bug, and hanging the frame observer is
+    // not a way to report one.
     for (let depth = 0; depth < 10; depth++) {
       if (getComputedStyle(el).display !== 'contents') return el
       const next: Element | null = el.firstElementChild
@@ -947,14 +928,7 @@ function discoverPageEls(): HTMLElement[] {
 /** Whether a function page is what the centre column is showing. */
 function pageIsShowing(): boolean { return discoverPageEls().length > 0 }
 
-/**
- * Point the 插件页面 item at whatever the main slot is showing.
- *
- * Called from `applyInterfaceParts`, the one pass the full apply and the frame
- * observer both run, and from the item's own drag: a page mounts and unmounts
- * with a NAVIGATION, not with a slider, so the discovery has to happen on the
- * same beat as everything else.
- */
+/** Point the 插件页面 item at whatever the main slot is showing. */
 export function applyPageSurfaces(): void {
   discoverParts()
   const base = palette()?.tokens['--dsw-alias-bg-base']
@@ -1055,13 +1029,11 @@ function discoverViewTarget(idx: number, spec: ViewCardSpec): HTMLElement | null
   if (cached !== null && centerEl.contains(cached)) return cached
   viewTargets[idx] = null
   if (spec.fallback !== true) return null
-  // On the harness, an absent [data-chat-flow] just means the chat view is not
-  // mounted (hero phase, trajectory tab) — settling on the whole scrollport
-  // there would wrap the entire page in the card.
+  // An absent [data-chat-flow] means the chat view is not mounted (hero phase,
+  // trajectory tab); settling on the scrollport would wrap the whole page.
   if (centerEl.querySelector('[data-conversation-scroll]') !== null) return null
-  // A function page is the 插件页面 item's surface: the chat card falling back onto
-  // it would tint and outline the same area from the other slider's value, under
-  // a name that does not describe it.
+  // A function page belongs to the 插件页面 item; tinting it here would paint the
+  // same area from another slider under a name that does not describe it.
   if (pageIsShowing()) return null
   // Marker-less hosts keep their layout until a slider moves.
   if (spec.opacity() <= 0) return null
@@ -1254,19 +1226,16 @@ export function watchThemeResets(): () => void {
 }
 
 // ── Wallpaper layer: two stacked layers, cross-faded on a rule switch ───────
-// The incoming image fades in ON TOP of the outgoing one at full opacity.
-// Fading the old one out at the same time would drop the composite below full
-// alpha at the midpoint — both images half transparent — and the interface
-// behind would flash through.
+// The incoming image fades in ON TOP of the outgoing one: fading the old one out
+// at the same time drops the composite below full alpha at the midpoint and the
+// interface flashes through.
 //
-// A layer addresses its image by OBJECT URL (see displayImageOf in state):
-// assigning a `url(data:…)` background re-decodes the photo on every switch,
-// which is where a large wallpaper's stall comes from, while a blob URL is
-// served from the browser's memory cache after the first load.
+// Layers address their image by OBJECT URL (`displayImageOf`): a `url(data:…)`
+// background re-decodes the photo on every switch, which is where a large
+// wallpaper's stall comes from.
 //
-// The duration is the GLOBAL switch effect's (`transition.durationMs`, default
-// 320 ms — see DEFAULT_TRANSITION and TRANSITION_MAX_MS in ./schema), the same
-// for every switch this plugin performs, and 0 means a hard cut.
+// The duration is the GLOBAL switch effect's (`transition.durationMs`), and 0 is
+// a hard cut.
 interface WpLayer {
   el: HTMLDivElement
   /** Display URL of the image painted on this layer; null when empty. */
@@ -1427,13 +1396,11 @@ function finishFade(idx: 0 | 1): void {
   front = idx
   const el = layers[idx].el
   // Re-asserted so a fade whose frames never ran (background tab) still ends on
-  // the visible image — and on the END of the effect, not on the frame it was
-  // interrupted at (a zoom left at 1.06 crops every later wallpaper).
+  // the visible image, at the END of the effect (a zoom left at 1.06 crops).
   el.style.opacity = '1'
   el.style.transform = 'none'
   el.style.willChange = ''
-  // Covered from here on: drop its bytes so a second full-resolution image is
-  // never left decoded behind the visible one.
+  // Covered from here on: drop its bytes so no second full-size image stays decoded.
   clearLayer(layers[idx === 0 ? 1 : 0])
 }
 

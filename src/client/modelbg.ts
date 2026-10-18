@@ -1,40 +1,25 @@
 /**
  * Model → rule resolution.
  *
- * Two halves:
- *  1. `matchRule` — a pure function over the ordered rule list.
- *  2. `watchModel` — reports the current model whenever the session's durable
- *     model selection changes.
+ * `matchRule` is pure over the ordered rule list; `watchModel` reports the current
+ * model whenever the session's durable selection changes. Sources, most
+ * authoritative first:
  *
- * Sources, in the order they are consulted:
+ *  a. the current SESSION (`resolveMainSessionId`), because the model is per
+ *     session. 0.1.7 moved this: the list stopped carrying a single `current` id,
+ *     and the main view's session is published by `uiSession` / the row retained by
+ *     `mainView`;
+ *  b. that session's own `modelSelection` projection (`lastUsed` / `next`) — the
+ *     value the composer's model seat reads;
+ *  c. `ctx.modelDirectories`, which adds the provider catalog and is therefore the
+ *     only source of a display NAME (optional: it lives in another plugin's scope);
+ *  d. the host's default model, resolved by the CALLER as a last resort and
+ *     reported as `default`, because it is not this session's selection.
  *
- *  a. **Which session is current** (`resolveMainSessionId` below) — the model is
- *     read per session, so this hop answers before any other can. 0.1.7 moved it:
- *     `sessions.list` stopped carrying a single `current` id, and the main view's
- *     session is published by the `uiSession` service and marked by the list row
- *     retained by `mainView`.
- *  b. **The session's own durable model selection** —
- *     `ctx.sessions.binding(id).session.projections.faceOf('modelSelection')`,
- *     the same `{ lastUsed, next }` value the composer model seat and the
- *     /model popup read. This is the authoritative per-session answer.
- *  c. **`ctx.modelDirectories`** — the shared per-session directory
- *     (ui-model-selection). It adds the provider-group catalog, so it is the
- *     only source that can supply a display name, but it lives in that plugin's
- *     own scope on some builds and is then invisible from here, hence optional.
- *  d. **The host default model** — resolved by the CALLER as a last resort
- *     (see index.tsx). It is a global default, NOT this session's selection, so
- *     it is reported as `default` and the settings page says so.
- *
- * TIMING is load-bearing. `sessions` is published by the api-session-controller
- * client plugin, which this deployment loads AFTER this plugin's client bundle,
- * so `ctx.get('sessions')` is normally still undefined when `apply()` runs.
- * Giving up there — returning a no-op disposer — left the model pinned to the
- * host default for the whole session with nothing to retry it. The service is
- * now polled for until it appears, and `uiSession` (which can mount even later)
- * is picked up by the same poll because the session id is re-resolved on every
- * tick. Every hop reports a `note` when it cannot answer, so the settings page
- * can name the failing one instead of silently showing a value that is not this
- * session's model.
+ * TIMING is load-bearing: `sessions` is published by a client plugin loaded AFTER
+ * this bundle, so `ctx.get('sessions')` is normally undefined when `apply()` runs.
+ * It is polled for until it appears, and every hop reports a `note` when it cannot
+ * answer, so the settings page can name the failing one.
  */
 import type {
   BgRule, Ctx, ModelDirectoryLike, ModelDirectoryResolverLike, ModelSelectionProjectionLike,

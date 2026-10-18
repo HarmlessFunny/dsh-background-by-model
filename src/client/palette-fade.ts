@@ -1,58 +1,39 @@
 /**
  * The palette fade: a theme-COLOUR change that interpolates instead of snapping.
  *
- * A custom property is not animatable until it is REGISTERED, so a palette switch
- * — which is one rewrite of `body{--dsw-alias-…}` — changes every surface in a
- * single frame. The wallpaper cross-fades and the interface jumps, which is what
- * this module exists to fix: it emits the `@property` registrations that turn the
- * alias tokens into interpolable `<color>`s, plus the `transition` declarations
- * for the elements whose own token declarations are what changed — and, for the
- * surfaces the plugin paints from a variable of its own instead of from a token,
- * a transition on the STANDARD property that carries it (see `properties`).
+ * A custom property is not animatable until it is REGISTERED, so a palette switch —
+ * one rewrite of `body{--dsw-alias-…}` — changes every surface in a single frame
+ * while the wallpaper cross-fades. This module emits the `@property` registrations
+ * that turn the alias tokens into interpolable `<color>`s, plus the `transition`
+ * declarations for the elements whose own token declarations changed (and, for
+ * surfaces painted from a plugin-owned variable, a transition on the standard
+ * property that carries it — see `properties`).
  *
- * Two rules shape it, and both are about not inventing behaviour:
+ * Three rules, all about not inventing behaviour:
  *
- *   1. **A token the host does not publish is left alone.** Registration requires
- *      an `initial-value`, and a registered property that nothing else sets
- *      resolves to THAT value rather than to the `var(…, fallback)` chain the
- *      plugin's own stylesheet relies on — so a name the host answers with a
- *      colour is registered, and one it does not is skipped instead of being
- *      given an invented colour. `initial` is that answer (the host's resolved
- *      value) and doubles as the declaration.
- *   2. **The duration and the vetoes are the SWITCH's, not a second opinion.** The
- *      caller passes the same decision the wallpaper layer uses, so "instant", a
- *      0 ms duration and `prefers-reduced-motion` mean the same thing on both
- *      halves of a switch, and there is only one place to change them.
- *   3. **Only a token the palette in force WRITES may be transitioned.** A
- *      transition on a token someone else owns animates that someone else's
- *      change, at this plugin's duration: see `written`.
+ *   1. **A token the host does not publish is left alone.** Registration needs an
+ *      `initial-value`, and a registered property that nothing else sets resolves to
+ *      THAT value instead of the `var(…, fallback)` chain the stylesheet relies on.
+ *      `initial` is the host's own resolved value, and only tokens it answers for
+ *      are registered.
+ *   2. **The duration and the vetoes are the SWITCH's.** The caller passes the same
+ *      decision the wallpaper layer made, so "instant", 0 ms and
+ *      `prefers-reduced-motion` mean the same on both halves.
+ *   3. **Only a token the palette in force WRITES may be transitioned** — a
+ *      transition on someone else's token animates THEIR change at our duration.
  *
- * Pure: it takes resolved values and returns CSS, so `scripts/transition-check.ts`
- * can pin the shape down without a browser.
+ * Pure: resolved values in, CSS out, so `scripts/transition-check.ts` pins it.
  */
 /**
- * One element whose OWN declarations move with the palette, and the tokens those
- * declarations are for.
+ * One element whose OWN declarations move with the palette.
  *
- * The list is per element and deliberately NOT the whole registered set, which is
- * the entire reason this shape is not a flat `selectors` array. An element that
- * merely INHERITS a token must not be handed a transition for it: that element's
- * transition then targets the value it sees at arm time — and while the ancestor
- * is itself interpolating, that value is still the OLD one — so the element drags
- * its whole subtree behind a lagged copy of the palette for the length of the
- * animation instead of riding the real clock.
- *
- * Measured in Chromium, one 1200 ms transition on the declaring ancestor and
- * three consumers of it (`@property` registered `<color>`, `inherits: true`):
- *
- *   inherits, no transition of its own -> follows the ancestor frame for frame
- *   inherits, HAS a transition of its own -> 113/255 of the way at t = 1500 ms
- *
- * The plugin walked straight into it: the settings dialog and the trajectory root
- * were both given the FULL token list while they only re-declare the three layer
- * tokens, so every control inside the dialog (the holiday switch fill, the active
- * effect chips) sat on the previous theme colour for an entire wallpaper switch
- * and snapped to the new one only after it ended.
+ * Per element, deliberately NOT the whole registered set. An element that merely
+ * INHERITS a token must not be given a transition for it: the transition targets
+ * the value seen at arm time, which is still the OLD one while the ancestor
+ * interpolates — so the element drags its subtree behind a lagged copy of the
+ * palette instead of riding the real clock. Measured in Chromium (1200 ms, one
+ * declared transition, inherited consumers): frame-for-frame without its own
+ * transition, 113/255 of the way at t = 1500 ms with one.
  */
 export interface PaletteFadeScope {
   selector: string
@@ -84,29 +65,15 @@ export interface PaletteFadeInput {
   /**
    * The token names the palette IN FORCE actually writes.
    *
-   * The third filter, and the one this shape was missing. `initial` covers every
-   * name SOME palette can write — it has to, or the registrations a later fade
-   * needs would not be in place — but the palette being painted writes fewer of
-   * them: the plugin's light branch emits roughly thirty fewer aliases than its
-   * dark one, and the host-palette readback emits only the surfaces the host can
-   * answer for. Every name outside this set still takes its value from the HOST,
-   * and the host changes those on its own schedule: the plugin forces
-   * `data-ds-dark-theme` for its own palette, the host re-asserts its own scheme
-   * on mount and on settings adoption, and the plugin itself disposes and
-   * re-registers its theme on a colour change — which the host answers by
-   * resetting the preference to `system` for the length of that call. A token
-   * that belongs to one of those flips goes from the host's light value to its
-   * dark one (and back) inside a single switch.
-   *
-   * A transition on such a token is the plugin animating a decision it does not
-   * own and cannot correct — reported as "白色色块会渐变为黑色色块…白色渐变完黑色后
-   * 立马切到白色". The block is the user message bubble: `#edf3fe` in the host's
-   * light scheme (that is `--dsw-static-deepseek-50`, the value measured off the
-   * screen) and `#2c2c2e` in its dark one, a name the fade sheet had registered
-   * while the palette in force — a light one — never writes it. Nothing about that
-   * surface is ours: the host's own flip is the whole story, and our duration is
-   * what turned it into a 3 s ramp (the reported session runs its switch at
-   * 3000 ms) instead of a frame.
+   * `initial` covers every name SOME palette can write (the registrations a later
+   * fade needs must be in place), but the palette being painted writes fewer: the
+   * light branch emits ~30 fewer aliases than the dark one, and the host readback
+   * only what the host answers for. A name outside this set takes its value from
+   * the HOST, and the host flips those on its own schedule (its own re-assert on
+   * mount, and the preference reset a dispose→register cycle triggers). Animating
+   * one is animating a decision the plugin does not own — the reported white block
+   * fading to black was the user bubble, a host-scheme token the light palette
+   * never writes, turned into a 3 s ramp by our duration.
    */
   written: readonly string[]
   /** Transition length in ms; `0` emits the registrations alone (no animation). */

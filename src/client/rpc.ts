@@ -8,15 +8,25 @@ const RPC_NS = 'dshBackgroundByModel'
 const rpcEndpoint = (method: string): string => `${RPC_NS}/${method}`
 
 /**
- * What the host process said about the config shape it writes.
+ * What the host process said about the config shape it writes. Decided ONCE, by
+ * `loadPersisted`, from the `schema` number the node half publishes on `read`.
  *
- *   `unknown` — the RPC never answered (offline/broken): writes are allowed, and
- *               the ordinary failure paths deal with it.
- *   `legacy`  — it answered WITHOUT a schema, i.e. it is running a node half from
- *               before multi-image. Its sanitizer drops any rule whose image list
- *               it does not understand, so writing our config would erase the
- *               user's rule list; every config write is held instead.
- *   `current` — same shape as this bundle.
+ *   `unknown` — nothing was loaded yet, or the read never answered (offline,
+ *               broken channel). Writes are allowed; the ordinary failure paths
+ *               deal with a write that does not land.
+ *   `current` — the host wrote a schema AT LEAST as new as this bundle's
+ *               (`schema >= SCHEMA_VERSION`). Its sanitizer knows every field
+ *               this bundle can produce, so writing is safe.
+ *   `legacy`  — the host answered with a schema older than this bundle's, or
+ *               with none at all (a node half from before the field existed).
+ *               Either way its sanitizer REBUILDS the config from the keys it
+ *               knows, so writing ours would drop every field it has never heard
+ *               of — in the worst case the whole rule list. Every config write is
+ *               held until the host is restarted.
+ *
+ * A NEWER host is deliberately `current`, not a third state: an older browser
+ * bundle talking to a newer node half loses nothing, because the newer sanitizer
+ * accepts everything the older one writes.
  */
 export type HostShape = 'unknown' | 'legacy' | 'current'
 
@@ -26,14 +36,14 @@ let warnedLegacy = false
 /** Whether this bundle may write its config to the host it is talking to. */
 export function canWriteConfig(): boolean { return hostShape !== 'legacy' }
 
-/** Whether the running host process is older than this client bundle. */
+/** Whether the running host process cannot read this bundle's config shape. */
 export function hostIsLegacy(): boolean { return hostShape === 'legacy' }
 
 function holdWrite(): void {
   if (warnedLegacy) return
   warnedLegacy = true
   console.warn(
-    'dsh-background-by-model: the running host is an older build that cannot read the multi-image ' +
+    'dsh-background-by-model: the running host is an older build that cannot read this bundle\'s ' +
     'config shape — holding config writes so its sanitizer cannot drop this profile\'s rules. ' +
     'Restart DSH to load the new node half.',
   )
@@ -119,9 +129,10 @@ export async function loadPersisted(): Promise<Persisted | null> {
   const d = data as { config?: unknown; slots?: unknown; schema?: unknown }
   const slots = Array.isArray(d.slots) ? d.slots.filter((s): s is string => typeof s === 'string') : []
   const schema = typeof d.schema === 'number' && isFinite(d.schema) ? d.schema : null
-  // The one place the answer arrives, so the one place it is recorded: a host that
-  // answered without a schema is a pre-0.7 node half (see HostShape).
-  hostShape = schema === null ? 'legacy' : (schema >= SCHEMA_VERSION ? 'current' : 'legacy')
+  // The one place the answer arrives, so the one place it is recorded. A null
+  // schema is a node half from before the field existed: older, so `legacy`. A
+  // host NEWER than this bundle is `current` on purpose — see HostShape.
+  hostShape = typeof schema === 'number' && schema >= SCHEMA_VERSION ? 'current' : 'legacy'
   if (hostShape === 'legacy') holdWrite()
   return { config: d.config, slots, schema }
 }

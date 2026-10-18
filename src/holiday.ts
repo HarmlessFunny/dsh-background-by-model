@@ -1,19 +1,17 @@
 /**
  * The built-in holiday calendar behind the "holiday background" override.
  *
- * Imported by BOTH halves — the node half only reads `HOLIDAYS` (the fixed slot
- * ids and the hosted asset names), the browser half does the date maths — so
- * nothing here may touch the DOM, Node or the Cordis context, and every
- * `Intl` formatter is built lazily so the node half never constructs one.
+ * Imported by BOTH halves (the node half reads only `HOLIDAYS`; the browser half
+ * does the date maths), so nothing here may touch the DOM, Node or Cordis, and
+ * every `Intl` formatter is built lazily.
  *
- * Both holidays are evaluated in **Asia/Shanghai**, not in the machine's own
- * zone: 中秋 is a lunar date, and the lunar day rolls over at Beijing midnight,
- * so reading "today" from a UTC or UTC-8 clock puts the festival on the wrong
- * day for most of the planet.
+ * Dates are evaluated in **Asia/Shanghai**, not the machine's zone: 中秋 is a lunar
+ * date and rolls over at Beijing midnight, so a UTC or UTC-8 clock puts the
+ * festival on the wrong day for most of the planet.
  *
  *   mid-autumn   农历八月十五 — moves across the Gregorian calendar
  *                (2024-09-17, 2025-10-06, 2026-09-25, 2027-09-15 …)
- *   national-day 公历 10 月 1–7 日 — the fixed National Day holiday window
+ *   national-day 公历 10 月 1–7 日 — the fixed National Day window
  */
 
 export type HolidayId = 'mid-autumn' | 'national-day'

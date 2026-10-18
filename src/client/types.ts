@@ -136,9 +136,8 @@ export interface ColorPalette {
 }
 
 /**
- * State shape of the section's reactive store. The section's props object is
- * built ONCE by the slot host, so every value that changes at runtime must be
- * pushed through this store instead of riding the props.
+ * State shape of the section's reactive store. The props object is built ONCE by
+ * the slot host, so every value that changes at runtime rides this store instead.
  */
 export interface ThemeStoreState {
   /** Paintable URL (object URL) of the active rule's image. */
@@ -172,10 +171,9 @@ export interface ThemeStoreState {
    *  rules all read false, so the UI can label the state honestly). */
   rotating: boolean
   /**
-   * True while the host PROCESS is running an older node half that cannot read
-   * this bundle's config shape. Config writes are held then (see canWriteConfig
-   * in ./rpc) and the section says so, because edits that silently do not persist
-   * are worse than edits that visibly wait for a restart.
+   * True while the host process runs an older node half that cannot read this
+   * bundle's config shape. Writes are held then (`canWriteConfig`) and the section
+   * says so: an edit that visibly waits for a restart beats one lost in silence.
    */
   hostStale: boolean
 }
@@ -184,14 +182,11 @@ export interface ThemeStoreState {
 export interface FetchResult { ok: boolean; dataUrl?: string | null; error?: string }
 
 /**
- * The document `exportTheme` writes and both imports consume: a whole
- * configuration plus the rule wallpapers, keyed by slot, as data URLs.
+ * The document `exportTheme` writes and both imports consume: a configuration plus
+ * the rule wallpapers, keyed by slot, as data URLs.
  *
- * One shape for every source — a file the user picked, the recommended profile
- * downloaded from the asset host, anything else that wants to carry a
- * configuration around. Every field is optional because on arrival this is
- * UNTRUSTED input: a JSON file off the internet is not obliged to have any of
- * it, and the shared sanitizer is what turns whatever survives into a config.
+ * Every field is optional because on arrival this is UNTRUSTED input; the shared
+ * sanitizer is what turns whatever survives into a config.
  */
 export interface ThemeFile {
   /** Config shape the file was written for; absent in exports predating it. */
@@ -203,15 +198,14 @@ export interface ThemeFile {
 }
 
 /**
- * The recommended profile is fetched as a DIRECTORY, in the store's own shape:
- * a manifest, a config, and one raw file per slot. So it arrives in two kinds of
- * answer rather than one document — the head, and then the wallpapers one at a
- * time. Both carry their failure as a value, because an unreachable CDN is an
- * ordinary outcome this button has to render rather than a plugin that broke.
+ * The recommended profile is a DIRECTORY: a manifest, a config, and one raw file
+ * per slot. It arrives as a head and then one answer per wallpaper, and both carry
+ * their failure as a VALUE — an unreachable CDN is an ordinary outcome, not a
+ * broken plugin.
  *
  * `error` is a small code the page turns into copy (`'download failed'`,
  * `'not a profile'`, `'newer version'`, `'too many images'`, `'not an image'`),
- * so the node half never has to write user-facing text.
+ * so the node half never writes user-facing text.
  */
 export type PresetHead =
   | { ok: true; version: number; config: unknown; slots: string[] }
@@ -220,11 +214,9 @@ export type PresetHead =
 export type PresetImage = { ok: true; dataUrl: string } | { ok: false; error: string }
 
 /**
- * The assembled profile, or why there is none.
- *
- * `slot` is present when the failure belongs to ONE wallpaper rather than to the
- * profile as a whole — the difference between "the CDN is down" and "the host is
- * missing `modelbg-m6`", which are different problems for whoever has to fix it.
+ * The assembled profile, or why there is none. `slot` is set when the failure
+ * belongs to ONE wallpaper ("the host is missing `modelbg-m6`") rather than to the
+ * profile as a whole ("the CDN is down").
  */
 export type PresetResult =
   | { ok: true; preset: ThemeFile }
@@ -243,11 +235,7 @@ export interface ThemeSectionProps {
   ctx: Ctx
   /** Active UI language of the section, for copy that is not in the dictionary. */
   lang: 'zh' | 'en'
-  /**
-   * The model-resolution facts of this session, read on demand (the page that
-   * shows which rule the current model resolved to asks for them when it renders,
-   * so they are never stale).
-   */
+  /** Model-resolution facts, read on demand when the page renders (never stale). */
   readModelFacts: () => ModelFacts
   /** Create a rule at the END of the list; returns its id. */
   addRule: () => string
@@ -311,12 +299,8 @@ export interface ThemeSectionProps {
    */
   showRuleImage: (id: string, slot: string) => void
   /**
-   * Hydrate every image of one rule into the paintable cache.
-   *
-   * Boot only reads a rule's FIRST image (see `bootSlots` in index.tsx), so an
-   * expanded card asks for the rest here — which is the only thing standing
-   * between "ten images per rule" and a settings panel that spends its start-up
-   * shipping full-size data URLs over the RPC channel.
+   * Hydrate every image of one rule into the paintable cache. Boot reads only each
+   * rule's FIRST image (`bootSlots` in ./boot); an expanded card asks for the rest.
    */
   loadRuleImages: (id: string) => Promise<void>
   /** Store (or clear) ONE image's bytes; the slot says which. */
@@ -331,12 +315,7 @@ export interface ThemeSectionProps {
   setRightbarOpacity: (v: number | null) => void
   /** Fill a rule's theme color from its image when the rule has none yet. */
   setAutoExtract: (v: boolean) => void
-  /**
-   * Patch the GLOBAL wallpaper-switch transition — the effect every change uses,
-   * its easing, and whether the duration is each rule's own or one global value.
-   *
-   * It paints nothing on its own: it decides what the NEXT switch looks like.
-   */
+  /** Patch the GLOBAL switch transition; it decides what the NEXT switch looks like. */
   setTransition: (patch: Partial<TransitionConfig>) => void
 
   // ── Holiday overrides ──────────────────────────────────────────────────────

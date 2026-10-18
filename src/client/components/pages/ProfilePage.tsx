@@ -49,6 +49,11 @@ const REC_ERROR_KEYS: Record<string, string | undefined> = {
   'newer version': 'recFailNewer',
   'too many images': 'recFailTooMany',
   'too large': 'recFailTooLarge',
+  // The node half reports this when the asset host's config is written for a shape
+  // OLDER than this build writes. The sanitizer would read it, but every field it
+  // predates would be silently defaulted, so it is refused — and it must NOT read
+  // as a network failure, because retrying will never fix it.
+  'stale profile': 'recFailStale',
 }
 
 /** Size of a download, at the precision a person reads it at. */

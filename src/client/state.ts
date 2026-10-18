@@ -24,15 +24,13 @@ export const DEFAULT_CONFIG: ThemeConfig = freshThemeConfig()
 export let cfg: ThemeConfig = freshThemeConfig()
 
 // ── Image cache (slot → data URL) ──────────────────────────────────────────
-// Rule images are fetched lazily per slot; only the active rule's bytes are
-// needed to paint, the rest are loaded when their card is expanded.
+// Rule images are fetched lazily per slot: only the active rule's bytes are needed
+// to paint, the rest load when their card is expanded.
 //
-// Two URLs are kept per slot: the DATA URL is what gets persisted and embedded
-// in an export, while the DISPLAY URL is an object URL derived from it. Painting
-// goes through the display URL because `background-image: url(data:…)` is
-// re-decoded on every assignment — a visible stall on every model switch for a
-// multi-megabyte wallpaper — whereas a blob URL is served from the browser's
-// memory cache after the first load.
+// Two URLs per slot: the DATA URL is what is persisted and exported, the DISPLAY
+// URL is an object URL derived from it and used for painting, because assigning
+// `url(data:…)` re-decodes the photo on every switch while a blob URL is served
+// from memory after the first load.
 const images = new Map<string, string>()
 const displayUrls = new Map<string, string>()
 
@@ -136,23 +134,16 @@ export function activeImage(): BgImage | null {
 export function activeSlot(): string { return activeImage()?.slot ?? '' }
 
 /**
- * The theme color in force right now, or null for "follow the system theme".
+ * The theme colour in force right now, or null for "follow the system theme".
  *
- * Two rungs, in this order and no others:
- *   1. the color of the IMAGE that is on screen, when the rule has one;
- *   2. the rule's own color, which is all an image-less rule has to paint with.
+ * Two rungs and no others: the colour of the IMAGE being painted, else the rule's
+ * own colour (all an image-less rule has). There is deliberately no third rung
+ * where an image inherits its rule's colour — that would make a rotation through a
+ * green, a red and a system-themed picture inexpressible, and clearing a picture's
+ * colour would only hand it back to the rule's.
  *
- * There is deliberately no third rung where an image INHERITS its rule's color:
- * a rule's color is not a default for its pictures (see `BgRule.color`). If it
- * were, a rotation through a green picture, a red one and a system-themed one
- * could not be expressed at all — clearing a picture's color would only hand it
- * back to the rule's, and the clear button would look broken. Images that predate
- * per-image colors get the rule's color LIFTED onto them at read time instead
- * (`normalizeImage`), so nothing loses its theme on upgrade.
- *
- * The image is the one being PAINTED (`imageIndexOf`), not the one the panel has
- * selected — the panel's selection is an editing cursor and must not repaint the
- * interface while the user is fixing another picture's framing.
+ * The image is the one being PAINTED, not the one the panel has selected: the
+ * selection is an editing cursor and must not repaint the interface.
  */
 export function activeColor(): [number, number, number] | null {
   const rule = activeRule()

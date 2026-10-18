@@ -32,12 +32,33 @@ import { join } from 'node:path'
 // MUST precede the import below: dsh-home-path resolves $DSH_HOME per call, but
 // the plugin module reads it as soon as the first RPC arrives, and pointing this
 // at the real home would rewrite the user's live config.
-const HOME = mkdtempSync(join(tmpdir(), 'dsh-bg-check-'))
+//
+// Two homes, tried in order, because a sandbox can deny the platform temp dir
+// while leaving the working tree writable (the failure is an EACCES from
+// mkdtemp, not a test failure, and it would abort the whole suite).
+const homeBase = (() => {
+  const candidates = [tmpdir(), join(process.cwd(), 'node_modules', '.cache')]
+  for (const base of candidates) {
+    try { mkdirSync(base, { recursive: true }); return base } catch { /* next */ }
+  }
+  return process.cwd()
+})()
+const HOME = mkdtempSync(join(homeBase, 'dsh-bg-check-'))
 process.env.DSH_HOME = HOME
 const DATA = join(HOME, '.dsh-background-by-model-data')
 
 // A file:// URL, not a path: on Windows the ESM loader rejects `E:\…` outright.
 const { apply } = await import(new URL('../lib/index.js', import.meta.url).href)
+// The shape this build writes: fixture manifests declare it, and the stale case
+// declares one less. Read from the source, so a bump moves the fixtures with it
+// instead of turning every preset check into a "stale profile".
+const SCHEMA_VERSION = Number(
+  /export const SCHEMA_VERSION = (\d+)/.exec(readFileSync(new URL('../src/schema.ts', import.meta.url), 'utf8'))?.[1],
+)
+if (!Number.isFinite(SCHEMA_VERSION)) {
+  console.error('could not read SCHEMA_VERSION from src/schema.ts')
+  process.exit(1)
+}
 
 // ── the network, stubbed ───────────────────────────────────────────────────
 // A real 2×2 WebP, 38 bytes: the node half validates a download by its magic
@@ -97,30 +118,72 @@ const check = (label, ok, detail = '') => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`)
 }
 
+// The channel registry the connection service offers — the same one the host
+// mounts `/api` on. THE STUB MIRRORS CORDIS, and the two details that cost the
+// 0.9.0 build every RPC call are here on purpose:
+//
+//   1. `inject` is an ACCESSOR bound to the reading context, so the callback gets
+//      a CHILD fiber that can resolve only what was asked for. A stub that hands
+//      the ROOT context straight back hides a callback reading anything else —
+//      the plugin then throws inside its registration, the page still renders
+//      (the client half paints from its own state), and every RPC answers 405.
+//   2. the handler receives the ENDPOINT (namespace/method), not a channel.
 let handler = null
-apply({
-  inject: (_deps, cb) => cb({
-    webServer: { register: (spec) => { handler = spec.handler; return () => {} } },
-    connection: { requestRejection: () => undefined },
-    effect: (cb) => cb(),
-  }),
-})
+let registered = null
+const conn = { rpc: { handle: (channel, h) => { registered = channel; handler = h; return () => {} } } }
+const webServer = {}
+const requested = []
+const root = {
+  inject(deps, cb) {
+    // Real cordis behaviour: an own property read off the context is bound to it;
+    // a bare function loses the receiver and must not be able to resolve anything.
+    if (this !== root) throw new Error('inject called without its context (this)')
+    requested.push(...deps)
+    // The child fiber a real inject creates: ONLY the declared services resolve,
+    // and they are read through the context's own `get` (not as properties).
+    const child = {
+      get: (k) => (deps.includes(k) ? { connection: conn, webServer }[k] : undefined),
+      effect: (fn) => fn(),
+    }
+    cb(child)
+  },
+}
+// IMPORTANT: the model above is the SAME shape as the plugin's own wiring, so a
+// mount error here fails the run instead of being linted around. `ctx.plugin` is
+// how ./index mounts ./rpc-host.
+root.plugin = (p, config) => {
+  console.log('  mounts', p.name ?? '(apply)', 'config=', JSON.stringify(Object.keys(config ?? {})))
+  // A child context (cordis builds one per fiber): the services are the parent's,
+  // `config` is what this mount was given, and `effect` runs the disposer chain.
+  const ctx = { connection: conn, webServer, config, effect: (fn) => fn() }
+  p.apply(ctx)
+}
+apply(root)
 check('the RPC handler registers itself', typeof handler === 'function')
+// The transport declares the two services it reads, and reads them off the context
+// cordis hands `apply` — never through a nested `ctx.inject`, which is the shape
+// that lost them and turned every call into a 405.
+const hostSrc = readFileSync(new URL('../src/rpc-host.ts', import.meta.url), 'utf8')
+const hostInject = /export const inject = \[([^\]]*)\]/.exec(hostSrc)?.[1] ?? ''
+check('the transport declares the services it reads',
+  hostInject.includes("'connection'") && hostInject.includes("'webServer'"), hostInject.trim())
+// Comments stripped first: the header explains the nested-inject trap in prose.
+const hostCode = hostSrc.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !/^\s*\*/.test(l)).join('\n')
+// Counted, not tested: the message then says how many there are, which is the one
+// thing the question needs when it fails.
+const nestedInjects = (hostCode.match(/\.inject\s*\(/g) ?? []).length
+check('and never nests an inject of its own', nestedInjects === 0,
+  `${nestedInjects} nested call(s)` )
+// The channel is the plugin's OWN, and the registry maps it to a physical route;
+// a second registration of the same path throws at load, so this pins that the
+// channel name did not drift into one another plugin already owns.
+check('on the plugin\'s own channel prefix', registered, '/dsh-background-by-model')
 if (typeof handler !== 'function') process.exit(1)
 
-/** One call through the real handler, envelope and URL included. */
+/** One call through the real handler, exactly as `rpc.handle` delivers it:
+ *  the endpoint, the payload, then the abort signal and the peer. */
 async function call(method, payload = {}) {
-  const full = `dshBackgroundByModel/${method}`
-  const req = {
-    method: 'POST',
-    url: `/dsh-background-by-model/${full}`,
-    async *[Symbol.asyncIterator]() {
-      yield Buffer.from(JSON.stringify({ type: 'client-request', rpcId: 'check', method: full, payload }))
-    },
-  }
-  let out = ''
-  await handler(req, { writeHead() {}, end(b) { if (b !== undefined && b !== null) out += b.toString() } })
-  return JSON.parse(out).result
+  return await handler(`dshBackgroundByModel/${method}`, payload, new AbortController().signal, undefined)
 }
 const dataUrl = async (slot) => (await call('readImage', { slot })).value?.dataUrl ?? null
 const bytes = (u) => Buffer.from(u.slice(u.indexOf(',') + 1), 'base64').length
@@ -912,7 +975,7 @@ const presetConfig = {
   ],
 }
 const presetDir = () => new Map([
-  ['preset.json', Buffer.from(JSON.stringify({ version: 6 }))],
+  ['preset.json', Buffer.from(JSON.stringify({ version: SCHEMA_VERSION }))],
   ['theme-config.json', Buffer.from(JSON.stringify(presetConfig))],
   ['modelbg-m1', WEBP],
   ['modelbg-m2', WEBP],
@@ -921,7 +984,7 @@ routes = presetDir()
 const beforeHead = fetchLog.length
 const head = (await call('fetchPresetConfig')).value
 check('the manifest and the config are fetched, and the config is sanitized',
-  head?.ok === true && head.version === 6 && head.config?.rules?.length === 2, JSON.stringify(head?.error ?? head?.version))
+  head?.ok === true && head.version === SCHEMA_VERSION && head.config?.rules?.length === 2, JSON.stringify(head?.error ?? head?.version))
 check('and it cost exactly two requests, manifest first',
   fetchLog.length === beforeHead + 2
   && fetchLog[beforeHead].endsWith('/dsh-background-by-model/preset/preset.json')
@@ -1019,7 +1082,7 @@ routes = null
 // "retry", "do not retry, it is not a profile", "update the plugin", "nobody
 // should install this".
 downMirrors = ['cdn.jsdelivr.net', 'raw.githubusercontent.com']
-jsonBody = JSON.stringify({ version: 6 })
+jsonBody = JSON.stringify({ version: SCHEMA_VERSION })
 check('with every mirror down there is no profile, and no exception',
   (await call('fetchPresetConfig')).value?.error === 'download failed')
 downMirrors = []
@@ -1041,6 +1104,13 @@ check('a mirror answering 200 with a non-JSON manifest is not a profile',
 jsonBody = JSON.stringify({ version: 'six' })
 check('nor is a manifest whose version is not a number',
   (await call('fetchPresetConfig')).value?.error === 'not a profile')
+// The OTHER direction: the asset host's profile is older than this build. It is
+// refused under its own code, because "check your connection" is the wrong advice
+// for it — retrying never helps. This is the case the live assets were in while
+// the build moved to schema 9.
+jsonBody = JSON.stringify({ version: SCHEMA_VERSION - 1 })
+check('a profile written for an older shape is refused as stale, not as a network failure',
+  (await call('fetchPresetConfig')).value?.error === 'stale profile')
 // The gate itself: a profile written for a shape this build cannot read. Refused
 // before a single wallpaper is requested, which is the point of asking early.
 const beforeNewer = fetchLog.length
@@ -1049,9 +1119,9 @@ check('a profile written for a newer shape is refused before anything is fetched
   (await call('fetchPresetConfig')).value?.error === 'newer version'
   && fetchLog.length === beforeNewer + 1,
   JSON.stringify(fetchLog.slice(beforeNewer)))
-jsonBody = JSON.stringify({ version: 6 })
+jsonBody = JSON.stringify({ version: SCHEMA_VERSION })
 routes = new Map([
-  ['preset.json', Buffer.from(JSON.stringify({ version: 6 }))],
+  ['preset.json', Buffer.from(JSON.stringify({ version: SCHEMA_VERSION }))],
   ['theme-config.json', Buffer.from('not json at all')],
 ])
 check('a config that is not JSON is not a profile',
@@ -1072,7 +1142,7 @@ check('a config naming more images than the cap is refused outright',
 // plain stub, since the directory above would answer before these knobs apply.
 routes = null
 claimedLength = 64 * 1024 * 1024
-jsonBody = JSON.stringify({ version: 6 })
+jsonBody = JSON.stringify({ version: SCHEMA_VERSION })
 check('a mirror announcing an oversized body is refused before it is read',
   (await call('fetchPresetConfig')).value?.error === 'download failed')
 claimedLength = null

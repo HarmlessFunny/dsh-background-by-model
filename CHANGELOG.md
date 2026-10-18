@@ -1,12 +1,22 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.8.2 / v0.8.1).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.9.0 / v0.8.2).
+
+## v0.9.0
+
+- **The RPC channel goes through the host's own `connection.rpc.handle`** — the hand-written envelope parsing, body cap, 401/403 fence and method match are gone, so those semantics follow the host.
+- **Exporting a theme no longer revokes its object URL in the same tick** (which cancels the download in some browsers) — the anchor is attached to the document and released on the next task.
+- **Four timers become one scheduler** — the model poll, the theme watchdog, the holiday rollover and the two delayed restores share one clock and one dispose, pause while the tab is hidden, and declare their cadences in `cadence.ts`.
+- **The browser entry point drops from 1,492 lines to modules** — skin, watchdogs, rotation, boot hydration, model state, auto-extraction, theme files and the nav icon each get a file; `index.tsx` is wiring.
+- **Comments state why, not what happened** — history is one line or the CHANGELOG's job, and `schema.ts` records its version history as a table.
+- **`check:watchdogs` is new** — one beat, per-entry due times, paused when hidden, no timer left after dispose, and no module arming an interval behind the scheduler.
+- **The RPC transport is its own mounted plugin** — `ctx.inject` from inside `apply` does not inherit the module's declared services, so `connection` was missing, the registration threw inside its effect and every call answered 405 while the page kept rendering; `lib/rpc-host.js` is a `cordis.patch.yml` row now, and the check harness mounts it the way the host does.
+- **The RPC endpoint is back to the namespace-only form** — the handler was adapted to a `(channel, endpoint, …)` signature and every call then answered 405 while the page kept rendering (its data is written at boot); the registry hands the handler the namespace endpoint alone.
+- **A stale recommended profile says so instead of blaming the network** — the asset host's `preset.json` declares schema 6 while this build writes 9, and the button reported "check your connection"; a config older than the build is now refused under its own code with copy that names the real problem, and `check:scheme` fetches the live manifest and compares it with `SCHEMA_VERSION`.
+- **The scheme flag is the host's again** — `data-ds-dark-theme` is only corrected when it still carries the plugin's own value, so a host that went dark on its own is no longer pushed back to light; a moved host scheme repaints instead of waiting for an unrelated apply; and dropping the token sheet now drops `data-dab-themed` with it.
 
 ## v0.8.2
 
-- **The dsh dependency floor moves to the host's own version (`>=0.2.1-alpha.2`)** — `engines.dsh`, the five `dsh-client-*` peers and `dsh-home-paths` still asked for the 0.1.7 generation while the harness in use is 0.2.1-alpha.2. Those five are the packages the host injects into the browser half, so the declaration is what says which generation this code was written against — with the old floor an install could pair it with the previous one. `dsh-invariants` cannot follow (npm has no 0.2.1-alpha.2 of it, and a 0.2.x host does not ship it), so it keeps `>=0.1.7-rc.2`; `@deepseek-ai/cordis` is untouched. The lockfile resolves the dsh family to 0.2.1-alpha.2, and `pnpm test` is ten checks, all green against it.
-
-## v0.8.1
 
 - **The wallpaper layer gains a brightness slider, next to opacity and blur** — the two existing sliders could take a picture down and frost it, but nothing could lift one: an underexposed photo, a night shot or a dim monitor meant editing the file before it went in. The new **背景亮度 / Background brightness** slider sits between them (`0–200%`, `100%` untouched, double-click to reset) and belongs to the rule, exactly like the other two, so each model's wallpaper keeps its own exposure. A festival wallpaper's brightness is yours as well, like its opacity and framing; its slot, mode and colors stay the definition's.
 - **The two effects that share `filter` are composed in ONE place (a fix waiting to happen)** — brightness and blur are one CSS property, so a second assignment anywhere would have left whichever ran last and silently dropped the other. There is now a single `wpFilter()` that builds the string from the active rule (brightness first, blur second, and the neutral brightness left out so an untouched wallpaper keeps the empty `filter` it always had), and both the full apply and the live drag write through it. The old standalone `setWpBlur` helper had no callers and is now the parameterless `setWpFilter`.

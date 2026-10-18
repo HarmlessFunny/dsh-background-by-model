@@ -1,23 +1,16 @@
 /**
  * The persisted configuration shape — declared exactly ONCE, for both halves.
  *
- * This shape used to be written out twice: the node half owns persistence and
- * sanitizes every write, the browser half owns the UI and its own reading of the
- * same file. A field added to only one side was silently dropped by the other
- * side's sanitizer — the matching slider stayed live in memory, `writeConfig`
- * wrote a config without it, and the next load fell back to the default.
- * `blurs.rightbar` / `rightbarOpacity` in 0.3.2 was exactly that bug, and the key
- * lists were duplicated 6 times across the two halves, so it was due to happen.
+ * The types, the key lists, the defaults and the pure normalizers live here and
+ * both halves import them, so adding a field means editing this file and the two
+ * halves cannot disagree about the shape. (This was written twice until 0.3.2,
+ * when a field declared on one side was silently dropped by the other side's
+ * sanitizer.) The host also logs one warning per unknown key while sanitizing a
+ * write (`warnUnknownConfigKeys` in `src/index.ts`), so a field that reaches the
+ * node half without being declared here shows up in the log.
  *
- * The types, the key lists, the defaults and the pure normalizers therefore live
- * here and both halves import them: adding a field means editing this file, and
- * the two halves cannot disagree about the shape. The host additionally logs one
- * warning per unknown key while sanitizing a write (see `warnUnknownConfigKeys`
- * in `src/index.ts`), so a field that reaches the node half without being
- * declared here shows up in the host log instead of quietly disappearing.
- *
- * Nothing in this module may touch the DOM, Node or the Cordis context: it is
- * imported by the browser bundle and by the node half alike.
+ * Nothing here may touch the DOM, Node or the Cordis context: it is imported by
+ * the browser bundle and by the node half alike.
  */
 
 import { HOLIDAYS } from './holiday'
@@ -29,27 +22,14 @@ export interface BgState { zoom: number; x: number; y: number; iw: number; ih: n
 export const DEFAULT_BG_STATE: BgState = { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 }
 
 /**
- * One image of a rule: its slot, plus everything that belongs to THAT image —
- * its layout mode, its framing and its theme color.
+ * One image of a rule: its slot and everything that belongs to THAT picture — its
+ * layout mode, its framing and its theme colour.
  *
- * All three are per image because all three are properties of a picture. The
- * layout mode is the newest of them, and the argument is the same one that moved
- * the framing down: 适应/填充 decides how a picture meets the viewport, and two
- * wallpapers in one rotation — a 3:2 photo and a tall phone screenshot — do not
- * want the same answer. `fit` letterboxes the one that `fill` would crop, and one
- * rule-level value meant every picture in a rotation had to accept the other
- * one's compromise.
- *
- * The theme color is per image one step further out: a rule is a rotation
- * through several pictures, and pictures that were collected for different moods
- * do not share one accent. A rule's own `color` therefore means something
- * narrower than it used to (see `BgRule.color`) — it is what a rule with no image
- * left paints.
- *
- * NULL IS NOT AN OPINION here, unlike the color: `bgMode` is always one of
- * `BG_MODES`, and every entry that lacks the KEY is lifted from the rule-level
- * value a pre-0.7.5 config carried (see `normalizeImage`). There is no "follow the
- * rule" state to express, because the rule no longer has a mode at all.
+ * All three are per image because all three are properties of a picture: two
+ * wallpapers in one rotation (a 3:2 photo and a tall screenshot) do not want the
+ * same layout mode or the same accent, and one rule-level value forced each
+ * picture to accept the other's compromise. A rule's own `color` is therefore
+ * only what a rule with no image left paints (see `BgRule.color`).
  */
 export interface BgImage {
   /** Image slot; the bytes live in `modelbg-<slot>` under the data dir. */
@@ -57,30 +37,22 @@ export interface BgImage {
   /**
    * How THIS image meets the viewport (see `BgMode`).
    *
-   * Written by every release from 0.7.5 on. An entry that predates the field has no
-   * `bgMode` KEY, which is exactly how `normalizeImage` tells "this image never
-   * had a mode of its own" from "this image was explicitly set to 适应" — and why
-   * the rule's own mode is lifted onto it on read rather than being quietly
-   * replaced by the default.
+   * An entry with no `bgMode` KEY predates per-image modes; `normalizeImage` lifts
+   * the rule-level mode a schema-5 config carried onto it rather than resetting it
+   * to the default.
    */
   bgMode: BgMode
   /** This image's framing (zoom + fractional center + intrinsic size). */
   bgState: BgState
   /**
-   * This image's own theme color as `[h, s, l]`, or null for "follow the system
+   * This image's own theme colour as `[h, s, l]`, or null for "follow the system
    * theme while THIS image is on screen".
    *
-   * Null is an opinion, not an absence: it is the state the clear button puts an
-   * image in, and it is deliberately NOT the rule's color — an image's color is
-   * the image's, which is what makes a rotation through a green, a red and a
-   * system-themed picture expressible at all. The rule's own color only applies
-   * when the rule has no image to speak for it.
-   *
-   * Written by every release from 0.7.1 on. An entry that predates the field has
-   * no `color` KEY at all, which is exactly how `normalizeImage` tells "this
-   * image never had a color of its own" from "this image was explicitly cleared"
-   * — and why the rule's color is lifted onto such an entry on read rather than
-   * being quietly dropped.
+   * Null is an opinion, not an absence: it is what the clear button stores, and it
+   * is deliberately NOT the rule's colour — that distinction is what makes a
+   * rotation through a green, a red and a system-themed picture expressible. An
+   * entry with no `color` KEY predates per-image colours; `normalizeImage` lifts
+   * the rule's colour onto it so an upgrade keeps its theme.
    */
   color: [number, number, number] | null
 }
@@ -107,18 +79,14 @@ export const ROTATE_MAX_MS = 24 * 60 * 60 * 1000
 /**
  * Multi-image rotation, per rule.
  *
- * OFF by default, and that is a deliberate product decision: switching images by
- * itself costs memory, bandwidth and CPU on a wallpaper that nobody asked to
- * animate. `intervalMs` is the dwell time, `order` picks the next image, and
- * `advanceOnSwitch` also steps once when the model switch lands on this rule —
- * so a model can have "a different picture every time" without any timer at all.
+ * OFF by default: switching images costs memory, bandwidth and CPU on a wallpaper
+ * nobody asked to animate. `advanceOnSwitch` steps once when the model switch
+ * lands on this rule, so "a different picture every time" needs no timer at all.
  *
- * There is deliberately no fade here: how long a switch takes is the GLOBAL
- * switch effect's business (`TransitionConfig`), because a rule has no notion of
- * a transition. The per-rule `fadeMs` this block used to carry was a field no
- * control ever reached — a setting nobody could set — so the first build that
- * has a duration control at all folded it into the global one (see
- * `normalizeTransition`).
+ * There is deliberately no fade here: how long a switch takes is the GLOBAL switch
+ * effect's business (`TransitionConfig`), because a rule has no notion of a
+ * transition. A per-rule `fadeMs` from 0.7.x is lifted into the global duration on
+ * read (see `legacyFadeMs`).
  */
 export interface BgRotation {
   enabled: boolean
@@ -142,48 +110,35 @@ export const DEFAULT_ROTATION: BgRotation = {
 export function defaultRotation(): BgRotation { return { ...DEFAULT_ROTATION } }
 
 /**
- * Main interface opacities (0..1), global (Interface page):
- *   `bg`      main background (`--dsw-alias-bg-base`)
- *   `sidebar` sidebar (`--dsw-specific-sidebar-fill`)
- *   `card`    cards/panels (`--dsw-alias-bg-layer-1/2/3`, `--dsw-specific-menu`
- *             and its 0.1.7 alias `--dsw-menu-surface-fill`)
- *   `code`    code blocks, banner included (`--dsw-alias-markdown-code-block`,
- *             `--dsw-alias-markdown-code-block-banner`)
- *   `input`   input/control surfaces (`--dsw-specific-input-major`)
+ * Main interface opacities (0..1), global (Interface page) — each part is the token
+ * set it owns:
+ *   `bg`       `--dsw-alias-bg-base`
+ *   `sidebar`  `--dsw-specific-sidebar-fill`
+ *   `card`     `--dsw-alias-bg-layer-1/2/3`, `--dsw-specific-menu` (and its alias
+ *              `--dsw-menu-surface-fill`)
+ *   `code`     `--dsw-alias-markdown-code-block`, `…-banner`
+ *   `input`    `--dsw-specific-input-major`
  */
 export const PART_OPACITY_KEYS = ['bg', 'sidebar', 'card', 'code', 'input'] as const
 
 /** Per-part main interface opacities (0..1), keyed BY the list above. */
 export type PartOpacities = Record<(typeof PART_OPACITY_KEYS)[number], number>
 
-// The numbers below are what a FRESH INSTALL starts on, and they are the author's
-// own profile: the Interface tab's numbers, exactly as the recommended profile on
-// the asset host carries them (`dsh-background-by-model/preset/theme-config.json`).
-// A new install therefore already looks like that profile, and its one-click
-// download adds the pictures rather than changing anything on this tab. The two
-// settings this tab does not own are deliberately NOT copied from it: the festival
-// switch ships off (see DEFAULT_HOLIDAYS_ENABLED) and the switch duration keeps
-// the 320 ms cross-fade every earlier release used (see DEFAULT_TRANSITION).
+// A fresh install starts on the author's own profile — these are the Interface
+// tab's numbers as the recommended profile on the asset host carries them — so the
+// one-click download adds pictures rather than changing this tab. The two settings
+// this tab does not own are NOT copied from it: the holiday switch ships off (see
+// DEFAULT_HOLIDAYS_ENABLED) and the duration keeps the 320 ms cross-fade.
 //
-// That reversed how these were chosen. Every one of them used to be picked per
-// key for safety, which is why the panel opened on a pale approximation of the
-// host rather than on anything anyone would actually run: `code` was fully opaque
-// because "a code block is read, not looked through", and `bg` was 0.85 so the
-// host surface stayed visible under it. Two consequences are worth knowing. The main background now
-// starts at 0%, so it is entirely the wallpaper — with no wallpaper yet, it is
-// the host's own canvas (the palette and its ink are unaffected: they come from
-// the colour, not from this alpha). And a config that does not mention one of
-// these keys lands on the profile's value too, which is the intent: a missing key
-// and a fresh install should never show two different panels.
+// `bg` is 0 on purpose: the main background is entirely the wallpaper (and the
+// host's own canvas while there is none — the palette and its ink come from the
+// colour, not from this alpha). A config that omits one of these keys lands on the
+// same value, so a missing key and a fresh install never show two different panels.
 export const DEFAULT_PART_OPACITIES: PartOpacities = { bg: 0, sidebar: 0.1, card: 1, code: 0.81, input: 0.88 }
 
-// There is deliberately NO per-part interface blur beside these. The Interface
-// page used to carry a blur slider per surface; what it frosted was either the
-// wallpaper behind a column (which the wallpaper layer's own blur already does,
-// per rule) or a panel whose backdrop nobody reads once it is translucent. The
-// whole capability — the field, the sliders, the underlays — was removed in
-// 0.8.1, and only the wallpaper layer's own `blur` (a BgRule field, see
-// `applyWpEffects`) is left.
+// There is deliberately NO per-part interface blur beside these: frosting a column
+// only blurs the wallpaper behind it, which the wallpaper layer's own per-rule
+// `blur` already does (see `applyWpEffects`).
 
 // ── Wallpaper switch transition (global) ───────────────────────────────────
 
@@ -191,41 +146,24 @@ export const DEFAULT_PART_OPACITIES: PartOpacities = { bg: 0, sidebar: 0.1, card
 export const TRANSITION_MAX_MS = 3_000
 
 /**
- * What a wallpaper CHANGE looks like.
+ * What a wallpaper CHANGE looks like. Global by design: a rule has no notion of a
+ * transition, and there is exactly ONE duration for every switch.
  *
- * Global by design, all three parts of it: a rule has no notion of a transition,
- * and there is exactly ONE duration for every switch. The per-rule `fadeMs` that
- * used to carry the duration was a field no control ever reached, so offering a
- * choice between "each rule's own" and "one global value" would have been
- * offering a choice between a real setting and a phantom one.
- *
- * `fade` is the cross-fade every release so far performed, so the shipped
- * default is exactly the behaviour of the build before this setting existed:
- * adding a global switch must not change what anybody already sees.
+ * `fade` is the cross-fade every earlier release performed, so the shipped default
+ * changes nothing for anyone who upgrades.
  */
 export type TransitionEffect = 'fade' | 'none' | 'zoom' | 'slide'
 
 /** Every accepted `effect`, in UI order. */
 export const TRANSITION_EFFECTS: readonly TransitionEffect[] = ['fade', 'none', 'zoom', 'slide']
 
-/**
- * The transition's timing function, global along with the effect.
- *
- * `ease` is the curve the cross-fade already ran on, so the default does not
- * move either.
- */
+/** The timing function, global along with the effect; `ease` is the curve the existing cross-fade ran on. */
 export type TransitionEasing = 'ease' | 'linear' | 'ease-out' | 'ease-in-out'
 
 /** Every accepted `easing`, in UI order. */
 export const TRANSITION_EASINGS: readonly TransitionEasing[] = ['ease', 'linear', 'ease-out', 'ease-in-out']
 
-/**
- * The global wallpaper-switch transition.
- *
- * There is deliberately no `enabled`: switching it off and picking `none` are
- * the same state, and two controls that mean one thing is how a panel starts
- * contradicting itself.
- */
+/** The global wallpaper-switch transition. No `enabled`: off and `none` are one state. */
 export interface TransitionConfig {
   /** What a change looks like. `none` is a hard cut whatever the duration says. */
   effect: TransitionEffect
@@ -261,48 +199,36 @@ export interface BgRule {
    */
   match: string
   /**
-   * The rule's images, in order. `images[0]` is the one painted when no rotation
-   * is running. The list may legitimately be EMPTY (every picture removed): the
-   * rule then paints its own theme color alone, or nothing at all when it has no
-   * color either — see `ruleCanPaint`, which is what matching asks.
+   * The rule's images, in order. `images[0]` is painted when no rotation runs.
    *
-   * This replaced the single `slot`/`bgState` pair in 0.7.0. A config written by
-   * an earlier version is lifted to `[{ slot, bgState }]` on read (see
-   * `normalizeRule`), so both shapes live on ONE in-memory shape and only the new
-   * one is ever written back — the same "declare it once" rule as this file's
-   * header.
+   * The list may legitimately be EMPTY: the rule then paints its own colour alone,
+   * or nothing at all when it has none either — see `ruleCanPaint`, which is what
+   * matching asks. A pre-0.7 config's single `slot`/`bgState` pair is lifted into a
+   * one-entry list on read (`normalizeRule`), so only this shape is ever written.
    */
   images: BgImage[]
   /** Disabled rules are skipped by matching AND by the fallback pick. */
   enabled: boolean
   /**
-   * The theme color of the rule ITSELF: what an image-less rule paints the
-   * interface from. Null = that rule falls back to the system theme.
+   * The theme colour of the rule ITSELF: what an image-less rule paints from. Null
+   * = follow the system theme.
    *
-   * It is not a default for the rule's images — each of those carries its own
-   * (`BgImage.color`) and never inherits this one at paint time. The only
-   * inheritance that exists is a one-shot LIFT at read time for configs written
-   * before per-image colors, so a rule that was themed before 0.7.1 comes back
-   * looking exactly the same (see `normalizeImage`).
+   * It is NOT a default for the rule's images (each carries its own, and never
+   * inherits this one at paint time). The only inheritance is the one-shot lift
+   * `normalizeImage` performs for configs written before per-image colours.
    */
   color: [number, number, number] | null
-  // There is deliberately NO `bgMode` here any more: the layout mode belongs to
-  // each image (`BgImage.bgMode`), for the same reason the framing does — two
-  // pictures in one rotation do not want the same one. A config written by a
-  // release that had it here is lifted, image by image, on read.
+  // There is deliberately NO `bgMode` here: the layout mode belongs to each image
+  // (`BgImage.bgMode`). A config that carried one here is lifted on read.
   /** Wallpaper layer opacity (0..1). */
   wallpaperOpacity: number
   /**
-   * Wallpaper layer brightness, in percent: `0` is a black screen, `100` the
-   * picture exactly as its file has it, `WALLPAPER_BRIGHTNESS_MAX` the ceiling.
+   * Wallpaper layer brightness, in percent: `0` is a black screen, `100` the picture
+   * as its file has it, `WALLPAPER_BRIGHTNESS_MAX` the ceiling.
    *
-   * OPTIONAL, and that is the one thing about it worth knowing: every config
-   * written before this setting existed has no such key, and the absence has to
-   * keep meaning "untouched" all the way to the render layer rather than being
-   * filled in with a number somewhere. `rBrightness` (./client/state) is where the
-   * absence becomes `DEFAULT_WALLPAPER_BRIGHTNESS`, and it is deliberately the
-   * only place: a default written into the config would make an upgrade rewrite
-   * everybody's rule list to say what they were already looking at.
+   * OPTIONAL on purpose: the absence means "untouched", and `rBrightness`
+   * (./client/state) is the only place it becomes `DEFAULT_WALLPAPER_BRIGHTNESS`. A
+   * default written into the config would make an upgrade rewrite every rule.
    */
   brightness?: number
   /** Wallpaper layer blur (px, 0..60) — NOT the interface part blur. */
@@ -314,14 +240,10 @@ export interface BgRule {
 /**
  * Ceiling on the wallpaper layer's brightness, in percent.
  *
- * 0 % is a black screen and 100 % is the picture as it was saved, so the range a
- * slider has to reach is 0–100 to darken and 100–`WALLPAPER_BRIGHTNESS_MAX` to
- * lift a picture that is too dark to read against. The ceiling is not 100: the
- * whole point of the control is the bright half for an underexposed photo or a
- * dim monitor, and it is the HALF above 100 that a wallpaper-extraction palette
- * cannot compensate for. 200 % is where a second stop stops telling two dark
- * pictures apart — everything above it is blown out to white — so the slider
- * spends its travel where it changes something.
+ * Above 100 is the half a wallpaper-extraction palette cannot compensate for, and
+ * it is the reason the control exists at all: an underexposed photo or a dim
+ * monitor. 200 % is where a second stop stops telling two dark pictures apart —
+ * everything above it is blown out to white.
  */
 export const WALLPAPER_BRIGHTNESS_MAX = 200
 
@@ -335,56 +257,33 @@ export function ruleSlots(rule: BgRule): string[] {
 }
 
 /**
- * Whether a rule has anything to show at all: an image, or a theme color of its
+ * Whether a rule has anything to show at all: an image, or a theme colour of its
  * own. Used by matching (`usable` in ./client/modelbg) and by the panel's copy.
  *
- * An image is the obvious way a rule paints, and until 0.7 it was the ONLY one —
- * which stopped being true the moment the last image became removable. A
- * rule-level theme color is the second: it recolors the interface through the
- * token palette with no wallpaper involved, so a rule whose pictures were all
- * removed still paints, and treating it as unusable made every control left on
- * its card (the wheel, the swatches, the clear-to-system-theme button) dead — the
- * one state where the panel was confidently showing a lie. It also silently
- * handed the model to the NEXT rule, so clearing the default rule's images put
- * another model's wallpaper on the screen.
+ * The rule's own colour counts because it recolours the interface with no
+ * wallpaper involved: a rule whose pictures were all removed still paints, and
+ * treating it as unusable handed the model to the NEXT rule (another model's
+ * wallpaper on screen) while every control left on its card went dead. Per-image
+ * colours do not enter the question at all — an image is already enough.
  *
- * Note that a per-image color (0.7.1) does not enter this question at all: an
- * image is already enough, so the answer here is about the IMAGE LIST being
- * non-empty, never about what those images are painted in.
- *
- * A rule with no image and no color of its own paints nothing: the system theme
- * is not a paint of this rule's own, so such a rule is skipped by matching, which
- * is what makes a freshly added rule (empty, colorless) invisible until the user
- * gives it something.
+ * A rule with neither paints nothing, so matching skips it: a freshly added rule
+ * stays invisible until the user gives it something.
  */
 export function ruleCanPaint(rule: BgRule): boolean {
   return rule.enabled && (ruleSlots(rule).length > 0 || rule.color !== null)
 }
 
 /**
- * One built-in holiday override.
+ * One built-in holiday override — the SAME shape as a rule, by alias rather than
+ * extension.
  *
- * Deliberately the SAME shape as a rule — an alias rather than an extension: the
- * render layer resolves whatever `ruleById` returns, so making a holiday a rule
- * is what lets the wallpaper, the theme color, the layout mode and the framing
- * all work without a second code path. `id` and `slot` are fixed by `HOLIDAYS` —
- * the sanitizer overwrites them from the definition, so a hand-edited config can
- * never point a holiday at another rule's slot.
- *
- * There is deliberately nothing here about the IMAGE. A holiday's wallpaper is
- * the file its definition names in `HOLIDAYS`, which the node half downloads and
- * caches on the day it is needed rather than shipping in the package, and a
- * holiday slot is read-only — no entry point takes bytes for it. Where those
- * bytes come from is the node half's business and never this shape's: nothing
- * about it reaches the config file, so a hand-edited one cannot point a festival
- * at another picture. The feature is an easter egg, not a thing to configure.
- *
- * Its theme colors are forced from the definition for the same reason, one level
- * deeper: a holiday's color belongs to it, so `normalizeHolidayRule` rewrites both
- * the rule's color and every image's. That is also what makes a future holiday
- * with SEVERAL pictures (a rotation through festival art, each piece with its own
- * palette) a change to `HOLIDAYS` and its assets alone, rather than a second code
- * path in the render layer.
+ * The render layer resolves whatever `ruleById` returns, so a holiday is a rule and
+ * the wallpaper, colour, mode and framing all work without a second code path.
+ * `id`, the image list and every colour come from `HOLIDAYS` on read
+ * (`normalizeHolidayRule`), so a hand-edited config can neither point a festival
+ * at another picture nor paint it in a colour it does not have. Its bytes are the
+ * file the definition names, downloaded by the node half on the day it is needed;
+ * the slot is read-only and nothing about its source reaches the config file.
  */
 export type HolidayRule = BgRule
 
@@ -392,8 +291,7 @@ export type HolidayRule = BgRule
 export interface HolidaysConfig {
   /**
    * While on, a holiday whose window contains today replaces the rule the model
-   * resolved to. On unless it is explicitly turned off — the switch on the Config
-   * page is an off-ramp, not an opt-in.
+   * resolved to. Ships off (see DEFAULT_HOLIDAYS_ENABLED).
    */
   enabled: boolean
   /** One entry per `HOLIDAYS` definition, in that order. */
@@ -417,20 +315,17 @@ export interface ThemeConfig {  /** Ordered rules: matching runs top→bottom, r
   /** Translucent tint over the trajectory view surface (0 = none, 1 = solid). */
   trajectoryOpacity: number
   /**
-   * Surface opacity of the file-preview panel (0..1). `null` = never touched, so
-   * the panel keeps following `opacities.bg`: the panel's only surface IS
-   * `--dsw-alias-bg-base`, which the main-background slider already re-emits, so
-   * an untouched card must stay indistinguishable from the interface behind it.
+   * Surface opacity of the file-preview panel (0..1). `null` = never owned, so the
+   * panel follows `opacities.bg` — its only surface IS `--dsw-alias-bg-base`.
    */
   rightbarOpacity: number | null
   /**
-   * Tint behind a function page in the centre column (0..1) — 插件, 自动化任务,
-   * and every page a plugin registers of its own (上下文洞察). ONE value for all of
-   * them: the pages bring their own root elements and their own class names, so
-   * they are told apart by where they are, never by what they are called.
+   * Tint behind a function page in the centre column (0..1) — 插件, 自动化任务 and
+   * every page a plugin registers. ONE value for all of them, told apart by WHERE
+   * they are (each brings its own root element and hashed class names).
    *
-   * `0` means this plugin adds NOTHING: the page keeps the surface the host
-   * painted (see DEFAULT_PAGE_OPACITY for why the shipped value is that).
+   * `0` means the plugin adds nothing and the page keeps the host's own surface
+   * (see DEFAULT_PAGE_OPACITY).
    */
   pageOpacity: number
   /**
@@ -444,51 +339,35 @@ export interface ThemeConfig {  /** Ordered rules: matching runs top→bottom, r
 }
 
 // The three tint alphas and the panel opacity are the profile's values as well
-// (see the note above DEFAULT_PART_OPACITIES): the settings dialog stays fully
-// opaque, the conversation text box carries its 35% tint, the trajectory view
-// 73%, and the file-preview panel is OWNED from the first run at 45%.
-//
-// `rightbarOpacity` is the one default whose TYPE carries a second state, which
-// is why it is not a plain fallback: `null` means "never dragged, so follow
-// `opacities.bg`" (see `normalizeRightbarOpacity`), and a fresh config is not in
-// that state any more.
+// (see DEFAULT_PART_OPACITIES). `rightbarOpacity` is the one default whose TYPE
+// carries a second state: `null` means "follow `opacities.bg`", which a fresh
+// config is no longer in (see `normalizeRightbarOpacity`).
 export const DEFAULT_SETTINGS_OPACITY = 1
 export const DEFAULT_CHAT_TEXT_OPACITY = 0.35
 export const DEFAULT_TRAJECTORY_OPACITY = 0.73
 export const DEFAULT_RIGHTBAR_OPACITY: number | null = 0.45
 /**
- * Function pages ship UNPAINTED — the one special surface whose "off" state is
- * also its shipped state. The other three tints above paint a surface that was
- * already there (the dialog, the text box, the trajectory view), so shipping the
- * author's value only reproduces what he runs; this item ADDS a surface, and a
- * non-zero default would repaint every page of every setup on upgrade. At zero
- * the plugin writes nothing at all and the page keeps whatever the host painted.
+ * Function pages ship UNPAINTED. The other tints above repaint a surface that was
+ * already there; this item ADDS one, so a non-zero default would repaint every
+ * page of every setup on upgrade. At zero the plugin writes nothing at all.
  */
 export const DEFAULT_PAGE_OPACITY = 0
 /** Picking an image should just work; the toggle is there for people who don't want it. */
 export const DEFAULT_AUTO_EXTRACT = true
 /**
  * Holiday overrides ship OFF: a fresh install paints what the model rules say and
- * nothing else, and the single switch on the Config page is how the feature is
- * asked for.
- *
- * It shipped ON before, on the argument that the point of the feature is that the
- * background changes by itself on the day. That is the right answer for a
- * configuration somebody has already chosen — which is why the recommended
- * profile on the asset host still turns it ON — but not for a plugin that has
- * just been installed and has no wallpaper of its own yet: on the day, the first
- * thing a new user would see is a festival picture nobody asked for.
+ * nothing else, and the Config page's single switch is how the feature is asked
+ * for. (The recommended profile turns it ON — that is a configuration somebody
+ * chose.)
  */
 export const DEFAULT_HOLIDAYS_ENABLED = false
 
 /**
  * `#RRGGBB` → the `[h, s, l]` triple every rule stores (`s` and `l` in 0..1), or
- * null when the string is not a hex color.
+ * null when the string is not a hex colour.
  *
- * A holiday names its color as hex because that is how a color is quoted, and a
- * hand-converted triple is a magic number nothing downstream can check. The
- * conversion lives here rather than in ./holiday because `[h, s, l]` is this
- * module's own rule shape.
+ * Holidays name their colour as hex (`HOLIDAYS`) because a hand-converted triple
+ * is a magic number nothing downstream can check.
  */
 export function hexToHsl(hex: string): [number, number, number] | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
@@ -519,24 +398,16 @@ export function hexToHsl(hex: string): [number, number, number] | null {
 /**
  * One holiday's appearance, untouched.
  *
- * Holidays default to `fill` rather than a rule's `fit`: these are full-bleed
- * festival wallpapers, and `fit` would letterbox them on every aspect ratio the
- * art was not cut for. The mode now lives on the IMAGE (see `BgImage.bgMode`), so
- * that default is written there — and `fill` is what a holiday's read-back
- * sanitizer refuses to lose (see `normalizeHolidayRule`).
+ * The mode is `fill` rather than a rule's `fit`: full-bleed festival art would be
+ * letterboxed by `fit` on every aspect ratio it was not cut for.
  */
 export function defaultHolidayRule(def: HolidayDef): HolidayRule {
-  // The definition's own color, never an extracted one — see hexToHsl. It is
-  // written BOTH on the rule (what an image-less festival would paint) and on the
-  // image (what actually paints today), because those are two different slots in
-  // the shape now and a holiday that only filled one of them would look themed or
-  // unthemed depending on which branch the render layer happened to read.
+  // Written on BOTH the rule (what an image-less festival paints) and the image
+  // (what actually paints), because the render layer reads one or the other.
   const color = hexToHsl(def.color)
   return {
     id: def.id,
-    // Exactly one image: a holiday's art is the single file its definition
-    // names, so there is nothing for a second entry to point at and nothing for
-    // a rotation to walk.
+    // Exactly one image: a holiday's art is the single file its definition names.
     images: [{ slot: def.slot, bgMode: 'fill', bgState: { ...DEFAULT_BG_STATE }, color }],
     match: '',
     enabled: true,
@@ -553,32 +424,17 @@ export function defaultHolidayRules(): HolidayRule[] {
   return HOLIDAYS.map(defaultHolidayRule)
 }
 
-/**
- * The id the ONE rule a fresh install opens on carries.
- *
- * Deliberately the id `nextRuleId` (./client/state) would mint for an empty list:
- * the seeded rule is not a special case anywhere downstream — it is rule 1, the
- * fallback, the rule whose tab the panel selects — so nothing has to recognise it,
- * and the "add rule" beside it starts at `r2` exactly as it would have.
- */
+/** The id of the one rule a fresh install opens on — the id `nextRuleId` mints for an empty list. */
 export const BLANK_RULE_ID = 'r1'
 
 /**
- * A rule with nothing in it yet: no picture, no match string, no color.
+ * A rule with nothing in it yet: no picture, no match string, no colour — a fresh
+ * install's rule 1 and the "add rule" tile alike.
  *
- * Two states need this factory and they are the same state — a fresh install
- * (see `freshThemeConfig` and `normalizeConfig`), and the "add rule" tile one
- * entry further down the list.
- *
- * Such a rule is deliberately valid rather than half-built: it is skipped by
- * matching until it has something of its own to paint (`ruleCanPaint` — a picture,
- * or a theme color), which is what makes a rule nobody has filled in yet invisible
- * instead of letting an empty background steal the fallback from rule 1.
- *
- * It used to be born with an allocated slot and an empty image entry, which is
- * what put a blank tile at position 1 of a new rule's strip — and, worse, stopped
- * the picture the user added next from being the first one (a rule paints its
- * FIRST image). The slot is allocated when the first picture arrives.
+ * Valid rather than half-built: `ruleCanPaint` skips it until it has something of
+ * its own, so it cannot steal the fallback from rule 1. It deliberately carries NO
+ * image entry: a rule paints its FIRST image, and a placeholder slot left the
+ * picture the user added next in position 2. The slot is allocated on arrival.
  */
 export function blankRule(id: string): BgRule {
   return {
@@ -591,14 +447,11 @@ export function blankRule(id: string): BgRule {
 }
 
 /**
- * A default config with independent nested objects (never hand out the shared ones).
+ * A default config with independent nested objects (never the shared ones).
  *
- * The rule list is seeded with one blank rule rather than left empty: "no rules at
- * all" is not a state the panel should ever open in, because the first thing a new
- * user has to do is name a match string and drop a picture in — and the drop target
- * for that is the rule card, which an empty list has no way to show. The empty
- * state is still reachable (deleting the last rule is a thing the user can mean),
- * and is described by `ruleNoneHint`.
+ * Seeded with one blank rule: an empty list has no rule card, and the card is the
+ * only drop target a first picture has. Deleting every rule is still reachable and
+ * is described by `ruleNoneHint`.
  */
 export function freshThemeConfig(): ThemeConfig {
   return {
@@ -624,65 +477,24 @@ export function freshThemeConfig(): ThemeConfig {
 export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
- * The persisted SHAPE this build writes: 8 = the page tint (`pageOpacity`) is part
- * of the config; 7 = a rule carries `brightness` (the
- * wallpaper layer's 0–200 %, default 100); 6 = the layout mode belongs to an IMAGE
- * (`images[].bgMode`) and a rule has no mode of its own; 5 = the global
- * wallpaper-switch transition (`transition`) is part of the config; 4 = a theme
- * color belongs to an IMAGE (`images[].color`), and a rule's own color is what an
- * image-less rule paints.
+ * The persisted SHAPE this build writes, published by the node half on every `read`
+ * and compared by the browser half before it writes anything.
  *
- * Declared here, with the shape itself, and published by the node half on every
- * `read`. The browser half compares it before it writes anything: a client bundle
- * from a newer release can be served to a page whose host process is still
- * running an OLDER node half (update the package, then just refresh the page),
- * and that older sanitizer would silently drop every rule it does not understand.
- * Knowing the shape up front is what lets the client hold its writes and say so
- * instead.
+ * Why: a newer client bundle can be served to a page whose host still runs an OLDER
+ * node half. That sanitizer rebuilds the config from the keys it knows, dropping
+ * every field it cannot see — in silence, on the first write. Knowing the shape up
+ * front lets the client hold its writes and say so (`canWriteConfig`, ./client/rpc).
  *
- * Every bump so far was of that kind, not cosmetic. 2 → 3 was "an empty image
- * list is legal": a schema-2 host refuses one, so once this bundle could PRODUCE
- * an empty rule, every write was at risk of erasing the user's rule list — the
- * failure mode is data loss, and it arrived on the first slider drag after
- * emptying a rule. 3 → 4 is `images[].color`: the field is unknown to a schema-3
- * sanitizer, which REBUILDS each image entry from the keys it knows, so a color
- * the user set would survive in memory until the next reload and then be gone —
- * a silent, per-image loss that no warning would accompany. 4 → 5 is
- * `transition`, the same mechanism one level up: a schema-4 sanitizer rebuilds
- * the whole config from the keys it knows, so the effect, the easing and the
- * duration would all be dropped on the first write after a refresh paired a new
- * client bundle with an older host process — and 5 also carries the removal of
- * the per-rule `rotate.fadeMs`, whose value is lifted into that global duration
- * on read (see `legacyFadeMs`). 5 → 6 is `images[].bgMode`, which cuts both ways
- * and is the first bump that does: a schema-5 sanitizer rebuilds each image entry
- * from the keys it knows, so every image's mode would be dropped on the first
- * write after such a pairing (the visible failure: a rotation where one picture
- * was set to 拉伸 comes back 适应), and a schema-6 one has to LIFT the mode a
- * schema-5 config carries at the RULE level onto every image or each existing
- * wallpaper would land on the default. 6 → 7 is `brightness`, which is the
- * `images[].color` mechanism once more: a schema-6 sanitizer rebuilds each rule
- * from the keys it knows, so a brightness the user just dragged would live in
- * memory until the next reload and then be gone, silently, with the wallpaper
- * back at full. Nothing has to be lifted for the opposite direction — the field
- * is new here, and an absent one means the picture as saved, which is exactly what
- * a schema-6 config was already showing. 7 → 8 is the page tint (`pageOpacity`),
- * which is the `images[].color` mechanism on a top-level scalar: a schema-7
- * sanitizer rebuilds the whole config from the keys it knows, so the alpha a user
- * had just dragged onto a page would be gone at the next reload, silently, with
- * every page back to the host's own paint. Nothing to lift the other way either —
- * an absent `pageOpacity` is the untouched zero, which is exactly what a schema-7
- * config was already showing (that build painted no page at all). 8 → 9 is the
- * REMOVAL of `blurs` (the Interface page's per-surface blur, gone in 0.8.1), and
- * it is the same mechanism read backwards: a schema-8 sanitizer rebuilds the
- * whole config from the keys it knows, so it would re-add the field on the first
- * write — not with the user's numbers, which are gone, but with its own DEFAULTS
- * (input & controls at 60 px). A config written by this shape therefore has to be
- * announced as newer than the one that still owns the field, or an old host would
- * silently frost the input for a build that no longer has the slider. An absent
- * `blurs` in the other direction is the untouched state, since a schema-9 build
- * ignores the field wherever it finds it. The check is a
- * plain `>=`, so an older
- * host lands in the hold-writes path automatically.
+ * Every bump so far was data loss, not cosmetics:
+ *
+ *   3  an empty image list became legal (a schema-2 host refuses one)
+ *   4  `images[].color`            — new field
+ *   5  `transition`                — new field; per-rule `fadeMs` lifted into it
+ *   6  `images[].bgMode`           — new field, plus the RULE-level mode lifted
+ *   7  `brightness`                — new field
+ *   8  `pageOpacity`               — new field
+ *   9  REMOVAL of `blurs`          — a schema-8 host would re-add it with its own
+ *                                    defaults (60 px of frosting) on the first write
  */
 export const SCHEMA_VERSION = 9
 
@@ -756,18 +568,12 @@ export function legacyFadeMs(rawRules: unknown): number | undefined {
 }
 
 /**
- * Coerce one persisted transition block; a config written before this setting
- * existed has no `transition` key at all and gets the shipped default, which is
- * the behaviour it already had.
+ * Coerce one persisted transition block; a config without one gets the shipped
+ * default, which is what it was already showing.
  *
- * `legacyMs` is the per-rule `fadeMs` this shape replaced (see `legacyFadeMs`),
- * adopted only when the incoming config has no `durationMs` of its own — so a
- * deliberate hand-tuned blend survives the upgrade instead of being dropped with
- * the field it used to live on.
- *
- * `durationMs` is clamped with `0` kept as a real value (a hard cut) rather than
- * read as "absent": 0 is exactly how a hard cut is asked for without changing
- * the effect.
+ * `legacyMs` is the per-rule `fadeMs` this shape replaced (`legacyFadeMs`), adopted
+ * only when the incoming config carries no `durationMs` of its own. `0` is kept as
+ * a real value (a hard cut), not read as "absent".
  */
 export function normalizeTransition(raw: unknown, legacyMs?: number): TransitionConfig {
   const t = (raw ?? {}) as Partial<TransitionConfig>
@@ -783,25 +589,15 @@ export function normalizeTransition(raw: unknown, legacyMs?: number): Transition
 /**
  * Coerce one persisted image entry, or null when it lacks a usable slot.
  *
- * `inherit` is the RULE's own color, and it is applied only to an entry that has
- * no `color` key at all — the shape every release before 0.7.1 wrote, where a
- * rule's color was the only color there was. Lifting it here, once, is what makes
- * an upgrade a no-op on screen: a themed wallpaper keeps its theme instead of
- * silently dropping to the system palette, and it happens in the shared sanitizer
- * so both halves lift identically.
+ * `inherit` (the RULE's colour) is applied only to an entry with no `color` KEY at
+ * all — the shape written before per-image colours, where the rule's colour was the
+ * only one there was. The key's PRESENCE is the whole distinction: `color: null` is
+ * a deliberate "follow the system theme" and must not be re-inherited on every load.
  *
- * The KEY's presence is the whole distinction, which is why `null` is not the
- * same as absent: an entry with `color: null` is an image the user explicitly set
- * to "follow the system theme", and re-inheriting the rule's color over that
- * would undo a deliberate choice on every load.
- *
- * `inheritMode` is the same one-shot lift for the layout mode, and it is the
- * caller's to resolve because the two callers answer differently: a user rule
- * passes the mode its config carried at the RULE level (a schema-5 config, where
- * 适应/填充 was one choice for the whole rotation), a holiday passes `fill` (its
- * own default, which is not up for the lift to change). An entry that HAS a
- * `bgMode` key keeps it — including one that has just been set to a value equal
- * to the default, which is a decision and not an absence.
+ * `inheritMode` is the same one-shot lift for the layout mode. It is the caller's to
+ * resolve because the callers answer differently: a user rule passes the mode its
+ * config carried at the RULE level (schema 5), a holiday passes its own `fill`. An
+ * entry that HAS a `bgMode` key keeps it, even when it equals the default.
  */
 export function normalizeImage(
   raw: unknown,
@@ -819,36 +615,21 @@ export function normalizeImage(
 }
 
 /**
- * Coerce one persisted rule, or null when it names no image AT ALL.
+ * Coerce one persisted rule, or null when it names no image ANYWHERE.
  *
- * Accepts BOTH image shapes: the 0.7 list (`images`), and the single
- * `slot`/`bgState` pair every earlier version wrote — the latter is lifted to a
- * one-entry list here rather than at a dozen call sites, which is what keeps the
- * rest of the codebase free of "old config" branches. Duplicate slots inside one
- * rule are dropped: two entries pointing at the same bytes would only make the
- * rotation look stuck.
+ * Both image shapes are accepted here and nowhere else: the 0.7 list (`images`),
+ * and the single `slot`/`bgState` pair every earlier version wrote, lifted into a
+ * one-entry list. That is what keeps the rest of the codebase free of "old config"
+ * branches. Duplicate slots inside one rule are dropped — two entries pointing at
+ * the same bytes only make a rotation look stuck.
  *
- * The rule's color is resolved FIRST and handed to every image entry, because it
- * is what an entry written before 0.7.1 inherits (`normalizeImage`). The rule keeps
- * it as well: it is not a default for its images at paint time any more, but it
- * is still what the rule paints once its last picture is gone.
+ * The rule's colour is resolved FIRST and handed to every image entry (what a
+ * pre-0.7.1 entry inherits), and the rule keeps it: it is what the rule paints once
+ * its last picture is gone. The layout mode makes the same trip from the RULE level
+ * a pre-0.7.5 config carries, so the user's choice survives the move.
  *
- * The layout mode makes the same trip in the other direction, and this is the
- * last release that has to: a config written before 0.7.5 keeps `bgMode` at the RULE
- * level, where one value covered every picture of a rotation, so it is read here
- * once and handed to each image as its inherited mode. What the user chose
- * therefore survives the move the same way it survived the color's — the mode is
- * not reset to the default on upgrade, and the field it used to live on is simply
- * not written back.
- *
- * An EMPTY list is a legitimate rule, not a broken one: removing a rule's last
- * picture has to be expressible, and forcing an entry back in is what produced a
- * phantom blank image that took slot 1 and could never be deleted again (the next
- * upload landed at position 2 and the rule kept painting nothing). What such a
- * rule then does is `ruleCanPaint`'s business: with a color of its own it paints
- * the interface, with neither it is skipped by matching — which the card's own
- * hint says in so many words. Only a rule that names no image anywhere — no list,
- * no legacy slot, or a slot that could never be a filename — is dropped.
+ * An EMPTY list is a legitimate rule: removing a rule's last picture has to be
+ * expressible. `ruleCanPaint` decides what such a rule then does.
  */
 export function normalizeRule(raw: unknown): BgRule | null {
   // `slot` / `bgState` / `bgMode` are read but not declared on `BgRule` any more:
@@ -924,42 +705,28 @@ export function normalizeRule(raw: unknown): BgRule | null {
 /**
  * Coerce one persisted holiday entry.
  *
- * `id`, `images` and every theme color (the rule's and each image's) come from
- * the DEFINITION, never from disk: a holiday's slot is the only thing tying it to
- * its bytes, and its theme color is a fixed part of what that holiday looks like —
- * so a stale or hand-edited value would either orphan the wallpaper, point the
- * holiday at a rule's image, or paint a festival in a color it does not have.
- * Everything else is sanitized exactly like a rule's field — except three things
- * that stay the definition's own: the image list and the rotation (so a festival
- * can never be swapped or cycled), and the layout mode, which is the definition's
- * `fill` for the same reason the color is its own — full-bleed art letterboxed by
- * a stale `fit` is the one thing this feature must not do, and the mode is not
- * editable for a holiday anywhere in the panel.
+ * `id`, the image list and every theme colour come from the DEFINITION, never from
+ * disk: a stale or hand-edited value would orphan the wallpaper, point the holiday
+ * at a rule's image, or paint a festival in a colour it does not have. The layout
+ * mode and the rotation stay the definition's own for the same reason (a festival
+ * is never swapped or cycled). Everything else is sanitized like a rule's field.
  */
 export function normalizeHolidayRule(def: HolidayDef, raw: unknown): HolidayRule {
   const r = (raw ?? {}) as Partial<HolidayRule> & { bgState?: unknown }
   const base = defaultHolidayRule(def)
   return {
     ...base,
-    // Only an explicit `false` disables the entry, so a config written before
-    // this feature existed starts with every holiday usable.
+    // Only an explicit `false` disables the entry.
     enabled: r.enabled !== false,
     wallpaperOpacity: clamp01(r.wallpaperOpacity, base.wallpaperOpacity),
-    // A festival's brightness is the user's, exactly like its opacity and its
-    // framing beside them: how bright a holiday wallpaper sits against the
-    // interface is a taste question, and a bright festival picture is the one
-    // most likely to want toning down. `base` carries the shipped 100, so an
-    // absent key (or a holiday entry written before this setting) is untouched.
+    // Brightness is the user's, like the opacity and framing beside it; `base`
+    // carries the shipped 100, so an absent key is untouched.
     brightness: clamp(r.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, base.brightness ?? DEFAULT_WALLPAPER_BRIGHTNESS),
     blur: clamp(r.blur, 0, 60, base.blur),
-    // A holiday's own framing is still the user's: which part of the festival art
-    // fills the screen is a taste question, and the editor allows it. Its MODE and
-    // COLOR are not — both come from `base` (the definition), like the slot beside
-    // them, so the `hasOwn` lift in normalizeImage can never reach a holiday and a
-    // hand-edited per-image color cannot repaint a festival. The old rule-level
-    // `bgMode` a schema-5 config may carry is deliberately NOT lifted here: a
-    // holiday has exactly one picture, so there is nothing for a mode to differ
-    // from, and the definition's own value is the one that was always meant.
+    // Framing is still the user's; MODE and COLOUR come from `base`, so the
+    // `hasOwn` lift can never reach a holiday and a hand-edited colour cannot
+    // repaint a festival. A schema-5 rule-level `bgMode` is NOT lifted: a holiday
+    // has one picture, so the definition's value is the one that was always meant.
     images: base.images.map(image => ({
       slot: image.slot,
       bgMode: image.bgMode,
@@ -980,38 +747,20 @@ export function normalizeHolidays(raw: unknown): HolidaysConfig {
     }
   }
   return {
-    // A real boolean is honoured; anything else — the absent field of a config
-    // written before the feature existed, or junk from a hand-edit — lands on the
-    // shipped default (OFF, see DEFAULT_HOLIDAYS_ENABLED).
-    //
-    // This used to be "only an explicit `false` turns it off", so that a config
-    // predating the feature kept working the way it always had. Shipping the
-    // feature off is exactly the decision that rule was standing in for: it is on
-    // because a configuration says so, not because nobody has said anything. The
-    // per-HOLIDAY `enabled` inside each item is a different switch and still
-    // defaults to on — it is a detail of a feature already switched on, not the
-    // switch itself.
+    // A real boolean is honoured; anything else lands on the shipped default
+    // (OFF). The per-HOLIDAY `enabled` inside each item is a different switch.
     enabled: typeof r.enabled === 'boolean' ? r.enabled : DEFAULT_HOLIDAYS_ENABLED,
     items: HOLIDAYS.map(def => normalizeHolidayRule(def, stored.get(def.id))),
   }
 }
 
 /**
- * The file-preview panel's own opacity.
+ * The file-preview panel's own opacity: a number is the card's own value, `null` is
+ * "never owned, follow `opacities.bg`", and a MISSING key is the shipped 45%.
  *
- * Three states, and the middle one is why this is a function rather than the
- * one-line fallback every other field gets: a real number is the card's own
- * value, `null` is "never owned, so follow `opacities.bg`", and a KEY that is not
- * there at all — a hand-written config, or one written before the option existed
- * — is the shipped profile's 45% (see DEFAULT_RIGHTBAR_OPACITY).
- *
- * `null` has to survive as ITSELF instead of falling through to the default:
- * every release so far has written it — a panel the user never dragged is
- * persisted as an explicit `null` — so treating it as "missing" would hand the
- * shipped 45% to every configuration whose preview panel was following the main
- * background, a silent change to a setup nobody asked to change. It is also
- * unreachable from the UI (no control returns to it); it exists for configs that
- * were written while the shipped default was `null`.
+ * `null` has to survive as itself: every release so far persisted it for a panel the
+ * user never dragged, so treating it as missing would silently hand the shipped 45%
+ * to every configuration that was following the main background.
  */
 function normalizeRightbarOpacity(v: unknown): number | null {
   if (v === null) return null
@@ -1022,19 +771,11 @@ function normalizeRightbarOpacity(v: unknown): number | null {
 /** Coerce an unknown persisted value into a valid ThemeConfig, falling back per-field. */
 export function normalizeConfig(raw: unknown): ThemeConfig {
   const r = (raw ?? {}) as Partial<ThemeConfig>
-  // A MISSING rule list and an EMPTY one are two different answers, and this is
-  // the only place that can tell them apart:
-  //
-  //   - the key is not there at all — nothing has ever been configured here (a
-  //     fresh install, a file the user emptied to `{}`, or a config so old that
-  //     `migrateLegacy` had nothing to migrate). The list starts where the panel
-  //     starts: one blank rule, ready to be named and given a picture;
-  //   - the key IS there and the array is empty — a user who deleted every rule.
-  //     That is left alone, because seeding it would resurrect a rule on every
-  //     read, which is the one thing "delete" must not mean.
-  //
-  // Every write persists the array it was handed, so the first branch is
-  // reachable only from a store nothing has written yet.
+  // A MISSING rule list and an EMPTY one are two different answers, and this is the
+  // only place that can tell them apart. Missing means nothing has ever been
+  // configured here: the list starts where the panel starts, on one blank rule.
+  // Present-and-empty is a user who deleted every rule, and seeding it would
+  // resurrect a rule on every read — the one thing "delete" must not mean.
   const rules = Array.isArray(r.rules)
     ? r.rules.map(normalizeRule).filter((x): x is BgRule => x !== null)
     : [blankRule(BLANK_RULE_ID)]

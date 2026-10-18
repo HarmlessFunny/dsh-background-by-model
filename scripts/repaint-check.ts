@@ -28,6 +28,15 @@ import { shouldRepaint } from '../src/client/repaint.ts'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ENTRY = resolve(HERE, '../src/client/index.tsx')
 const source = readFileSync(ENTRY, 'utf8')
+// The extraction moved out of the entry into its own module (./auto-extract); the
+// assertions below follow the code, not the file name.
+const AUTOMATIC = readFileSync(resolve(HERE, '../src/client/auto-extract.ts'), 'utf8')
+// `applyPalette` reads the colour in force; the skin it then commits lives in
+// ./theme-skin.
+const PALETTE = readFileSync(resolve(HERE, '../src/client/theme-skin.ts'), 'utf8')
+// The colour that reaches the skin: `applyPalette` resolves it once, in
+// ./appearance, and hands it over.
+const APPEARANCE = readFileSync(resolve(HERE, '../src/client/appearance.ts'), 'utf8')
 
 let failures = 0
 function check(label: string, got: unknown, want: unknown): void {
@@ -87,12 +96,12 @@ for (const name of ACTIONS) {
 
 // `maybeAutoExtract` is not an action: it is the async tail of an upload, and the
 // color it computes arrives after that upload's own repaint.
-const autoAt = source.indexOf('const maybeAutoExtract = async')
+const autoAt = AUTOMATIC.indexOf('const one = async (ruleId: string, slot?: string)')
 check('maybeAutoExtract is still there', autoAt >= 0, true)
 if (autoAt >= 0) {
-  const body = source.slice(autoAt, source.indexOf('\n  }\n', autoAt))
-  check('maybeAutoExtract samples the winner on arrival', /const winner = winnerId\(\)/.test(body), true)
-  check('maybeAutoExtract closes with repaintIfMoved', /repaintIfMoved\(id, winner\)/.test(body), true)
+  const body = AUTOMATIC.slice(autoAt, AUTOMATIC.indexOf('\n  }\n', autoAt))
+  check('maybeAutoExtract samples the winner on arrival', /const winner = host\.winnerId\(\)/.test(body), true)
+  check('maybeAutoExtract closes with repaintIfMoved', /host\.repaint\(ruleId, winner\)/.test(body), true)
 }
 
 console.log('\n--- one upload themes its whole batch ---')
@@ -101,11 +110,11 @@ console.log('\n--- one upload themes its whole batch ---')
 // answer for a one-file upload and silently the wrong one for a batch — the other
 // pictures of the rotation stayed on the system theme. It is now addressed by the
 // slots the upload itself just appended, so every file of the batch is themed.
-const eachAt = source.indexOf('const maybeAutoExtractEach = async')
+const eachAt = AUTOMATIC.indexOf('async each(ruleId, slots)')
 check('the batch form of the extraction is still there', eachAt >= 0, true)
 if (eachAt >= 0) {
-  const body = source.slice(eachAt, source.indexOf('\n  }\n', eachAt))
-  check('the batch form walks every slot it was handed', /for \(const slot of slots\) await maybeAutoExtract\(id, slot\)/.test(body), true)
+  const body = AUTOMATIC.slice(eachAt, AUTOMATIC.indexOf('\n    },\n', eachAt))
+  check('the batch form walks every slot it was handed', /for \(const slot of slots\) await one\(ruleId, slot\)/.test(body), true)
 }
 const uploadAt = source.indexOf('\n      addRuleImages: ')
 check('addRuleImages is still there', uploadAt >= 0, true)
@@ -132,14 +141,16 @@ if (paintAt >= 0) {
   const body = source.slice(paintAt, source.indexOf('\n  }\n', paintAt))
   check('paintImage re-emits the palette', /applyPalette\(\)/.test(body), true)
 }
-const paletteAt = source.indexOf('const applyPalette = ')
+const paletteAt = source.indexOf('const applyPalette = (): void => appearance.applyPalette()')
 check('applyPalette exists', paletteAt >= 0, true)
 if (paletteAt >= 0) {
   const body = source.slice(paletteAt, source.indexOf('\n  }\n', paletteAt))
   // The color in force is `activeColor()` (the painted image's, else the rule's)
   // and never the rule's alone — reading `rule.color` here is the per-image
   // feature silently not working on the active rule.
-  check('applyPalette reads the color in force', /const color = activeColor\(\)/.test(body), true)
+  // The one place the colour in force is resolved for the skin; the wrapper in
+  // the entry point would hide which colour it hands over.
+  check('applyPalette reads the color in force', /skin\.commit\(activeColor\(\)\)/.test(APPEARANCE), true)
 }
 const activeAt = source.indexOf('const applyActive = ')
 check('applyActive still exists', activeAt >= 0, true)
@@ -273,10 +284,10 @@ console.log('\n--- and the host skin is not rebuilt when its scheme already hold
 // `!important` rule), so a skin that already carries the scheme being asked for is
 // kept — and the preference is still re-asserted on that path, because a settings
 // adoption can drop it.
-const skinAt = source.indexOf('const registerCustom = ')
-const skinBody = skinAt < 0 ? '' : source.slice(skinAt, source.indexOf('const dropCustom = ', skinAt))
+const skinAt = PALETTE.indexOf('const register = ')
+const skinBody = skinAt < 0 ? '' : PALETTE.slice(skinAt, PALETTE.indexOf('const drop = ', skinAt))
 check('the skin the plugin owns is found in the host snapshot, not assumed',
-  /const registeredScheme = \(\): string \| null => \{[\s\S]{0,240}?themes\.find\(t => t\.id === CUSTOM_ID\)/.test(source), true)
+  /const registeredScheme = \(\): string \| null => \{[\s\S]{0,240}?themes\.find\(t => t\.id === CUSTOM_ID\)/.test(PALETTE), true)
 check('a skin that already carries the scheme returns before anything is disposed',
   /skinScheme === colorScheme && registeredScheme\(\) !== null[\s\S]*?return[\s\S]*?customDispose\?\.\(\)/.test(skinBody), true)
 check('the preference is still re-asserted on that path',
@@ -286,7 +297,7 @@ check('a scheme that moved still disposes and re-registers',
 check('what was registered is what the next call compares against',
   /skinScheme = registeredScheme\(\) \?\? colorScheme/.test(skinBody), true)
 check('and handing the palette back forgets it',
-  /const dropCustom = \(\): void => \{[\s\S]{0,200}?skinScheme = null/.test(source), true)
+  /const drop = \(\): void => \{[\s\S]{0,200}?skinScheme = null/.test(PALETTE), true)
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
