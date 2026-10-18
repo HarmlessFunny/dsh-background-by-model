@@ -4,16 +4,14 @@
 
 ## v0.9.0
 
-- **RPC 通道保留自己的 prefix 路由** —— 这一代宿主的 `connection.rpc.handle` 插件侧不可用（见下条），envelope、请求上限与 401/403 围墙留在插件这侧，鉴权询问 connection 服务自己的 `requestRejection`。
-- **导出主题不再在同一个 tick 里撤销 object URL**（部分浏览器会因此取消下载）—— 锚点先挂进文档，下一个任务里再释放。
-- **四个定时器合并成一个调度器** —— 模型轮询、主题看守、节日换日与两次延迟恢复共用一条时钟和一个 dispose，标签页隐藏时整条暂停，节奏统一声明在 `cadence.ts`。
-- **浏览器半边入口从 1492 行拆成模块** —— 皮肤、看守、轮换、启动水合、模型状态、自动取色、主题文件与导航图标各自成文件，`index.tsx` 只剩接线。
-- **注释改为只讲「现在为什么」** —— 「曾经怎样」压缩成一句或交给 CHANGELOG，`schema.ts` 的版本史改为一张表。
-- **新增 `check:watchdogs`** —— 锁住一条心跳、按各自到期时间触发、隐藏即暂停、dispose 不留定时器，以及入口之外没有模块自己起 interval。
-- **RPC 通道重新改为 `webServer` 上的 prefix 路由** —— `connection.rpc.handle` 是通过 CONNECTION 服务自己的上下文注册的，那里解析不到 `webServer`，于是抛 `cannot get property webServer without inject`、条目根本不激活；路由仍按请求询问 `requestRejection`，鉴权围墙不变。
-- **RPC 端点回到只带命名空间的形式** —— 处理器被改成 `(channel, endpoint, …)` 签名后，所有调用都返回 405，而页面看起来照常（数据在启动时就写好了）；registry 传给处理器的只有命名空间端点。
-- **旧 schema 的推荐配置仍然可以导入** —— 素材库声明 schema 6，本构建写 9，按钮此前提示「请检查网络」；拒绝旧配置会让它在素材滞后期间完全不可用，所以改为接受并按缺失字段取默认值，`check:scheme` 仍会抓线上清单与 `SCHEMA_VERSION` 比对。
-- **深色标记交还宿主** —— `data-ds-dark-theme` 只在该值仍是插件自己写的那份时才被改写，宿主自己切到深色后不会再被推回浅色；宿主配色变化会自己重绘，不再等一次无关的 apply；清掉 token 表的同时也清掉 `data-dab-themed`。
+- **RPC 通道是 `webServer` 上的 prefix 路由** —— `connection.rpc.handle` 经 connection 服务自己的上下文注册，那里解析不到 `webServer`，于是抛错、条目根本不激活；路由仍按请求询问 `requestRejection`，Host/Origin 围墙不变。
+- **导出的主题又能下载了** —— object URL 改为下一个任务释放，在同一 tick 里撤销会被部分浏览器当成取消。
+- **所有周期性检查共用一条调度器** —— 模型轮询、主题看守、节日换日与两次延迟恢复，标签页隐藏时暂停，一个 dispose 全停。
+- **浏览器半边重新拆成模块** —— 皮肤、看守、轮换、启动水合、模型状态、自动取色、主题文件与导航图标各自成文件，`index.tsx` 只剩接线。
+- **注释只讲代码为什么是现在这样**，不讲它曾经是什么样；`schema.ts` 的版本史改为一张表。
+- **新增 `check:watchdogs`** —— 一条心跳、按各自到期时间触发、隐藏即暂停、dispose 不留定时器，且入口之外没有模块自己起 interval。
+- **旧 schema 的推荐配置又能导入了** —— 缺的字段取默认值；`check:scheme` 把线上清单与 `SCHEMA_VERSION` 比对。
+- **深色标记交还宿主** —— `data-ds-dark-theme` 只在该值仍是插件写的那份时才被改写，清掉 token 表的同时也清掉 `data-dab-themed`。
 
 ## v0.8.2
 
