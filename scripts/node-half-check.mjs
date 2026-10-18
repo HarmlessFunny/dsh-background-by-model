@@ -119,64 +119,29 @@ const check = (label, ok, detail = '') => {
 }
 
 // The channel registry the connection service offers — the same one the host
-// mounts `/api` on. THE STUB MIRRORS CORDIS, and the two details that cost the
-// 0.9.0 build every RPC call are here on purpose:
+// mounts `/api` on.
 //
-//   1. `inject` is an ACCESSOR bound to the reading context, so the callback gets
-//      a CHILD fiber that can resolve only what was asked for. A stub that hands
-//      the ROOT context straight back hides a callback reading anything else —
-//      the plugin then throws inside its registration, the page still renders
-//      (the client half paints from its own state), and every RPC answers 405.
-//   2. the handler receives the ENDPOINT (namespace/method), not a channel.
+// The context handed to `apply` is a CORDIS CONTEXT, and the two details that cost
+// the 0.9.0 build every RPC call are modelled here:
+//
+//   1. the declared services (`export const inject`) are readable straight off it,
+//      as properties — `ctx.connection` is a proxy read, not a plain field;
+//   2. `ctx.config` is NOT one of them: it is a reserved cordis field and reading
+//      it without declaring `config` throws "cannot get property config without
+//      inject". A plugin's own config arrives as `apply`'s SECOND argument.
 let handler = null
 let registered = null
 const conn = { rpc: { handle: (channel, h) => { registered = channel; handler = h; return () => {} } } }
 const webServer = {}
-const requested = []
 const root = {
-  inject(deps, cb) {
-    // Real cordis behaviour: an own property read off the context is bound to it;
-    // a bare function loses the receiver and must not be able to resolve anything.
-    if (this !== root) throw new Error('inject called without its context (this)')
-    requested.push(...deps)
-    // The child fiber a real inject creates: ONLY the declared services resolve,
-    // and they are read through the context's own `get` (not as properties).
-    const child = {
-      get: (k) => (deps.includes(k) ? { connection: conn, webServer }[k] : undefined),
-      effect: (fn) => fn(),
-    }
-    cb(child)
-  },
-}
-// IMPORTANT: the model above is the SAME shape as the plugin's own wiring, so a
-// mount error here fails the run instead of being linted around. `ctx.plugin` is
-// how ./index mounts ./rpc-host.
-root.plugin = (p, config) => {
-  console.log('  mounts', p.name ?? '(apply)', 'config=', JSON.stringify(Object.keys(config ?? {})))
-  // A child context (cordis builds one per fiber): the services are the parent's,
-  // `config` is what this mount was given, and `effect` runs the disposer chain.
-  const ctx = { connection: conn, webServer, config, effect: (fn) => fn() }
-  p.apply(ctx)
+  connection: conn,
+  webServer,
+  // A reserved name on purpose: touching it is the bug this stub catches.
+  get config() { throw new Error('cannot get property "config" without inject') },
+  effect: (fn) => fn(),
 }
 apply(root)
 check('the RPC handler registers itself', typeof handler === 'function')
-// The transport declares the two services it reads, and reads them off the context
-// cordis hands `apply` — never through a nested `ctx.inject`, which is the shape
-// that lost them and turned every call into a 405.
-const hostSrc = readFileSync(new URL('../src/rpc-host.ts', import.meta.url), 'utf8')
-const hostInject = /export const inject = \[([^\]]*)\]/.exec(hostSrc)?.[1] ?? ''
-check('the transport declares the services it reads',
-  hostInject.includes("'connection'") && hostInject.includes("'webServer'"), hostInject.trim())
-// Comments stripped first: the header explains the nested-inject trap in prose.
-const hostCode = hostSrc.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !/^\s*\*/.test(l)).join('\n')
-// Counted, not tested: the message then says how many there are, which is the one
-// thing the question needs when it fails.
-const nestedInjects = (hostCode.match(/\.inject\s*\(/g) ?? []).length
-check('and never nests an inject of its own', nestedInjects === 0,
-  `${nestedInjects} nested call(s)` )
-// The channel is the plugin's OWN, and the registry maps it to a physical route;
-// a second registration of the same path throws at load, so this pins that the
-// channel name did not drift into one another plugin already owns.
 check('on the plugin\'s own channel prefix', registered, '/dsh-background-by-model')
 if (typeof handler !== 'function') process.exit(1)
 
@@ -1105,12 +1070,12 @@ jsonBody = JSON.stringify({ version: 'six' })
 check('nor is a manifest whose version is not a number',
   (await call('fetchPresetConfig')).value?.error === 'not a profile')
 // The OTHER direction: the asset host's profile is older than this build. It is
-// refused under its own code, because "check your connection" is the wrong advice
-// for it — retrying never helps. This is the case the live assets were in while
-// the build moved to schema 9.
+// ACCEPTED — that is the documented contract, and the live assets are in exactly
+// this state between a plugin release and an assets tag. Refusing it made the
+// button unusable, which is how this bit the release it shipped in.
 jsonBody = JSON.stringify({ version: SCHEMA_VERSION - 1 })
-check('a profile written for an older shape is refused as stale, not as a network failure',
-  (await call('fetchPresetConfig')).value?.error === 'stale profile')
+check('a profile written for an older shape still imports',
+  (await call('fetchPresetConfig')).value?.ok === true)
 // The gate itself: a profile written for a shape this build cannot read. Refused
 // before a single wallpaper is requested, which is the point of asking early.
 const beforeNewer = fetchLog.length

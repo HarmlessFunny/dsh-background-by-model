@@ -60,7 +60,6 @@ const configs: UserConfig[] = [
     entry: {
       index: 'src/index.ts',
       invariant: 'src/invariant.ts',
-      'rpc-host': 'src/rpc-host.ts',
     },
     outDir: 'lib',
     format: ['esm'],

@@ -10,8 +10,3 @@
 - insert:
     - id: dsh-background-by-model
       name: 'dsh-background-by-model'
-# The RPC transport (see src/rpc-host.ts): the child row that owns the host's
-# `connection` service. Without it no RPC answers.
-- insert:
-    - id: dsh-background-by-model-rpc
-      name: 'dsh-background-by-model/rpc-host'

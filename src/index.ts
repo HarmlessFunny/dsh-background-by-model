@@ -28,10 +28,9 @@ import type { BgState, ThemeConfig } from './schema'
 // ./preset for why the two questions live in one module).
 import { PRESET_ATTEMPTS, presetRetryDelayMs, presetRetryable } from './preset'
 import type { FetchFailure } from './preset'
-// The RPC transport, mounted as its own plugin (see ./rpc-host for why).
-import * as rpcHost from './rpc-host'
 
 export const name = 'dsh-background-by-model'
+export const inject = ['connection', 'webServer']
 
 const DATA_DIR = '.dsh-background-by-model-data'
 const CONFIG_FILE = 'theme-config.json'
@@ -550,15 +549,20 @@ async function fetchPresetConfig(): Promise<
   }
   const declared = (manifest as { version?: unknown } | null)?.version
   if (typeof declared !== 'number' || !isFinite(declared)) return { ok: false, error: 'not a profile' }
-  // Two directions, and they are different problems for the user: a profile
-  // written for a NEWER shape cannot be read at all, while one written for an
-  // OLDER shape would be silently defaulted field by field (no colours, no
-  // brightness, no transition) — refused rather than half-imported, under its own
-  // code so the button cannot call it a network failure.
-  if (declared < SCHEMA_VERSION) return { ok: false, error: 'stale profile' }
+  // ONE direction is a refusal. A profile written for a NEWER shape cannot be read
+  // at all, so it is refused before a single wallpaper is fetched.
+  //
+  // A profile written for an OLDER shape is ACCEPTED, and that is the documented
+  // contract (`SCHEMA_VERSION` in ./schema): the shared sanitizer lifts what it can
+  // and defaults what the file predates. Refusing it — which an earlier 0.9.0 build
+  // did — makes the button unusable for as long as the asset host lags this build,
+  // which is the normal state between a plugin release and an assets tag.
   if (declared > SCHEMA_VERSION) {
     console.warn(`dsh-background-by-model: the recommended profile declares schema ${declared}, this build writes ${SCHEMA_VERSION}`)
     return { ok: false, error: 'newer version' }
+  }
+  if (declared < SCHEMA_VERSION) {
+    console.warn(`dsh-background-by-model: the recommended profile is written for schema ${declared}; importing it with defaults for the fields it predates`)
   }
 
   const configRaw = await fetchPresetFile(PRESET_CONFIG, PRESET_CONFIG_MAX)
@@ -846,11 +850,24 @@ export async function handleRpcMethod(ctx: any, endpoint: unknown, payload: unkn
 }
 
 export function apply(ctx: any): void {
-  // The transport is its OWN plugin (./rpc-host): it is the only piece that reads
-  // `connection` / `webServer`, and the fiber a plugin's registration runs in only
-  // resolves the services that plugin declared. Mounting it here keeps this
-  // module's dependency list empty — it needs none.
-  // The transport reads `connection` / `webServer`; this module reads neither, so it
-  // declares no dependencies and hands the child what it needs through the context.
-  ctx.plugin(rpcHost, { dispatchRpc: handleRpcMethod, rpcChannel: RPC_CHANNEL })
+  // ONE registration, read straight off the context this `apply` was handed.
+  //
+  // `inject` above is what makes `ctx.connection` resolvable: cordis builds this
+  // plugin's fiber from that declaration, so the services it names are live here.
+  // A nested `ctx.inject(...)` would create a SECOND fiber whose callback context
+  // is built from its own declaration, and `ctx.config` is not a service at all —
+  // reading it throws "cannot get property config without inject". The config, when
+  // a plugin has one, arrives as `apply`'s second ARGUMENT.
+  const registry = ctx.connection?.rpc
+  if (registry === undefined || typeof registry.handle !== 'function') {
+    // Loud on purpose: without this route every call answers 405 from the fallback
+    // and the page still renders, so a silent return would look like a working
+    // plugin with a broken button.
+    console.error('dsh-background-by-model: the connection service is not resolvable; the RPC channel cannot be mounted')
+    return
+  }
+  ctx.effect(
+    () => registry.handle(RPC_CHANNEL, (endpoint: unknown, payload: unknown) => handleRpcMethod(ctx, endpoint, payload)),
+    'dsh-background-by-model: rpc channel',
+  )
 }

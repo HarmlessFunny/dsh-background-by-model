@@ -35,10 +35,7 @@
     "./client": {
       "default": "./lib/client.js"
     },
-    "./package.json": "./package.json",
-    "./rpc-host": {
-      "default": "./lib/rpc-host.js"
-    }
+    "./package.json": "./package.json"
   },
   "main": "lib/index.js",
   "directories": {
@@ -47,7 +44,6 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/rpc-host.js",
     "lib/client.js",
     "CHANGELOG.md",
     "CHANGELOG.zh.md",
