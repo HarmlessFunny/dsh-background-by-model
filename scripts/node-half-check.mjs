@@ -118,37 +118,49 @@ const check = (label, ok, detail = '') => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`)
 }
 
-// The channel registry the connection service offers — the same one the host
-// mounts `/api` on.
+// The transport is a PREFIX ROUTE on `webServer`, registered inside an
+// `ctx.inject(['connection', 'webServer'])` scope — the same shape the connection
+// plugin uses to mount `/api`.
 //
-// The context handed to `apply` is a CORDIS CONTEXT, and the two details that cost
-// the 0.9.0 build every RPC call are modelled here:
-//
-//   1. the declared services (`export const inject`) are readable straight off it,
-//      as properties — `ctx.connection` is a proxy read, not a plain field;
-//   2. `ctx.config` is NOT one of them: it is a reserved cordis field and reading
-//      it without declaring `config` throws "cannot get property config without
-//      inject". A plugin's own config arrives as `apply`'s SECOND argument.
+// The stub mirrors the contract that matters, including the one that broke the
+// release: `connection.rpc.handle` is NOT used, because the host registers that
+// route through the CONNECTION service's own context, which cannot resolve
+// `webServer` and throws before the entry activates.
 let handler = null
-let registered = null
-const conn = { rpc: { handle: (channel, h) => { registered = channel; handler = h; return () => {} } } }
-const webServer = {}
+let registeredPath = null
+const requested = []
 const root = {
-  connection: conn,
-  webServer,
-  // A reserved name on purpose: touching it is the bug this stub catches.
+  inject(deps, cb) {
+    requested.push(...deps)
+    cb({
+      connection: { requestRejection: () => undefined },
+      webServer: { register: (spec) => { registeredPath = spec.path; handler = spec.handler; return () => {} } },
+      effect: (fn) => fn(),
+    })
+  },
+  // A reserved cordis field: reading it is the bug `ctx.config` caused once.
   get config() { throw new Error('cannot get property "config" without inject') },
-  effect: (fn) => fn(),
 }
 apply(root)
-check('the RPC handler registers itself', typeof handler === 'function')
-check('on the plugin\'s own channel prefix', registered, '/dsh-background-by-model')
+check('the RPC route registers itself', typeof handler === 'function')
+check('on the plugin\'s own prefix', registeredPath, '/dsh-background-by-model')
+check('and asks for the services it reads',
+  requested.includes('connection') && requested.includes('webServer'), JSON.stringify(requested))
 if (typeof handler !== 'function') process.exit(1)
 
-/** One call through the real handler, exactly as `rpc.handle` delivers it:
- *  the endpoint, the payload, then the abort signal and the peer. */
+/** One call through the real handler, envelope and URL included. */
 async function call(method, payload = {}) {
-  return await handler(`dshBackgroundByModel/${method}`, payload, new AbortController().signal, undefined)
+  const full = `dshBackgroundByModel/${method}`
+  const req = {
+    method: 'POST',
+    url: `/dsh-background-by-model/${full}`,
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify({ type: 'client-request', rpcId: 'check', method: full, payload }))
+    },
+  }
+  let out = ''
+  await handler(req, { writeHead() {}, end(b) { if (b !== undefined && b !== null) out += b.toString() } })
+  return JSON.parse(out).result
 }
 const dataUrl = async (slot) => (await call('readImage', { slot })).value?.dataUrl ?? null
 const bytes = (u) => Buffer.from(u.slice(u.indexOf(',') + 1), 'base64').length

@@ -790,6 +790,8 @@ function defaultModel(ctx: any): { provider: string; model: string } | null {
 }
 
 export const RPC_CHANNEL = '/dsh-background-by-model'
+/** One request's ceiling. The host's own bridge uses the same number. */
+const RPC_BODY_MAX = 300 * 1024 * 1024
 /** The namespace half of every endpoint on it: `dshBackgroundByModel/read`. */
 const RPC_NS = 'dshBackgroundByModel'
 /** What one method answers: a value, or an error the interface can render. */
@@ -850,24 +852,77 @@ export async function handleRpcMethod(ctx: any, endpoint: unknown, payload: unkn
 }
 
 export function apply(ctx: any): void {
-  // ONE registration, read straight off the context this `apply` was handed.
+  // A PREFIX ROUTE ON `webServer`, not `connection.rpc.handle`, and this is not a
+  // preference: `rpc.handle` captures the CONNECTION SERVICE's own context and
+  // registers through it (`register()` does `owner.webServer.register(...)`), while
+  // that service declares no `webServer` dependency — so the call throws
+  // "cannot get property webServer without inject" and the entry never activates.
+  // Registering here keeps the same Host/Origin fence: `requestRejection` is the
+  // connection service's own admission check, asked explicitly per request.
   //
-  // `inject` above is what makes `ctx.connection` resolvable: cordis builds this
-  // plugin's fiber from that declaration, so the services it names are live here.
-  // A nested `ctx.inject(...)` would create a SECOND fiber whose callback context
-  // is built from its own declaration, and `ctx.config` is not a service at all —
-  // reading it throws "cannot get property config without inject". The config, when
-  // a plugin has one, arrives as `apply`'s second ARGUMENT.
-  const registry = ctx.connection?.rpc
-  if (registry === undefined || typeof registry.handle !== 'function') {
-    // Loud on purpose: without this route every call answers 405 from the fallback
-    // and the page still renders, so a silent return would look like a working
-    // plugin with a broken button.
-    console.error('dsh-background-by-model: the connection service is not resolvable; the RPC channel cannot be mounted')
-    return
-  }
-  ctx.effect(
-    () => registry.handle(RPC_CHANNEL, (endpoint: unknown, payload: unknown) => handleRpcMethod(ctx, endpoint, payload)),
-    'dsh-background-by-model: rpc channel',
-  )
+  // Wrapped in `ctx.inject` so this does not run before `webServer` exists; that is
+  // the shape the connection plugin itself uses to mount `/api`.
+  ctx.inject(['connection', 'webServer'], (webCtx: any) => {
+    webCtx.effect(
+      () => webCtx.webServer.register({
+        kind: 'prefix',
+        path: RPC_CHANNEL,
+        handler: async (req: any, res: any) => {
+          const rejection = webCtx.connection.requestRejection(req)
+          if (rejection !== undefined) {
+            res.writeHead(rejection)
+            res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
+            return
+          }
+          if (req.method !== 'POST') {
+            res.writeHead(405, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-background-by-model/bad-request', message: 'expected POST', details: {} } }))
+            return
+          }
+          const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
+          const endpoint = pathname.startsWith(`${RPC_CHANNEL}/`) ? pathname.slice(RPC_CHANNEL.length + 1) : undefined
+          if (endpoint === undefined || endpoint.length === 0) {
+            res.writeHead(404)
+            res.end()
+            return
+          }
+          const chunks: Buffer[] = []
+          let received = 0
+          for await (const chunk of req) {
+            const buf = chunk as Buffer
+            received += buf.byteLength
+            if (received > RPC_BODY_MAX) {
+              res.writeHead(413, { connection: 'close' })
+              res.end()
+              req.destroy()
+              return
+            }
+            chunks.push(buf)
+          }
+          let env: { type?: unknown; rpcId?: unknown; method?: unknown; payload?: unknown }
+          try {
+            env = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-background-by-model/bad-request', message: 'body is not JSON', details: {} } }))
+            return
+          }
+          if (env === null || typeof env !== 'object' || env.type !== 'client-request' || typeof env.rpcId !== 'string' || typeof env.method !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: { code: 'dsh-background-by-model/bad-request', message: 'invalid client-request envelope', details: {} } }))
+            return
+          }
+          if (env.method !== endpoint) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ type: 'server-response', rpcId: env.rpcId, result: { ok: false, error: { code: 'dsh-background-by-model/bad-request', message: `method ${env.method} does not match endpoint ${endpoint}`, details: { issues: [] } } } }))
+            return
+          }
+          const result = await handleRpcMethod(ctx, endpoint, env.payload)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ type: 'server-response', rpcId: env.rpcId, result }))
+        },
+      }),
+      'dsh-background-by-model: rpc channel',
+    )
+  })
 }

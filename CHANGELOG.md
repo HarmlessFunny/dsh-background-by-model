@@ -4,13 +4,13 @@
 
 ## v0.9.0
 
-- **The RPC channel goes through the host's own `connection.rpc.handle`** — the hand-written envelope parsing, body cap, 401/403 fence and method match are gone, so those semantics follow the host.
+- **The RPC channel keeps its own prefix route** — `connection.rpc.handle` is not usable from a plugin in this host generation (see the note below), so the envelope, the body cap and the 401/403 fence stay here, asked through the connection service's own `requestRejection`.
 - **Exporting a theme no longer revokes its object URL in the same tick** (which cancels the download in some browsers) — the anchor is attached to the document and released on the next task.
 - **Four timers become one scheduler** — the model poll, the theme watchdog, the holiday rollover and the two delayed restores share one clock and one dispose, pause while the tab is hidden, and declare their cadences in `cadence.ts`.
 - **The browser entry point drops from 1,492 lines to modules** — skin, watchdogs, rotation, boot hydration, model state, auto-extraction, theme files and the nav icon each get a file; `index.tsx` is wiring.
 - **Comments state why, not what happened** — history is one line or the CHANGELOG's job, and `schema.ts` records its version history as a table.
 - **`check:watchdogs` is new** — one beat, per-entry due times, paused when hidden, no timer left after dispose, and no module arming an interval behind the scheduler.
-- **The RPC channel is registered from the plugin's own context** — `apply` reads `ctx.connection` directly, which the module's `inject` makes resolvable, and the check harness mounts the built module in a real cordis app instead of a hand-rolled stub.
+- **The RPC channel is a prefix route on `webServer` again** — `connection.rpc.handle` registers through the CONNECTION service's own context, which cannot resolve `webServer`, so it throws "cannot get property webServer without inject" and the entry never activates; the route keeps the same Host/Origin fence by asking `requestRejection` per request.
 - **The RPC endpoint is back to the namespace-only form** — the handler was adapted to a `(channel, endpoint, …)` signature and every call then answered 405 while the page kept rendering (its data is written at boot); the registry hands the handler the namespace endpoint alone.
 - **A recommended profile written for an older schema still imports** — the asset host declares schema 6 while this build writes 9, and the button used to report "check your connection"; refusing an old profile made it unusable for as long as the assets lag the plugin, so it is accepted with defaults, and `check:scheme` fetches the live manifest and compares it with `SCHEMA_VERSION`.
 - **The scheme flag is the host's again** — `data-ds-dark-theme` is only corrected when it still carries the plugin's own value, so a host that went dark on its own is no longer pushed back to light; a moved host scheme repaints instead of waiting for an unrelated apply; and dropping the token sheet now drops `data-dab-themed` with it.
