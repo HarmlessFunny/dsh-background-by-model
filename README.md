@@ -116,7 +116,7 @@ One switch on the Config page and nothing else: on 中秋节 and 国庆节 the w
 - **Theme color** — HSL wheel, numeric input, **Extract from this image** and an eyedropper. It belongs to the **image**, and an image with none follows the system theme rather than inheriting its rule's.
 - **Layout mode** — fit / fill / stretch / tile / center, stored per image; disabled on a rule that holds no picture, rather than hidden.
 - **Framing** — drag to pan and scroll to zoom, editable in fit mode only, stored per image and stable across window resizes.
-- **Background opacity** `0–100%`, **background brightness** `0–200%` (`100%` is the picture as saved) and **background blur** `0–60 px`, all three per rule. They treat the wallpaper layer only — the Interface tab's opacity treats interface surfaces.
+- **Image opacity** `0–100%`, **image brightness** `0–200%` (`100%` is the picture as saved) and **image blur** `0–60 px`, all three per rule and edited through **one slider with a menu beside it** that picks the effect. They treat the image (wallpaper) layer only — the Interface tab's opacity treats interface surfaces.
 
 ### Global settings (Interface tab)
 
@@ -270,6 +270,10 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
 
+### v0.9.1
+
+- **The three wallpaper sliders are now one slider plus a picker** — the options read Image opacity / Image brightness / Image blur, the picker matches the buttons, and the hint below is gone.
+
 ### v0.9.0
 
 - **The RPC channel is the plugin's own prefix route on `webServer`**, so envelope, body cap and the auth fence stay here and `requestRejection` is asked per request.
@@ -277,12 +281,7 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 - **The browser entry point is wiring again** — skin, watchdogs, rotation, boot, model state, extraction and theme files are their own modules.
 - **Exporting a theme no longer cancels its own download**, and comments say why the code is what it is rather than what it used to be.
 
-### v0.8.2
-
-- **The dsh dependency floor follows the host** — `engines.dsh`, the five `dsh-client-*` peers and `dsh-home-paths` now declare `>=0.2.1-alpha.2` instead of the 0.1.7 generation, so an install cannot be paired with the previous client packages, while `dsh-invariants` and `@deepseek-ai/cordis` stay as they are.
-
 ## Star History
-
 [![Star History Chart](https://api.star-history.com/chart?repos=HarmlessFunny/dsh-background-by-model&type=timeline&legend=bottom-right)](https://www.star-history.com/?repos=HarmlessFunny%2Fdsh-background-by-model&type=timeline&legend=bottom-right)
 
 ## License

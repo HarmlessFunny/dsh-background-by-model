@@ -1,6 +1,11 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.9.0 / v0.8.2).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.9.1 / v0.9.0).
+
+## v0.9.1
+
+- **The wallpaper layer's three sliders are one slider with a picker beside it** — opacity, brightness and blur share the row, the menu reads **Image opacity / Image brightness / Image blur**, and switching swaps the range, unit and written field together.
+- **The picker uses the button fill and size, and the hint under the slider is gone.**
 
 ## v0.9.0
 
