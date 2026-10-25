@@ -6,8 +6,9 @@
  * `/api`, which slash commands own).
  *
  *   theme-config.json     the ordered rule list + the global interface settings
- *   modelbg-<slot>        one background image per rule (raw bytes, no extension;
- *                         the MIME is sniffed from the magic bytes when served)
+ *   theme-config.json.bak the last config that parsed, rotated in before every save
+ *   modelbg-<slot>        one background image (raw bytes, no extension; the MIME is
+ *                         sniffed from the magic bytes when served)
  *   holiday-cache/<tag>/  festival art downloaded from the CDN, one directory per
  *                         pinned release, deliberately NOT in the slot namespace
  *
@@ -21,7 +22,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 // the asset names (the date maths belongs to the browser half).
 import { HOLIDAYS } from './holiday'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
-import { SCHEMA_VERSION, SLOT_RE, DEFAULT_WALLPAPER_BRIGHTNESS, normalizeConfig } from './schema'
+import { SCHEMA_VERSION, SLOT_RE, normalizeConfig } from './schema'
 import type { BgState, ThemeConfig } from './schema'
 // Which download failures are worth another round, and how long to wait before
 // it — shared with the browser half, which owns what a failed attempt keeps (see
@@ -37,6 +38,20 @@ export const inject = ['connection', 'webServer']
 
 const DATA_DIR = '.dsh-background-by-model-data'
 const CONFIG_FILE = 'theme-config.json'
+/**
+ * The last config that was known to parse, kept beside the live one.
+ *
+ * A config file is the whole rule list, and it is rewritten on every edit. Writing
+ * it in place meant a crash, a full disk or a pulled power cable could leave half a
+ * JSON document behind — which `readConfig` greets by silently falling back to the
+ * defaults, so the next slider drag would persist those defaults over the ruined
+ * file and the original rules were gone for good. Two pieces fix that, and they are
+ * one feature: the write is atomic (temp + rename), and the previous good file is
+ * rotated to `.bak` before it is replaced, so even a lost file has a copy.
+ */
+const CONFIG_BACKUP = 'theme-config.json.bak'
+/** Suffix of the in-flight write. Deliberately outside `listSlots`' `modelbg-` prefix. */
+const CONFIG_TEMP = '.tmp'
 const IMAGE_PREFIX = 'modelbg-'
 // Files owned by earlier versions (the single wallpaper slot, a background
 // video and its upload temp); removed by the one-shot legacy migration.
@@ -150,6 +165,8 @@ const PRESET_FETCH_TIMEOUT = 60_000
 
 const dataDir = (): string => dshHomePath(DATA_DIR)
 const configPath = (): string => dshHomePath(DATA_DIR, CONFIG_FILE)
+const configBackupPath = (): string => dshHomePath(DATA_DIR, CONFIG_BACKUP)
+const configTempPath = (): string => dshHomePath(DATA_DIR, `${CONFIG_FILE}${CONFIG_TEMP}`)
 const legacyWallpaperPath = (): string => dshHomePath(DATA_DIR, LEGACY_WALLPAPER)
 const imagePath = (slot: string): string => dshHomePath(DATA_DIR, `${IMAGE_PREFIX}${slot}`)
 const holidayCachePath = (asset: string): string =>
@@ -195,22 +212,24 @@ async function migrateLegacy(raw: unknown): Promise<unknown> {
     rules: [{
       id: 'm1',
       // Written in the new shape directly, so the file describes what the plugin
-      // holds. The old rule-level mode becomes this image's own (`normalizeRule`
-      // performs the same lift for every other rule).
+      // holds. The old rule-level mode and paint effects become this image's own
+      // (`normalizeRule` performs the same lift for every other rule) — the shape
+      // below is what that lift would produce, spelled out once.
       images: [{
         slot: 'm1',
         bgMode: typeof r.bgMode === 'string' ? r.bgMode : 'fit',
         bgState: (r.bgState ?? {}) as Partial<BgState>,
+        color: Array.isArray(r.color) ? r.color : null,
+        opacity: typeof r.wallpaperOpacity === 'number' ? r.wallpaperOpacity : 1,
+        // The pre-0.3 store had no brightness control at all, so the only honest
+        // value to give the migrated picture is the one it has always been shown
+        // at: untouched — which is the ABSENT key, not a written 100.
+        ...(typeof r.brightness === 'number' ? { brightness: r.brightness } : {}),
+        blur: typeof r.blur === 'number' ? r.blur : 0,
       }],
       match: '',
       enabled: true,
       color: Array.isArray(r.color) ? r.color : null,
-      wallpaperOpacity: typeof r.wallpaperOpacity === 'number' ? r.wallpaperOpacity : 1,
-      // The pre-0.3 store had no brightness control at all, so the only honest
-      // value to give the migrated rule is the one the picture has always been
-      // shown at: untouched.
-      brightness: typeof r.brightness === 'number' ? r.brightness : DEFAULT_WALLPAPER_BRIGHTNESS,
-      blur: typeof r.blur === 'number' ? r.blur : 0,
     }],
     opacities: r.opacities,
     settingsOpacity: r.settingsOpacity,
@@ -219,7 +238,11 @@ async function migrateLegacy(raw: unknown): Promise<unknown> {
     rightbarOpacity: r.rightbarOpacity,
   }
   try {
-    await writeFile(configPath(), JSON.stringify(next, null, 2), 'utf8')
+    // Through the same atomic write every other save uses: this one REPLACES a
+    // config the user still has, so a crash mid-migration would otherwise leave
+    // nothing to read back — and the pre-migration file is worth keeping as the
+    // backup, which is exactly what that path does.
+    await writeConfigFile(serializeConfig(next))
   } catch (e) {
     console.warn('dsh-background-by-model: could not rewrite the migrated config', e)
   }
@@ -234,14 +257,135 @@ async function ensureDir(): Promise<void> {
   }
 }
 
+/** The exact bytes a config file should hold. */
+function serializeConfig(config: unknown): string {
+  return JSON.stringify(config, null, 2)
+}
+
+/**
+ * Whether a string is a config this build would accept: JSON, and an object.
+ *
+ * Deliberately looser than `normalizeConfig` (which accepts anything and defaults
+ * every field): this is the test for "is there something worth keeping", so a
+ * schema-3 file and a hand-edited one both count. What it rejects is the two ways a
+ * write can be interrupted — half a document, and an empty one.
+ */
+function parsesAsConfig(text: string): boolean {
+  try {
+    const value: unknown = JSON.parse(text)
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Write one config file so that no reader can ever see a partial document, keeping
+ * the previous good one as `.bak`.
+ *
+ * Two steps, in this order, because the order is what makes the copy worth having:
+ *
+ *   1. the file on disk NOW is copied to `theme-config.json.bak` — but only when it
+ *      parses. A corrupted live file must never overwrite the last good backup, or
+ *      the first write after the corruption would also destroy the copy that could
+ *      have replaced it;
+ *   2. the new bytes go to a temp name and are RENAMED over the live path. A rename
+ *      is atomic within one directory, so a crash either leaves the old file or the
+ *      new one — never half of either.
+ *
+ * The rename is not `writeFile` for the same reason: writing in place truncates
+ * first, and a crash between the truncation and the last byte is exactly the state
+ * that used to eat a rule list.
+ */
+async function writeConfigFile(text: string): Promise<void> {
+  await ensureDir()
+  const target = configPath()
+  try {
+    const current = await readFile(target, 'utf8')
+    if (parsesAsConfig(current)) {
+      const backupTemp = `${configBackupPath()}${CONFIG_TEMP}`
+      await writeFile(backupTemp, current, 'utf8')
+      await renameOver(backupTemp, configBackupPath())
+    }
+  } catch {
+    // No live file (first write), or an unreadable one — either way there is
+    // nothing worth keeping, and the new bytes are about to become the live one.
+  }
+  const temp = configTempPath()
+  await writeFile(temp, text, 'utf8')
+  await renameOver(temp, target)
+}
+
+/**
+ * `rename` over an existing file, which replaces it atomically on POSIX.
+ *
+ * Windows refuses to rename onto a name that exists (EEXIST / EPERM), so the one
+ * platform that cannot do this in one step gets a two-step fallback — and the
+ * difference matters: unlinking first leaves a window with NO file, which is the
+ * state this whole function exists to avoid, so on POSIX the unlink must never be
+ * attempted. The fallback is only reached when the rename itself said the target is
+ * in the way, which is exactly the Windows case.
+ */
+async function renameOver(from: string, to: string): Promise<void> {
+  try {
+    await rename(from, to)
+  } catch (e) {
+    const code = (e as { code?: unknown } | null)?.code
+    if (code !== 'EEXIST' && code !== 'EPERM' && code !== 'ENOTEMPTY') throw e
+    await rm(to, { force: true })
+    await rename(from, to)
+  }
+}
+
+/**
+ * The last good config that can be restored, as raw text — or null when there is
+ * none.
+ *
+ * Two candidates, in order of authority: the live file (when it parses, which is
+ * the ordinary case and costs one read) and the `.bak`. The backup is only
+ * consulted for a live file that is missing or corrupt, so a half-written document
+ * from an interrupted save is answered with the copy rather than with the shipped
+ * defaults — which is the difference between "your rules are back" and "your rules
+ * were never there".
+ */
+async function readConfigFile(): Promise<{ text: string; source: 'live' | 'backup' } | null> {
+  try {
+    const text = await readFile(configPath(), 'utf8')
+    if (parsesAsConfig(text)) return { text, source: 'live' }
+  } catch {
+    // No live file: a fresh install, or the file was removed by `resetStore`.
+  }
+  try {
+    const text = await readFile(configBackupPath(), 'utf8')
+    if (!parsesAsConfig(text)) return null
+    // Put the recovered copy back where the next read expects it, so one recovery
+    // is enough and `writeConfigFile` can rotate from a real live file again.
+    try {
+      await writeConfigFile(text)
+    } catch (e) {
+      console.warn('dsh-background-by-model: could not restore the config from its backup', e)
+    }
+    console.warn(
+      'dsh-background-by-model: "theme-config.json" was missing or unreadable; restored the last saved copy from "theme-config.json.bak"',
+    )
+    return { text, source: 'backup' }
+  } catch {
+    return null
+  }
+}
+
 async function readConfig(): Promise<ThemeConfig> {
   await ensureDir()
+  const file = await readConfigFile()
   let raw: unknown = {}
-  try {
-    raw = JSON.parse(await readFile(configPath(), 'utf8'))
-  } catch {
-    // First run (no file yet) or unreadable config — fall back to defaults.
-    raw = {}
+  if (file !== null) {
+    try {
+      raw = JSON.parse(file.text)
+    } catch {
+      // `readConfigFile` already tested this, so the only way here is a file that
+      // changed between the two reads — answer with the defaults, as before.
+      raw = {}
+    }
   }
   return normalizeConfig(await migrateLegacy(raw))
 }
@@ -249,21 +393,21 @@ async function readConfig(): Promise<ThemeConfig> {
 /**
  * The config, plus whether it is safe to decide what the store still owns from it.
  *
- * `readConfig` deliberately swallows a corrupt file and answers with defaults —
- * right for painting (a broken file must not leave a blank panel) and WRONG for
- * the cleanup, which would then see zero referenced slots and treat every image on
- * disk as an orphan. That is the one way this feature could delete a user's whole
- * wallpaper collection, so the two cases are told apart here and the sweep refuses
- * rather than guesses:
+ * `readConfig` deliberately swallows a corrupt file and answers with the last good
+ * copy (or, when there is none, with defaults) — right for painting and WRONG as a
+ * basis for deleting images, because a store whose config could not be read at all
+ * would then have zero referenced slots and every file on disk would look like an
+ * orphan. That is the one way this feature could destroy a wallpaper collection, so
+ * the two cases are told apart here and the sweep refuses rather than guesses:
  *
- *   - no file at all → trusted. A fresh store has images only if something wrote
- *     them, and nothing did;
- *   - a file that parses to an object → trusted (its rules are what they say);
- *   - a file that is there but does not parse, or is not an object → NOT trusted.
- *
- * A config whose `rules` are missing entirely is trusted: `normalizeConfig` seeds
- * one blank rule for that case, which owns no slot, and the sanitizer's answer is
- * exactly what a reload would paint.
+ *   - a live file that parses to an object → trusted (its rules are what they say);
+ *   - no live file, and no backup either → trusted. A fresh store has images only
+ *     if something wrote them, and nothing did;
+ *   - a live file that is there but does not parse, or is not an object → the
+ *     BACKUP is the answer, and only because it is exactly the config `readConfig`
+ *     would restore: pruning against it is pruning against the rules the user is
+ *     about to get back. When there is no parseable backup, this is `untrusted` and
+ *     the sweep refuses.
  *
  * The untrusted branch deliberately does NOT go through `migrateLegacy`: that one
  * WRITES a repaired config back to disk for the shapes earlier releases left
@@ -274,23 +418,27 @@ async function readConfig(): Promise<ThemeConfig> {
  */
 async function readConfigForSweep(): Promise<{ config: ThemeConfig; trusted: boolean }> {
   await ensureDir()
-  let text: string
+  let live: string | null = null
   try {
-    text = await readFile(configPath(), 'utf8')
+    live = await readFile(configPath(), 'utf8')
   } catch {
-    // No config file: nothing has ever been configured here.
-    return { config: await readConfig(), trusted: true }
+    live = null
   }
-  let raw: unknown
+  if (live !== null && parsesAsConfig(live)) {
+    return { config: normalizeConfig(await migrateLegacy(JSON.parse(live))), trusted: true }
+  }
+  let backup: string | null = null
   try {
-    raw = JSON.parse(text)
+    backup = await readFile(configBackupPath(), 'utf8')
   } catch {
-    return { config: normalizeConfig({}), trusted: false }
+    backup = null
   }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { config: normalizeConfig({}), trusted: false }
+  if (backup !== null && parsesAsConfig(backup)) {
+    return { config: normalizeConfig(JSON.parse(backup)), trusted: true }
   }
-  return { config: normalizeConfig(await migrateLegacy(raw)), trusted: true }
+  // No live file and no backup: nothing has ever been configured here.
+  if (live === null && backup === null) return { config: normalizeConfig({}), trusted: true }
+  return { config: normalizeConfig({}), trusted: false }
 }
 
 // ── Two-half drift guard ───────────────────────────────────────────────────
@@ -300,7 +448,10 @@ async function readConfigForSweep(): Promise<{ config: ThemeConfig; trusted: boo
 // so the drift shows up in the host log.
 const LEGACY_CONFIG_KEYS = new Set(['color', 'bgMode', 'wallpaperOpacity', 'blur', 'bgState', 'blurs'])
 // Fields `normalizeRule` / `legacyFadeMs` LIFT on purpose: a migration, not drift.
-const LEGACY_RULE_KEYS = new Set(['slot', 'bgState', 'bgMode'])
+// The three paint effects joined this list when they moved onto the image (schema
+// 10) — a schema-9 config carries them at the rule level, and `normalizeRule` hands
+// each one to every entry rather than dropping it.
+const LEGACY_RULE_KEYS = new Set(['slot', 'bgState', 'bgMode', 'wallpaperOpacity', 'brightness', 'blur'])
 const LEGACY_NESTED_KEYS = new Set(['rules[].rotate.fadeMs'])
 const warnedConfigKeys = new Set<string>()
 
@@ -374,11 +525,10 @@ function warnUnknownConfigKeys(raw: unknown, normalized: ThemeConfig): void {
 }
 
 async function writeConfig(config: unknown): Promise<boolean> {
-  await ensureDir()
   try {
     const normalized = normalizeConfig(config)
     warnUnknownConfigKeys(config, normalized)
-    await writeFile(configPath(), JSON.stringify(normalized, null, 2), 'utf8')
+    await writeConfigFile(serializeConfig(normalized))
     return true
   } catch (e) {
     console.error(`dsh-background-by-model: failed to write "${CONFIG_FILE}"`, e)
@@ -748,13 +898,17 @@ async function listSlots(): Promise<string[]> {
 }
 
 /**
- * Empty the store: the config and every rule image, and nothing else.
+ * Empty the store: the config, its backup and every rule image, and nothing else.
  *
  * The hard reset behind "use the recommended profile", and it has to be a real one
  * rather than a config overwrite: `nextSlot` hands out `m1`, `m2`, … as a running
  * counter, so a profile and a store that both have pictures collide on those names
  * as a matter of course. Emptying first is what makes the profile's own slots free
  * to write, which is why no slot remapping is needed.
+ *
+ * The backup goes WITH the live file: a `.bak` left behind would be restored by the
+ * next read, which would quietly undo the very replacement this call exists to
+ * perform (`applyThemeFile`'s `wipeFirst`).
  *
  * `holiday-cache/` is deliberately untouched: downloaded art that belongs to no
  * slot and costs a round trip to get back. Pruning generations is
@@ -766,11 +920,13 @@ async function listSlots(): Promise<string[]> {
  */
 async function resetStore(): Promise<boolean> {
   let ok = true
-  try {
-    await rm(configPath(), { force: true })
-  } catch (e) {
-    ok = false
-    console.warn(`dsh-background-by-model: failed to remove "${CONFIG_FILE}"`, e)
+  for (const path of [configPath(), configBackupPath()]) {
+    try {
+      await rm(path, { force: true })
+    } catch (e) {
+      ok = false
+      console.warn(`dsh-background-by-model: failed to remove "${CONFIG_FILE}"`, e)
+    }
   }
   for (const slot of await listSlots()) {
     try {

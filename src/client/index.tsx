@@ -18,7 +18,7 @@ import { watchNavIcon } from './nav-icon'
 import { applyThemeFile, buildThemeFile, saveThemeFile } from './theme-file'
 import { createSchedule } from './watchdogs'
 import type {
-  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, BgMode, BgRule, BgState, HolidayRule,
+  Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, BgImage, BgMode, BgRule, BgState, HolidayRule,
   FetchResult, ModelFacts, TransitionConfig, ThemeFile, PresetResult, PruneResult, StoreUsage,
 } from './types'
 import { NS, zh, en } from './i18n'
@@ -26,10 +26,10 @@ import {
   cfg, adoptConfig, imageOf, displayImageOf, setImage, nextSlot, nextRuleId, ruleById,
   holidayById, normalizeRuleInPlace, patchRotation, ruleSlots, setActive,
   activeRule, activeColor, activeRuleId, activeMatched, imageIndexOf, setRotIndex, takenSlots,
-  rWp, rRightbarOpacity, DEFAULT_BG_STATE,
+  rWp, rRightbarOpacity,
 } from './state'
 import { activeHoliday, pickHoliday } from '../holiday'
-import { blankRule, normalizeTransition } from '../schema'
+import { blankRule, defaultImage, normalizeTransition } from '../schema'
 // What a failed profile attempt keeps, and which files the next one still has to
 // ask for — the decision half of the download, shared with the node half (./preset
 // for why the retry policy and the resume live in one module).
@@ -524,11 +524,11 @@ export function apply(ctx: Ctx): void {
         const added: string[] = []
         for (const dataUrl of dataUrls) {
           const slot = nextSlot()
-          // `color: null` (not absent): an absent key means "written before
-          // per-image colours" and would be lifted from the rule's colour on the
-          // next read. `bgMode: 'fit'` IS written, for the mirror reason.
-          const image = { slot, bgMode: 'fit' as const, bgState: { ...DEFAULT_BG_STATE }, color: null }
-          rule.images.push(image)
+          // Every per-image field is written EXPLICITLY (`defaultImage`): the lifts
+          // key off a missing key, so an entry created without one would come back
+          // as "written before this field existed" and inherit whatever the rule —
+          // or, for a rule that has none, the sanitizer's default — happened to say.
+          rule.images.push(defaultImage(slot))
           added.push(slot)
           setImage(slot, dataUrl)
           // One immediate write per image: a structural edit must not be lost to a
@@ -626,6 +626,29 @@ export function apply(ctx: Ctx): void {
         saveConfig()
         repaintIfMoved(id, winner)
       },
+      /**
+       * Store ONE image's three paint effects. Addressed by slot like the mode and
+       * the framing: how a picture is exposed belongs to that picture, and a rule's
+       * rotation can run a daylight photo next to a night shot.
+       *
+       * `normalizeRuleInPlace` is the clamp, so a drag can never write a value the
+       * next load would trim; the layer's own preview path (`setWpOpacity` /
+       * `setWpFilter`) has already painted the value for the frames of the gesture.
+       */
+      setImageEffects: (id: string, slot: string, patch: Partial<Pick<BgImage, 'opacity' | 'brightness' | 'blur'>>): void => {
+        const rule = ruleById(id)
+        const image = rule?.images.find(i => i.slot === slot)
+        if (rule === null || image === undefined) return
+        const winner = winnerId()
+        if (patch.opacity !== undefined) image.opacity = patch.opacity
+        if (patch.brightness !== undefined) image.brightness = patch.brightness
+        if (patch.blur !== undefined) image.blur = patch.blur
+        normalizeRuleInPlace(rule)
+        rulesRev++
+        // Pointer-move frequency (the merged slider): coalesced.
+        saveConfig()
+        repaintIfMoved(id, winner)
+      },
       setRuleRotation: (id: string, patch: Partial<BgRule['rotate']>): void => {
         const rule = ruleById(id)
         if (rule === null) return
@@ -693,7 +716,7 @@ export function apply(ctx: Ctx): void {
         if (!res.ok) return res
         // Sampled here, not before the download: the list is only touched now.
         const winner = winnerId()
-        rule.images.push({ slot, bgMode: 'fit', bgState: { ...DEFAULT_BG_STATE }, color: null })
+        rule.images.push(defaultImage(slot))
         setImage(slot, res.dataUrl ?? null)
         rulesRev++
         persistConfig()

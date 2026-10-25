@@ -700,9 +700,10 @@ check('a rule that names no image anywhere is still dropped',
 // page tint (`pageOpacity`), 9 = the per-surface interface blur (`blurs`) is GONE
 // — the first bump for a removal, and it cuts the other way: a schema-8 sanitizer
 // rebuilds the config from the keys it knows, so it would re-add that field with
-// its own defaults.
+// its own defaults. 10 = the three paint effects (`images[].opacity`,
+// `images[].brightness`, `images[].blur`) moved from the rule onto every image.
 const announced = (await call('read')).value.schema
-check('the host announces the shape it sanitizes with', announced === 9, String(announced))
+check('the host announces the shape it sanitizes with', announced === 10, String(announced))
 // An emptied rule keeps the color it had: that color is what it paints while it
 // has no wallpaper, so it is not a field to clean up.
 await call('writeConfig', {
@@ -823,55 +824,146 @@ check('drift inside transition is reported',
   trWarnings.some(w => w.includes('transition.bogus')), JSON.stringify(trWarnings))
 check('and the unknown transition key is not persisted', !('bogus' in (await readConfig()).transition))
 
-// ── the wallpaper layer's brightness ───────────────────────────────────────
-// The third of the three per-rule wallpaper sliders (opacity, brightness, blur).
-// Its whole risk is the ABSENT key: every config written before the setting
-// existed has none, and the only correct reading of that is "the picture as it was
-// saved". A sanitizer that filled the default IN instead would rewrite every
-// existing rule list on the first write; one that resolved it to 0 would black out
-// everybody's wallpaper on upgrade.
-console.log('\n--- a rule\'s wallpaper brightness ---')
-await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: 40 }] } })
-const dimmed = (await readConfig()).rules[0]
-check('a chosen brightness round-trips', dimmed.brightness === 40, String(dimmed.brightness))
+// ── the three paint effects belong to the PICTURE ───────────────────────────
+// Opacity, brightness and blur were RULE settings through schema 9: one value for
+// every picture of a rotation. They belong to the picture, like the layout mode and
+// the framing beside it — a daylight photo and a night shot in one rotation do not
+// want the same exposure, and one rule-level value forced at least one of them into
+// the other's compromise. Two things have to hold, and this section is both:
+//
+//   1. the LIFT — a schema-9 config carries the trio on the RULE, so each one has to
+//      reach every image entry on read rather than being reset to the default;
+//   2. the ABSENCE — `brightness` has no shipped value written back, because "no
+//      key" is what tells "untouched" from "chosen at 100".
+console.log('\n--- the three paint effects belong to each image ---')
+const effectsOf = (rule) => rule.images.map(i => ({
+  opacity: i.opacity,
+  brightness: i.brightness,
+  blur: i.blur,
+}))
+// The lift, from the shape a schema-9 config actually has: the trio on the RULE,
+// several pictures under it, none of which carries a key of its own.
 await call('writeConfig', {
-  config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: 9999 }] },
+  config: {
+    ...first,
+    rules: [{ ...multiRule, id: 'r-lift', wallpaperOpacity: 0.6, brightness: 40, blur: 7 }],
+  },
 })
-check('the ceiling is enforced, and 200% is it',
-  (await readConfig()).rules[0].brightness === 200, String((await readConfig()).rules[0].brightness))
+const liftedEffects = (await readConfig()).rules[0]
+check('a rule-level opacity becomes every image\'s own',
+  liftedEffects.images.every(i => i.opacity === 0.6), JSON.stringify(effectsOf(liftedEffects)))
+check('so does the brightness',
+  liftedEffects.images.every(i => i.brightness === 40), JSON.stringify(effectsOf(liftedEffects)))
+check('and the blur',
+  liftedEffects.images.every(i => i.blur === 7), JSON.stringify(effectsOf(liftedEffects)))
+check('while the rule keeps no copy of any of them',
+  !('wallpaperOpacity' in liftedEffects) && !('brightness' in liftedEffects) && !('blur' in liftedEffects),
+  JSON.stringify(Object.keys(liftedEffects)))
+// An entry with its OWN value is left alone — that is the entire point of the move.
 await call('writeConfig', {
-  config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: -20 }] },
+  config: {
+    ...first,
+    rules: [{
+      ...multiRule, id: 'r-mixed-effects', wallpaperOpacity: 0.6, brightness: 40, blur: 7,
+      images: [
+        { slot: 'm2', bgState: {}, opacity: 0.2, brightness: 180, blur: 0 },
+        { slot: 'm3', bgState: {} },
+      ],
+    }],
+  },
 })
-check('black is the floor, not a negative number',
-  (await readConfig()).rules[0].brightness === 0, String((await readConfig()).rules[0].brightness))
+const mixedEffects = effectsOf((await readConfig()).rules[0])
+check('a per-image value survives beside the inherited one',
+  mixedEffects, [{ opacity: 0.2, brightness: 180, blur: 0 }, { opacity: 0.6, brightness: 40, blur: 7 }])
+// The clamps, per image: a drag can never store a value the next load would trim.
 await call('writeConfig', {
-  config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: 'bright' }] },
+  config: {
+    ...first,
+    rules: [{
+      ...multiRule, id: 'r-clamp-effects',
+      images: [{ slot: 'm2', bgState: {}, opacity: 4, brightness: 9999, blur: 900 }],
+    }],
+  },
 })
-check('junk falls back to untouched',
-  (await readConfig()).rules[0].brightness === 100, String((await readConfig()).rules[0].brightness))
-// The absent case, which is the one that matters most: a rule written before the
-// field existed comes back with NO key at all, so nothing on this side has
-// rewritten a config to state what its owner was already looking at. A default
-// baked in here would also mean a client that renders the absence itself (see
-// `rBrightness`) could no longer tell "untouched" from "chosen at 100".
+const clampedEffects = (await readConfig()).rules[0].images[0]
+check('opacity stops at 1', clampedEffects.opacity === 1, String(clampedEffects.opacity))
+check('brightness stops at the shared ceiling, 200%',
+  clampedEffects.brightness === 200, String(clampedEffects.brightness))
+check('and blur stops at 60 px', clampedEffects.blur === 60, String(clampedEffects.blur))
+await call('writeConfig', {
+  config: {
+    ...first,
+    rules: [{
+      ...multiRule, id: 'r-clamp-effects',
+      images: [{ slot: 'm2', bgState: {}, opacity: -1, brightness: -20, blur: -5 }],
+    }],
+  },
+})
+const flooredEffects = (await readConfig()).rules[0].images[0]
+check('the floors are all zero, not negative numbers',
+  flooredEffects.opacity === 0 && flooredEffects.brightness === 0 && flooredEffects.blur === 0,
+  JSON.stringify(flooredEffects))
+await call('writeConfig', {
+  config: {
+    ...first,
+    rules: [{ ...multiRule, id: 'r-junk-effects', images: [{ slot: 'm2', bgState: {}, opacity: 'x', brightness: 'bright', blur: 'soft' }] }],
+  },
+})
+const junkEffects = (await readConfig()).rules[0].images[0]
+check('junk falls back to the neutral values',
+  junkEffects.opacity === 1 && junkEffects.brightness === 100 && junkEffects.blur === 0,
+  JSON.stringify(junkEffects))
+// The absent case, which is the one that matters most: a picture written before the
+// field existed (and a rule that never named one) comes back with NO brightness key
+// at all, so nothing on this side has rewritten a config to state what its owner
+// was already looking at. A client that renders the absence itself (`rBrightness`)
+// could otherwise no longer tell "untouched" from "chosen at 100".
 await call('writeConfig', { config: { ...first, rules: [multiRule] } })
 const untouched = (await readConfig()).rules[0]
-check('a rule written before the setting keeps no brightness key at all',
-  !('brightness' in untouched), JSON.stringify(Object.keys(untouched)))
-// A holiday's brightness is the user's, like its opacity and framing — see the
-// fixture the holiday block writes, which carries no such key and must stay 100.
-check('a holiday without one is untouched',
-  (await readConfig()).holidays.items.every(i => i.brightness === 100),
-  JSON.stringify((await readConfig()).holidays.items.map(i => i.brightness)))
-// And the field is DECLARED, so the drift guard stays quiet about it: a warning
-// here would mean the browser half can write a brightness the node half has never
-// heard of, which is the silent-loss bug the guard exists to make audible.
-const brightWarnings = []
-console.warn = (...a) => { brightWarnings.push(a.join(' ')) }
-await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, id: 'r-bright', brightness: 60 }] } })
+check('an image with no brightness anywhere keeps no key at all',
+  untouched.images.every(i => !('brightness' in i)), JSON.stringify(untouched.images.map(i => Object.keys(i))))
+// A holiday's effects are the user's, on its single image; the shipped one is absent.
+const holidayEffects = (await readConfig()).holidays.items.map(i => i.images[0])
+check('a holiday image starts with no brightness key',
+  holidayEffects.every(i => !('brightness' in i)), JSON.stringify(holidayEffects.map(i => Object.keys(i))))
+check('and with the shipped opacity and blur',
+  holidayEffects.every(i => i.opacity === 1 && i.blur === 0), JSON.stringify(holidayEffects))
+// A schema-9 holiday carried the trio on the ENTRY's parent (the rule); those have to
+// reach its single image too, or a dimmed festival wallpaper would come back at 100%.
+// The image is stripped back to the pre-move shape first: an entry that HAS the keys
+// keeps them (which is what the check above asserts), so the lift can only be
+// exercised by an entry that has none.
+await call('writeConfig', {
+  config: {
+    ...first,
+    holidays: {
+      enabled: false,
+      items: first.holidays.items.map(i => ({
+        ...i,
+        wallpaperOpacity: 0.5,
+        brightness: 70,
+        blur: 4,
+        images: i.images.map(image => ({ slot: image.slot, bgMode: image.bgMode, bgState: image.bgState, color: image.color })),
+      })),
+    },
+  },
+})
+const liftedHoliday = (await readConfig()).holidays.items[0].images[0]
+check('a rule-level trio reaches a holiday image as well',
+  liftedHoliday.opacity === 0.5 && liftedHoliday.brightness === 70 && liftedHoliday.blur === 4,
+  JSON.stringify(liftedHoliday))
+// And every field is DECLARED, so the drift guard stays quiet about it: a warning
+// here would mean the browser half can write an effect the node half has never heard
+// of, which is the silent-loss bug the guard exists to make audible.
+const effectWarnings = []
+console.warn = (...a) => { effectWarnings.push(a.join(' ')) }
+await call('writeConfig', {
+  config: { ...first, rules: [{ ...multiRule, images: [{ slot: 'm2', bgState: {}, opacity: 0.7, brightness: 60, blur: 2 }] }] },
+})
 console.warn = realWarn
-check('brightness is a declared rule field, not drift',
-  !brightWarnings.some(w => w.includes('rules[].brightness')), JSON.stringify(brightWarnings))
+check('the per-image effects are declared, not drift',
+  !effectWarnings.some(w => w.includes('rules[].images[].')),
+  JSON.stringify(effectWarnings))
 
 // Every image of one rule is independent bytes on disk — that is what makes a
 // per-image delete safe and a rotation possible at all.
@@ -964,23 +1056,52 @@ check('leaving the store with just the used picture',
 await call('writeConfig', { config: { ...first, rules: [multiRule] } })
 
 // The one way this feature could destroy a collection: a `theme-config.json` that
-// is THERE but does not parse. `readConfig` swallows it and answers with defaults —
-// right for painting, catastrophic for a cleanup, which would then see zero
-// referenced slots and call every file on disk an orphan.
-console.log('\n--- an unreadable config makes the sweep refuse, not guess ---')
+// is THERE but does not parse. `readConfig` answers with the last good COPY now (or
+// with defaults when there is none) — and for a cleanup, answering with defaults is
+// catastrophic, because it would see zero referenced slots and call every file on
+// disk an orphan.
+//
+// So there are two answers, and the backup is what decides which one:
+//
+//   - corrupt (or missing) live file, WITH a parseable `.bak` → the backup IS the
+//     config `readConfig` restores, so the sweep runs against it. Pruning against
+//     the rules the user is about to get back is the only user in that moment who
+//     has an opinion worth honouring: refusing would also be safe, but it would
+//     leave the button dead on a machine that is already healed;
+//   - corrupt live file and NO usable backup → UNTRUSTED, and the sweep refuses
+//     rather than guesses. Nothing on disk can be told apart from an orphan there.
+console.log('\n--- an unreadable config: the backup answers, or the sweep refuses ---')
 await call('writeImage', { slot: 'm1', dataUrl: pngUrl })
 await call('writeImage', { slot: 'm2', dataUrl: pngUrl })
 const goodConfig = readFileSync(join(DATA, 'theme-config.json'), 'utf8')
-check('there is a config and two pictures to lose', existsSync(join(DATA, 'modelbg-m1')) && existsSync(join(DATA, 'modelbg-m2')))
+check('there is a config and two pictures to lose',
+  existsSync(join(DATA, 'modelbg-m1')) && existsSync(join(DATA, 'modelbg-m2')))
+// Every write rotates the previous good file into `.bak`, so one round-trip through
+// `writeConfig` is enough to have a copy that names these two pictures.
+await call('writeConfig', { config: { ...first, rules: [multiRule] } })
+check('a save leaves a backup of the file it replaced',
+  existsSync(join(DATA, 'theme-config.json.bak')), readdirSync(DATA).join(', '))
 writeFileSync(join(DATA, 'theme-config.json'), '{ this is not json')
 const brokenUsage = (await call('storeUsage')).value
 check('the report still answers what is on disk', brokenUsage.files >= 2, JSON.stringify(brokenUsage))
-// The numbers are shown but flagged: the card disables the button instead of
-// offering an action it would then refuse.
-check('but it is flagged as untrusted', brokenUsage.trusted === false, JSON.stringify(brokenUsage.trusted))
-const brokenSweep = (await call('pruneOrphans', {})).value
-check('and the sweep refuses', brokenSweep.refused === true, JSON.stringify(brokenSweep))
-check('deleting nothing at all', brokenSweep.removed.length === 0, JSON.stringify(brokenSweep.removed))
+check('and the backup makes it trustworthy', brokenUsage.trusted === true, JSON.stringify(brokenUsage.trusted))
+// Reading a corrupt live file heals from the copy rather than serving defaults.
+const healed = await readConfig()
+check('a corrupt config is read back from the backup, not as a fresh install',
+  healed.rules.length === 1 && healed.rules[0].images.length === 3,
+  JSON.stringify(healed.rules.map(r => r.images.length)))
+check('and the live file is rewritten, so one recovery is enough',
+  JSON.parse(readFileSync(join(DATA, 'theme-config.json'), 'utf8')).rules[0].images.length === 3)
+// With no backup to fall back on, the same corruption is the dangerous case again:
+// numbers are still reported, the button is disabled, and the sweep refuses.
+rmSync(join(DATA, 'theme-config.json.bak'), { force: true })
+writeFileSync(join(DATA, 'theme-config.json'), '{ this is not json')
+const orphanUsage = (await call('storeUsage')).value
+check('with no backup the report is flagged untrusted',
+  orphanUsage.trusted === false, JSON.stringify(orphanUsage.trusted))
+const orphanSweep = (await call('pruneOrphans', {})).value
+check('and the sweep refuses', orphanSweep.refused === true, JSON.stringify(orphanSweep))
+check('deleting nothing at all', orphanSweep.removed.length === 0, JSON.stringify(orphanSweep.removed))
 check('both pictures are still on disk',
   existsSync(join(DATA, 'modelbg-m1')) && existsSync(join(DATA, 'modelbg-m2')),
   readdirSync(DATA).join(', '))
@@ -995,8 +1116,10 @@ writeFileSync(join(DATA, 'theme-config.json'), goodConfig)
 check('a repaired config restores the button', (await call('storeUsage')).value.trusted === true)
 check('and the sweep runs again', (await call('pruneOrphans', {})).value.refused === false)
 // A store with NO config file is not this case: nothing has ever been configured,
-// so nothing is on disk to protect.
+// so nothing is on disk to protect. (The backup is gone too — otherwise the copy
+// would be the answer, which the recovery checks above cover.)
 rmSync(join(DATA, 'theme-config.json'), { force: true })
+rmSync(join(DATA, 'theme-config.json.bak'), { force: true })
 check('a missing config is trusted, not refused', (await call('storeUsage')).value.trusted === true)
 // Hand the store back the way the next section reads it off disk: the multi-image
 // rule, and the bytes its slots name.
@@ -1049,6 +1172,39 @@ check('each image color lands on disk as that image\'s own field',
 check('a cleared image is an explicit null, not an absent key',
   'color' in tintedOnDisk.images[1] && tintedOnDisk.images[1].color === null,
   JSON.stringify(Object.keys(tintedOnDisk.images[1])))
+
+// ── the config is written atomically, with a copy of the last good file ─────
+// The config file is the whole rule list, and it is rewritten on every edit. A
+// write in place meant a crash (or a full disk, or a pulled cable) could leave half
+// a document behind — which `readConfig` greets by falling back to defaults, and the
+// next drag then persists those defaults over the ruin. Two things fix it, and both
+// have to be TRUE of the shipped build rather than merely intended:
+//
+//   1. a save rotates the file it replaces into `theme-config.json.bak`, but ONLY
+//      when that file parses — a corrupt live file must never overwrite the last
+//      good copy;
+//   2. the new bytes go to a temp name and are RENAMED over the live path, so a
+//      reader (or a crash) can only ever see the old document or the new one.
+console.log('\n--- an atomic write, and a backup that is never the corrupt file ---')
+await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, id: 'r-atomic-1' }] } })
+const firstSave = readFileSync(join(DATA, 'theme-config.json'), 'utf8')
+await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, id: 'r-atomic-2' }] } })
+const secondSave = readFileSync(join(DATA, 'theme-config.json'), 'utf8')
+check('the new config is the live file', secondSave.includes('r-atomic-2'), secondSave.slice(0, 80))
+check('and the previous one is in the backup',
+  readFileSync(join(DATA, 'theme-config.json.bak'), 'utf8') === firstSave,
+  readFileSync(join(DATA, 'theme-config.json.bak'), 'utf8').slice(0, 80))
+check('no temp file is left behind',
+  readdirSync(DATA).every(n => !n.endsWith('.tmp')), readdirSync(DATA).join(', '))
+// The dangerous rotation: a corrupt live file must not replace the good backup, or
+// the first save after the corruption would also destroy the copy that heals it.
+writeFileSync(join(DATA, 'theme-config.json'), '{ interrupted')
+await call('writeConfig', { config: { ...first, rules: [{ ...multiRule, id: 'r-atomic-3' }] } })
+check('a corrupt live file does NOT overwrite the backup',
+  readFileSync(join(DATA, 'theme-config.json.bak'), 'utf8') === firstSave,
+  readFileSync(join(DATA, 'theme-config.json.bak'), 'utf8').slice(0, 80))
+check('and the save itself still lands',
+  readFileSync(join(DATA, 'theme-config.json'), 'utf8').includes('r-atomic-3'))
 
 // ── the recommended profile ────────────────────────────────────────────────
 // A profile is a DIRECTORY in the store's own shape — a manifest, a config and
@@ -1259,6 +1415,11 @@ check('there is a store to empty', existsSync(join(DATA, 'theme-config.json'))
   readdirSync(DATA).join(', '))
 check('the reset reports success', (await call('resetStore')).value === true)
 check('the config is gone', !existsSync(join(DATA, 'theme-config.json')))
+// The backup goes WITH it: a `.bak` left behind would be restored by the next read,
+// silently undoing the replacement that `wipeFirst` exists to perform — the one
+// place where a safety net would be a bug.
+check('and so is the backup of the config it replaced',
+  !existsSync(join(DATA, 'theme-config.json.bak')), readdirSync(DATA).join(', '))
 check('and every rule image with it',
   readdirSync(DATA).filter(n => n.startsWith('modelbg-')).length === 0,
   readdirSync(DATA).join(', '))

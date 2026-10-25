@@ -39,6 +39,7 @@ const read = (rel: string): string => readFileSync(resolve(HERE, '..', rel), 'ut
 const SCHEMA = read('src/schema.ts')
 const STATE = read('src/client/state.ts')
 const PANEL = read('src/client/components/pages/ModelBgPage.tsx')
+const SLIDER = read('src/client/components/LiveSlider.tsx')
 const ENTRY = read('src/client/index.tsx')
 const WALL = read('src/client/wallpaper.ts')
 
@@ -121,9 +122,9 @@ console.log('\n--- the copy above is anchored to the real lift ---')
 // sanitize through. If any of them is edited away, the copy above is no longer
 // describing `src/schema.ts` and this file has to be rewritten with it.
 check('the rule-level mode is resolved once, before the images are walked',
-  /const mode: BgMode = BG_MODES\.includes\(r\.bgMode as BgMode\) \? \(r\.bgMode as BgMode\) : 'fit'\n\s+const images: BgImage\[\] = \[\]/.test(SCHEMA), true)
+  /const mode: BgMode = BG_MODES\.includes\(r\.bgMode as BgMode\) \? \(r\.bgMode as BgMode\) : 'fit'/.test(SCHEMA), true)
 check('and passed to every entry as its inherited mode',
-  /normalizeImage\(entry, color, mode\)/.test(SCHEMA), true)
+  /normalizeImage\(entry, inherit, mode\)/.test(SCHEMA), true)
 check('a keyless mode on an entry resolves to that inherited value',
   /bgMode: BG_MODES\.includes\(i\.bgMode as BgMode\) \? \(i\.bgMode as BgMode\) : inheritMode/.test(SCHEMA), true)
 check('the synthesized pre-0.7 image is lifted too',
@@ -145,7 +146,7 @@ console.log('\n--- the holiday keeps the definition\'s fill ---')
 // rule-level value is not what it should follow: `fill` is. A stale `fit` must
 // not letterbox a festival wallpaper.
 check('a holiday image is full-bleed: fill comes from the definition',
-  /images: \[\{ slot: def\.slot, bgMode: 'fill', bgState: \{ \.\.\.DEFAULT_BG_STATE \}, color \}\]/.test(SCHEMA), true)
+  /images: \[defaultImage\(def\.slot, color, 'fill'\)\]/.test(SCHEMA), true)
 check('and the read-back takes the mode from the definition, not from disk',
   /bgMode: image\.bgMode,\n\s+bgState: normalizeBgState/.test(SCHEMA), true)
 
@@ -181,9 +182,10 @@ check('and a live mode edit repaints through the shared decision',
 // entry with no key, so an entry written without one would come back with whatever
 // a rule-level field happened to say — the opposite of a default.
 check('a new picture from the file picker writes its own mode',
-  /const image = \{ slot, bgMode: 'fit' as const, bgState: \{ \.\.\.DEFAULT_BG_STATE \}, color: null \}/.test(ENTRY), true)
+  /rule\.images\.push\(defaultImage\(slot\)\)/.test(ENTRY), true)
 check('and so does one fetched from a URL',
-  /rule\.images\.push\(\{ slot, bgMode: 'fit', bgState:/.test(ENTRY), true)
+  /rule\.images\.push\(defaultImage\(slot\)\)/.test(ENTRY)
+  && (ENTRY.match(/rule\.images\.push\(defaultImage\(slot\)\)/g) ?? []).length, 2)
 
 console.log('\n--- the shape bump, which is what protects the lifted value ---')
 // The mode moved AROUND inside the image entry, and a schema-5 host rebuilds every
@@ -194,6 +196,55 @@ console.log('\n--- the shape bump, which is what protects the lifted value ---')
 check('the announced shape moved past the config that had the mode on the rule',
   announced > 5, true)
 
+console.log('\n--- the three paint effects follow the image too ---')
+// Opacity, brightness and blur moved onto the image with this same argument (schema
+// 10): one rule-level exposure forced a night shot to live at a daylight photo's
+// brightness. Every read has to address the image being PAINTED, and the panel has
+// to write to the image being EDITED — the exact split the mode above uses.
+check('the render layer reads all three from the CURRENT image, not the rule',
+  /export function rWop\(\): number \{ return clamp01\(activeImage\(\)\?\.opacity, 1\) \}/.test(STATE)
+  && /export function rBrightness\(\): number \{\s+return clamp\(activeImage\(\)\?\.brightness/
+    .test(STATE)
+  && /export function rBl\(\): number \{ return clamp\(activeImage\(\)\?\.blur, 0, 60, 0\) \}/.test(STATE),
+  true)
+// The shape, not just the module: the rule must have no field of its own left, or a
+// config could keep two answers to one question. Comments are stripped first — the
+// deliberate note that the fields are ABSENT names all three of them.
+const withoutComments = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+const ruleBody = withoutComments(/export interface BgRule[\s\S]*?\n\}/.exec(SCHEMA)?.[0] ?? '')
+check('the rule declares none of the three any more',
+  ruleBody.match(/\b(wallpaperOpacity|brightness|blur)\b/g) ?? [], [])
+const imageBody = withoutComments(/export interface BgImage[\s\S]*?\n\}/.exec(SCHEMA)?.[0] ?? '')
+check('and the image declares all three',
+  ['opacity', 'brightness', 'blur'].filter(k => new RegExp(`\\b${k}\\??:`).test(imageBody)),
+  ['opacity', 'brightness', 'blur'])
+// The panel addresses the SELECTED image, through the slot-addressed store call.
+check('the slider reads the selected image\'s own values',
+  /def: Math\.round\(\(image\?\.opacity \?\? 1\) \* 100\)/.test(PANEL)
+  && /def: image\?\.brightness \?\? DEFAULT_WALLPAPER_BRIGHTNESS/.test(PANEL)
+  && /def: image\?\.blur \?\? 0/.test(PANEL), true)
+check('and commits through the slot-addressed writer',
+  (PANEL.match(/p\.setImageEffects\(rule\.id, slot, \{ (opacity|brightness|blur): /g) ?? []).length, 3)
+check('the store patch re-sanitizes and repaints through the shared gate',
+  /setImageEffects: \(id: string, slot: string, patch: Partial<Pick<BgImage,[\s\S]{0,700}?normalizeRuleInPlace\(rule\)[\s\S]{0,300}?repaintIfMoved\(id, winner\)/
+    .test(ENTRY), true)
+// With no picture there is nothing to expose: the row is disabled, and the card says
+// so — the same "disabled, not hidden" rule the layout chips follow.
+check('and the row is disabled while there is no image to expose',
+  /const disabled = image === undefined/.test(PANEL) && /disabled=\{disabled\}/.test(PANEL), true)
+// The live preview writes layer properties only, so it may only run when the edited
+// image is ALSO the painted one: the value belongs to one picture, not to the rule.
+check('a preview is gated on the edited image being the painted one',
+  /const painted = active && selIdx === liveIndex/.test(PANEL)
+  && /if \(!active \|\| !painted \|\| image === undefined\) return/.test(PANEL), true)
+// And every picture a caller CREATES spells the fields out: the lift keys off an
+// absent key, so an entry written without one would inherit a rule that no longer
+// has any — a picture silently back at the shipped exposure.
+check('a created image carries every per-image field explicitly',
+  /export function defaultImage\([\s\S]*?opacity: 1,[\s\S]*?blur: 0,[\s\S]*?\n\}/.test(SCHEMA), true)
+check('and every creation site uses that factory',
+  (ENTRY.match(/defaultImage\(/g) ?? []).length, 2)
+
 console.log('\n--- the wallpaper layer\'s brightness shares the filter with the blur ---')
 // Brightness and blur are ONE CSS property, which is the whole hazard: assigning
 // `filter` twice leaves whichever ran last, so a rule that is both brightened and
@@ -203,8 +254,8 @@ console.log('\n--- the wallpaper layer\'s brightness shares the filter with the 
 check('the ceiling and the neutral value live in the shared shape, not in the UI',
   /export const WALLPAPER_BRIGHTNESS_MAX = 200/.test(SCHEMA)
   && /export const DEFAULT_WALLPAPER_BRIGHTNESS = 100/.test(SCHEMA), true)
-check('the render layer reads the brightness from the active rule, absence included',
-  /export function rBrightness\(\): number \{[\s\S]*?activeRule\(\)\?\.brightness[\s\S]*?DEFAULT_WALLPAPER_BRIGHTNESS\)/.test(STATE),
+check('the render layer reads the brightness from the current image, absence included',
+  /export function rBrightness\(\): number \{[\s\S]*?activeImage\(\)\?\.brightness[\s\S]*?DEFAULT_WALLPAPER_BRIGHTNESS\)/.test(STATE),
   true)
 check('the panel drives its range from the same constant',
   // The three wallpaper effects now share one track, so the brightness limit is
@@ -212,24 +263,93 @@ check('the panel drives its range from the same constant',
   // read from the shared shape, never spelled as a second 200.
   /max: WALLPAPER_BRIGHTNESS_MAX/.test(PANEL)
   && /from '\.\.\/\.\.\/\.\.\/schema'/.test(PANEL), true)
-check('and a rule with no key reads as the neutral value, not as zero',
-  /rule\.brightness \?\? DEFAULT_WALLPAPER_BRIGHTNESS/.test(PANEL), true)
-// ONE composer, and every assignment goes through it: the blur and the brightness
-// are joined in a single string, and the neutral brightness is left out so an
-// untouched wallpaper keeps the empty `filter` it has always had.
+check('and an image with no key reads as the neutral value, not as zero',
+  /image\?\.brightness \?\? DEFAULT_WALLPAPER_BRIGHTNESS/.test(PANEL), true)
+// ONE composer per layer, and it reads that layer's OWN snapshot: during a switch
+// the two layers hold two different photos, so a composer reading the active image
+// wrote the incoming picture's exposure onto the outgoing one — every cross-fade
+// between two different settings was visibly cut at its first frame.
 check('one function composes the filter from both settings',
-  /function wpFilter\(\): string \{[\s\S]*?brightness\(\$\{brightness\}%\)[\s\S]*?blur\(\$\{blur\}px\)[\s\S]*?return parts\.join\(' '\)/.test(WALL),
+  /function wpFilter\(brightness: number, blur: number\): string \{[\s\S]*?brightness\(\$\{brightness\}%\)[\s\S]*?blur\(\$\{blur\}px\)[\s\S]*?return parts\.join\(' '\)/.test(WALL),
   true)
 check('the neutral brightness is omitted rather than written out',
   /if \(brightness !== 100\) parts\.push/.test(WALL), true)
-// Every assignment goes through the ONE composer: two sites (the full apply and
-// the live drag), each writing both layers, and each taking its string from
-// `wpFilter()` rather than building a `blur(…)` of its own — which is exactly the
-// shape that would drop a layer's brightness when the blur slider moved.
-check('the filter is written on both layers at both sites',
-  (WALL.match(/el\.style\.filter = filter/g) ?? []).length, 4)
-check('and every one of them comes from the composer',
-  (WALL.match(/= wpFilter\(\)/g) ?? []).length, 2)
+check('a layer is a snapshot of one picture, taken when it is painted',
+  /l\.brightness = rBrightness\(\)\s+l\.blur = rBl\(\)/.test(WALL), true)
+check('and the composer reads that snapshot, not a live read',
+  /l\.el\.style\.filter = wpFilter\(l\.brightness, l\.blur\)/.test(WALL), true)
+check('one function writes a layer\'s filter, and only from the composer',
+  /function applyLayerEffects\(l: WpLayer\): void \{[\s\S]*?wpFilter\(l\.brightness, l\.blur\)/.test(WALL), true)
+// Both layers, from the one full-repaint site; the drag frame has its own
+// (per-layer) site, pinned below.
+check('the full repaint writes both layers through it',
+  (WALL.match(/applyLayerEffects\(layers\[[01]\]\)/g) ?? []).length, 2)
+
+console.log('\n--- a blurred edge does not paint a dark rim over the wallpaper ---')
+check('the growth is two sigma of the blur, and nothing at all without one',
+  /function wpBlurPad\(blur: number\): number \{\s+return blur > 0 \? Math\.ceil\(blur \* 2\) \+ 2 : 0\s+\}/.test(WALL), true)
+check('one writer grows the box and shifts a numeric placement back by the same pad',
+  /function writeLayerBox\(l: WpLayer, pad: number\): void \{[\s\S]*?l\.el\.style\.inset = `\$\{-pad\}px`[\s\S]*?posX === null \|\| posY === null \? 'center' : `\$\{posX \+ pad\}px \$\{posY \+ pad\}px`/.test(WALL), true)
+check('the container clips the growth, so the visible layout never sees it',
+  /wpEl\.style\.cssText = '[^']*overflow:hidden/.test(WALL)
+  && !/wpEl\.style\.inset/.test(WALL), true)
+check('paintLayer records placements instead of writing them',
+  !/(?<!\.)el\.style\.backgroundPosition = /.test(WALL)
+  && /l\.posX = bg\.x \* window\.innerWidth - w \/ 2/.test(WALL), true)
+check('the tile phase stays anchored to the viewport, not to the grown box',
+  /l\.posX = 0\s+l\.posY = 0/.test(WALL), true)
+check('a recycled layer gives the growth back',
+  /l\.el\.style\.inset = '0px'/.test(WALL), true)
+check('and the pad is the layer\'s own blur, like the filter beside it',
+  /writeLayerBox\(l, wpBlurPad\(l\.blur\)\)/.test(WALL), true)
+check('the pad is written on the drag frame too, not only on the repaint',
+  /export function setWpFilter\(\): void \{[\s\S]*?applyLayerEffects\(l\)/.test(WALL), true)
+
+console.log('\n--- a switch animates the wallpaper\'s opacity as well as its picture ---')
+// The container carried the wallpaper opacity, and the switch wrote the INCOMING
+// value on the first frame: two pictures at different opacities therefore changed
+// instantly, with only the layer under them fading. It rides the same transition
+// as the layers now — outgoing value first, incoming value once the fade is armed.
+check('the container\'s opacity rides the switch instead of snapping',
+  /const toAlpha = rWop\(\)\s+const fadeAlpha = plan\.animate && Math\.abs\(toAlpha - wpAlpha\) > 0\.001/.test(WALL), true)
+check('the outgoing value is re-asserted before the fade is armed',
+  /if \(fadeAlpha\) wpEl!\.style\.transition = 'none'/.test(WALL), true)
+check('and the incoming one is written on the same clock as the layers',
+  /wpEl!\.style\.transition = plan\.transition\s+wpEl!\.style\.opacity = String\(toAlpha\)/.test(WALL), true)
+// Reading `rWop()` inside a repaint would snap the container to the incoming value
+// mid-fade, so the steady value is mirrored instead.
+check('a repaint mid-fade re-writes the value the fade is heading for',
+  /wpEl\.style\.opacity = String\(wpAlpha\)/.test(WALL), true)
+check('the live opacity writer keeps the mirror in step',
+  /wpAlpha = v\s+if \(wpEl\) wpEl\.style\.opacity = String\(v\)/.test(WALL), true)
+check('a drag only writes the layer painting the picture being edited',
+  /export function setWpFilter\(\): void \{[\s\S]*?if \(l\.url !== url\) continue/.test(WALL), true)
+
+// The live drag is a real second site again, and the panel is what reaches it.
+// Both writers were exported and unreachable for a while — the merged effect row
+// passed only `onChange`, so every frame of a drag ran a full `applyActive()`
+// while `setWpOpacity` / `setWpFilter` had no caller at all.
+check('the panel\'s effect row reaches the live opacity writer',
+  /setWpOpacity\(v \/ 100\)/.test(PANEL), true)
+check('and the live filter writer, which composes both effects',
+  /preview\(\{ (brightness|blur): v \}, setWpFilter\)/.test(PANEL), true)
+check('both are imported from the render layer rather than re-implemented',
+  /import \{ setWpFilter, setWpOpacity \} from '\.\.\/\.\.\/wallpaper'/.test(PANEL), true)
+// A preview may only touch the rule the layer is painting: writing the values of
+// a rule that is not on screen would repaint another model's wallpaper.
+check('and a preview is gated on the rule being the one on screen',
+  /const preview = \(patch: Partial<BgImage>, paint: \(\) => void\): void => \{\s+if \(!active \|\| !painted \|\| image === undefined\) return/.test(PANEL), true)
+// The half that makes the split hold at all: a range input fires `input` per
+// frame, so a slider that commits from React's `onChange` commits per frame no
+// matter what the preview path does. `LiveSlider` therefore has NO `onChange`
+// prop on the element — the commit rides the native `change` event, once.
+check('the slider commits from the native change event, not from React\'s onChange',
+  SLIDER.includes("el.addEventListener('change', onEnd)"), true)
+check('and its range input carries no React onChange prop',
+  /type="range"[\s\S]{0,900}?onInput=\{e => live\(/.test(SLIDER)
+  && !/onChange=\{e => live|onChange=\{e => Number/.test(SLIDER), true)
+check('a gesture in flight is not overwritten by a re-render of the canonical value',
+  /if \(pending\.current !== null\) return/.test(SLIDER), true)
 
 console.log('\n--- the interface parts are found by name, not by position ---')
 // The shell frame grew a bottom row and a drag handle AFTER the overlay, which

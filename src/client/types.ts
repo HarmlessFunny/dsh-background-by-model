@@ -324,6 +324,16 @@ export interface ThemeSectionProps {
    */
   setImageMode: (id: string, slot: string, mode: BgMode) => void
   /**
+   * Store one image's three paint effects — opacity, brightness and blur.
+   *
+   * Addressed by SLOT for the same reason as the mode and the framing: how a
+   * picture is exposed is a property of THAT picture, and a rotation through a
+   * daylight photo and a night shot cannot share one exposure. A patch rather than
+   * three setters because the panel's merged row writes one of them at a time while
+   * the gesture's commit may carry all three.
+   */
+  setImageEffects: (id: string, slot: string, patch: Partial<Pick<BgImage, 'opacity' | 'brightness' | 'blur'>>) => void
+  /**
    * Store one image's theme color; null = that image follows the system theme.
    *
    * Separate from `setRule` because the color belongs to the IMAGE: a rule with

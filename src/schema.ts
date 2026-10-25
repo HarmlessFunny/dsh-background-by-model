@@ -23,13 +23,13 @@ export const DEFAULT_BG_STATE: BgState = { zoom: 1, x: 0, y: 0, iw: 0, ih: 0 }
 
 /**
  * One image of a rule: its slot and everything that belongs to THAT picture — its
- * layout mode, its framing and its theme colour.
+ * layout mode, its framing, its theme colour and the three paint effects.
  *
- * All three are per image because all three are properties of a picture: two
+ * All of them are per image because all of them are properties of a picture: two
  * wallpapers in one rotation (a 3:2 photo and a tall screenshot) do not want the
- * same layout mode or the same accent, and one rule-level value forced each
- * picture to accept the other's compromise. A rule's own `color` is therefore
- * only what a rule with no image left paints (see `BgRule.color`).
+ * same layout mode, the same accent or the same exposure, and one rule-level value
+ * forced each picture to accept the other's compromise. A rule's own `color` is
+ * therefore only what a rule with no image left paints (see `BgRule.color`).
  */
 export interface BgImage {
   /** Image slot; the bytes live in `modelbg-<slot>` under the data dir. */
@@ -55,6 +55,27 @@ export interface BgImage {
    * the rule's colour onto it so an upgrade keeps its theme.
    */
   color: [number, number, number] | null
+  /**
+   * How opaque THIS wallpaper is (0..1).
+   *
+   * An entry with no `opacity` KEY predates per-image effects; `normalizeImage`
+   * lifts the rule-level opacity a schema-9 config carried onto it, so an upgrade
+   * keeps what was on screen.
+   */
+  opacity: number
+  /**
+   * THIS image's brightness, in percent: `0` is a black screen, `100` the picture
+   * as its file has it, `WALLPAPER_BRIGHTNESS_MAX` the ceiling.
+   *
+   * OPTIONAL on purpose, exactly like the rule-level field it replaced: the
+   * absence means "untouched", and `rBrightness` (./client/state) is the only place
+   * it becomes `DEFAULT_WALLPAPER_BRIGHTNESS`. A default written into the config
+   * would make an upgrade rewrite every rule — and, worse here, it would erase the
+   * difference between "never touched this picture" and "chose 100 for it".
+   */
+  brightness?: number
+  /** THIS image's blur (px, 0..60) — NOT the interface part blur. */
+  blur: number
 }
 
 /** Adaptive placement of a background image. */
@@ -218,21 +239,10 @@ export interface BgRule {
    * `normalizeImage` performs for configs written before per-image colours.
    */
   color: [number, number, number] | null
-  // There is deliberately NO `bgMode` here: the layout mode belongs to each image
-  // (`BgImage.bgMode`). A config that carried one here is lifted on read.
-  /** Wallpaper layer opacity (0..1). */
-  wallpaperOpacity: number
-  /**
-   * Wallpaper layer brightness, in percent: `0` is a black screen, `100` the picture
-   * as its file has it, `WALLPAPER_BRIGHTNESS_MAX` the ceiling.
-   *
-   * OPTIONAL on purpose: the absence means "untouched", and `rBrightness`
-   * (./client/state) is the only place it becomes `DEFAULT_WALLPAPER_BRIGHTNESS`. A
-   * default written into the config would make an upgrade rewrite every rule.
-   */
-  brightness?: number
-  /** Wallpaper layer blur (px, 0..60) — NOT the interface part blur. */
-  blur: number
+  // There is deliberately NO `bgMode`, `wallpaperOpacity`, `brightness` or `blur`
+  // here: the layout mode and the three paint effects all belong to each image
+  // (`BgImage`). A config that carried them at the rule level is lifted on read —
+  // see `normalizeRule`.
   /** How the rule cycles `images`; off by default. */
   rotate: BgRotation
 }
@@ -247,8 +257,37 @@ export interface BgRule {
  */
 export const WALLPAPER_BRIGHTNESS_MAX = 200
 
-/** The brightness a rule starts on: the picture exactly as its file has it. */
+/** The brightness a picture starts on: the image exactly as its file has it. */
 export const DEFAULT_WALLPAPER_BRIGHTNESS = 100
+
+/**
+ * One image entry for a place that CREATES a picture rather than reads one back
+ * (a fresh holiday, and every upload in the panel).
+ *
+ * The two effects whose neutral value is also the shipped default are written
+ * explicitly (`opacity`, `blur`), even though `normalizeImage` would default them:
+ * the read-time lifts key off the ABSENCE of a key, so an entry created without one
+ * would come back as "written before this field existed" and inherit whatever the
+ * rule happened to carry. `brightness` is the one field whose absence is meaningful
+ * (see `BgImage.brightness`), so it is left out — "untouched" is exactly what a new
+ * picture is.
+ */
+export function defaultImage(
+  slot: string,
+  color: [number, number, number] | null = null,
+  bgMode: BgMode = 'fit',
+): BgImage {
+  return {
+    slot,
+    bgMode,
+    bgState: { ...DEFAULT_BG_STATE },
+    color,
+    opacity: 1,
+    // No `brightness` key: absence is "untouched", and `rBrightness` is the one
+    // place that becomes 100 (see BgImage.brightness).
+    blur: 0,
+  }
+}
 
 /** Every slot a rule owns, in order. The one thing the render and store layers
  *  ask of the image list, so a rule's slots are never enumerated ad hoc. */
@@ -408,13 +447,10 @@ export function defaultHolidayRule(def: HolidayDef): HolidayRule {
   return {
     id: def.id,
     // Exactly one image: a holiday's art is the single file its definition names.
-    images: [{ slot: def.slot, bgMode: 'fill', bgState: { ...DEFAULT_BG_STATE }, color }],
+    images: [defaultImage(def.slot, color, 'fill')],
     match: '',
     enabled: true,
     color,
-    wallpaperOpacity: 1,
-    brightness: DEFAULT_WALLPAPER_BRIGHTNESS,
-    blur: 0,
     rotate: defaultRotation(),
   }
 }
@@ -441,7 +477,6 @@ export function blankRule(id: string): BgRule {
     id,
     images: [],
     match: '', enabled: true, color: null,
-    wallpaperOpacity: 1, brightness: DEFAULT_WALLPAPER_BRIGHTNESS, blur: 0,
     rotate: defaultRotation(),
   }
 }
@@ -495,8 +530,15 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  *   8  `pageOpacity`               — new field
  *   9  REMOVAL of `blurs`          — a schema-8 host would re-add it with its own
  *                                    defaults (60 px of frosting) on the first write
+ *   10 `images[].opacity` / `brightness` / `blur` — new fields, plus the RULE-level
+ *                                    trio lifted onto every entry. The move is why
+ *                                    this number had to move at all: a schema-9 host
+ *                                    rebuilds each entry from the keys it knows, so
+ *                                    it would drop all three in silence AND keep
+ *                                    reading the rule-level values that no longer
+ *                                    exist — a wallpaper silently back at 100%.
  */
-export const SCHEMA_VERSION = 9
+export const SCHEMA_VERSION = 10
 
 export function clamp(n: unknown, lo: number, hi: number, def: number): number {
   return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
@@ -587,12 +629,37 @@ export function normalizeTransition(raw: unknown, legacyMs?: number): Transition
 }
 
 /**
+ * What an image entry inherits from the RULE it sits in, for the one-shot lifts.
+ *
+ * Every field is the rule-level value the shape carried before the effects moved
+ * down (schema 9), or the neutral value when the rule never had one. It is an
+ * object rather than four positional arguments because four booleans-or-numbers in
+ * a row is how a lift ends up handing a blur to the brightness slider.
+ */
+export interface ImageInherit {
+  color: [number, number, number] | null
+  opacity: number
+  /** `undefined` = the rule never named one, so the entry must not either. */
+  brightness: number | undefined
+  blur: number
+}
+
+/** The inherit block for a caller that has no rule-level values at all. */
+export const DEFAULT_IMAGE_INHERIT: ImageInherit = {
+  color: null,
+  opacity: 1,
+  brightness: undefined,
+  blur: 0,
+}
+
+/**
  * Coerce one persisted image entry, or null when it lacks a usable slot.
  *
- * `inherit` (the RULE's colour) is applied only to an entry with no `color` KEY at
- * all — the shape written before per-image colours, where the rule's colour was the
- * only one there was. The key's PRESENCE is the whole distinction: `color: null` is
- * a deliberate "follow the system theme" and must not be re-inherited on every load.
+ * `inherit` is the rule-level block this entry may take its values from, and each
+ * field is lifted ONLY when the entry has no key of its own — that absence is the
+ * whole signal. `color: null` is a deliberate "follow the system theme" and must
+ * not be re-inherited on every load; `brightness` keeps its key absent when neither
+ * side ever named one, so an upgrade never writes a default nobody chose.
  *
  * `inheritMode` is the same one-shot lift for the layout mode. It is the caller's to
  * resolve because the callers answer differently: a user rule passes the mode its
@@ -601,17 +668,29 @@ export function normalizeTransition(raw: unknown, legacyMs?: number): Transition
  */
 export function normalizeImage(
   raw: unknown,
-  inherit: [number, number, number] | null = null,
+  inherit: ImageInherit = DEFAULT_IMAGE_INHERIT,
   inheritMode: BgMode = 'fit',
 ): BgImage | null {
   const i = (raw ?? {}) as Partial<BgImage>
   if (typeof i.slot !== 'string' || !SLOT_RE.test(i.slot)) return null
-  return {
+  const image: BgImage = {
     slot: i.slot,
     bgMode: BG_MODES.includes(i.bgMode as BgMode) ? (i.bgMode as BgMode) : inheritMode,
     bgState: normalizeBgState(i.bgState as Partial<BgState> | undefined),
-    color: hasOwn(i, 'color') ? normalizeHsl(i.color) : inherit,
+    color: hasOwn(i, 'color') ? normalizeHsl(i.color) : inherit.color,
+    // The two effects whose neutral value is also the shipped default: a key can be
+    // written back without changing what anyone was looking at, so it always is.
+    opacity: clamp01(i.opacity, inherit.opacity),
+    blur: clamp(i.blur, 0, 60, inherit.blur),
   }
+  // Brightness is the one field whose ABSENCE is information (see BgImage), so the
+  // key is settled separately: an entry that named one keeps it, an entry that did
+  // not takes the rule's only if the rule had one, and otherwise it stays absent.
+  const brightness = i.brightness === undefined
+    ? inherit.brightness
+    : clamp(i.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, DEFAULT_WALLPAPER_BRIGHTNESS)
+  if (brightness !== undefined) image.brightness = brightness
+  return image
 }
 
 /**
@@ -632,12 +711,19 @@ export function normalizeImage(
  * expressible. `ruleCanPaint` decides what such a rule then does.
  */
 export function normalizeRule(raw: unknown): BgRule | null {
-  // `slot` / `bgState` / `bgMode` are read but not declared on `BgRule` any more:
-  // they are the shapes earlier releases wrote, and this function is where they are
-  // lifted (the first two into the image entry, the third into every entry's own
-  // mode). Typing them here is what keeps the rest of the codebase free of
-  // "old config" branches.
-  const r = (raw ?? {}) as Partial<BgRule> & { slot?: unknown; bgState?: unknown; bgMode?: unknown }
+  // `slot` / `bgState` / `bgMode` and the three paint effects are read but not
+  // declared on `BgRule` any more: they are the shapes earlier releases wrote, and
+  // this function is where they are lifted — the first pair into the image entry,
+  // the layout mode and the effects into EVERY entry's own fields. Typing them here
+  // is what keeps the rest of the codebase free of "old config" branches.
+  const r = (raw ?? {}) as Partial<BgRule> & {
+    slot?: unknown
+    bgState?: unknown
+    bgMode?: unknown
+    wallpaperOpacity?: unknown
+    brightness?: unknown
+    blur?: unknown
+  }
   const id = typeof r.id === 'string' && r.id !== '' ? r.id : null
   if (id === null) return null
   const color = normalizeHsl(r.color)
@@ -646,12 +732,25 @@ export function normalizeRule(raw: unknown): BgRule | null {
   // unusable — the same default a fresh rule's first picture gets, so a config
   // that never named a mode cannot tell this lift apart from a new rule.
   const mode: BgMode = BG_MODES.includes(r.bgMode as BgMode) ? (r.bgMode as BgMode) : 'fit'
+  // The same trip for the three effects a schema-9 config carried on the RULE. Each
+  // value is resolved once and handed down, so every picture of one rule starts out
+  // looking exactly as that rule did — which is what the user was already seeing.
+  // Brightness stays `undefined` when the rule never named one, and that absence
+  // travels with it (see `normalizeImage`).
+  const inherit: ImageInherit = {
+    color,
+    opacity: clamp01(r.wallpaperOpacity, 1),
+    brightness: r.brightness === undefined
+      ? undefined
+      : clamp(r.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, DEFAULT_WALLPAPER_BRIGHTNESS),
+    blur: clamp(r.blur, 0, 60, 0),
+  }
   const images: BgImage[] = []
   const seen = new Set<string>()
   const hadList = Array.isArray(r.images)
   if (hadList) {
     for (const entry of r.images as unknown[]) {
-      const image = normalizeImage(entry, color, mode)
+      const image = normalizeImage(entry, inherit, mode)
       if (image === null || seen.has(image.slot)) continue
       seen.add(image.slot)
       images.push(image)
@@ -660,14 +759,18 @@ export function normalizeRule(raw: unknown): BgRule | null {
   const legacySlot = typeof r.slot === 'string' && SLOT_RE.test(r.slot) ? r.slot : null
   if (images.length === 0 && legacySlot !== null) {
     // Synthesized, not read: the pre-0.7 pair has no image entry of its own, so
-    // the rule's color and the rule's mode are what this image starts out with
-    // (the same lift as above, for the shape that has no key to be absent from).
-    images.push({
+    // the rule's color, mode and effects are what this image starts out with (the
+    // same lift as above, for the shape that has no key to be absent from).
+    const image: BgImage = {
       slot: legacySlot,
       bgMode: mode,
       bgState: normalizeBgState(r.bgState as Partial<BgState> | undefined),
       color,
-    })
+      opacity: inherit.opacity,
+      blur: inherit.blur,
+    }
+    if (inherit.brightness !== undefined) image.brightness = inherit.brightness
+    images.push(image)
   }
   // Nothing usable anywhere: a pre-0.7 rule whose slot was empty or malformed.
   if (images.length === 0 && !hadList) return null
@@ -678,28 +781,17 @@ export function normalizeRule(raw: unknown): BgRule | null {
   // "on" and cannot be turned off until another picture arrives. The normalizer is
   // the one place load, import and persist all pass through.
   if (images.length < 2) rotate.enabled = false
-  // Absent (every config written before this setting existed) means the picture
-  // exactly as it was saved, which is what those configurations were already
-  // showing — so the key is LEFT OFF rather than written as `undefined`. That is
-  // not a nicety: `normalizeRuleInPlace` copies the sanitizer's output back onto
-  // the live rule with `Object.assign`, which copies keys and not values, so a
-  // literal `undefined` here would overwrite the resolved default on every patch
-  // — a slider that reads 100 while the render layer holds nothing.
-  const brightness = r.brightness === undefined
-    ? undefined
-    : clamp(r.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, DEFAULT_WALLPAPER_BRIGHTNESS)
-  const rule: BgRule = {
+  // No rule-level `wallpaperOpacity` / `brightness` / `blur` in what comes out: the
+  // three moved down to the entries above, and writing them back at the rule level
+  // would let a later reader lift its own output.
+  return {
     id,
     images,
     match: typeof r.match === 'string' ? r.match : '',
     enabled: r.enabled !== false,
     color,
-    wallpaperOpacity: clamp01(r.wallpaperOpacity, 1),
-    blur: clamp(r.blur, 0, 60, 0),
     rotate,
   }
-  if (brightness !== undefined) rule.brightness = brightness
-  return rule
 }
 
 /**
@@ -712,28 +804,50 @@ export function normalizeRule(raw: unknown): BgRule | null {
  * is never swapped or cycled). Everything else is sanitized like a rule's field.
  */
 export function normalizeHolidayRule(def: HolidayDef, raw: unknown): HolidayRule {
-  const r = (raw ?? {}) as Partial<HolidayRule> & { bgState?: unknown }
+  const r = (raw ?? {}) as Partial<HolidayRule> & {
+    bgState?: unknown
+    wallpaperOpacity?: unknown
+    brightness?: unknown
+    blur?: unknown
+  }
   const base = defaultHolidayRule(def)
   return {
     ...base,
     // Only an explicit `false` disables the entry.
     enabled: r.enabled !== false,
-    wallpaperOpacity: clamp01(r.wallpaperOpacity, base.wallpaperOpacity),
-    // Brightness is the user's, like the opacity and framing beside it; `base`
-    // carries the shipped 100, so an absent key is untouched.
-    brightness: clamp(r.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, base.brightness ?? DEFAULT_WALLPAPER_BRIGHTNESS),
-    blur: clamp(r.blur, 0, 60, base.blur),
-    // Framing is still the user's; MODE and COLOUR come from `base`, so the
-    // `hasOwn` lift can never reach a holiday and a hand-edited colour cannot
-    // repaint a festival. A schema-5 rule-level `bgMode` is NOT lifted: a holiday
-    // has one picture, so the definition's value is the one that was always meant.
-    images: base.images.map(image => ({
-      slot: image.slot,
-      bgMode: image.bgMode,
-      bgState: normalizeBgState((r.images?.[0]?.bgState ?? r.bgState) as Partial<BgState> | undefined),
-      color: image.color,
-    })),
+    // MODE, COLOUR and the ROTATION come from `base`: a festival is one picture and
+    // is never swapped or cycled. The three paint effects and the framing stay the
+    // user's, and the lift below honours BOTH places they can arrive from: the
+    // image entry (this shape) and the rule-level fields a schema-9 config carried.
+    images: base.images.map(image => {
+      const stored = r.images?.[0] as Partial<BgImage> | undefined
+      const merged: BgImage = {
+        slot: image.slot,
+        bgMode: image.bgMode,
+        bgState: normalizeBgState((stored?.bgState ?? r.bgState) as Partial<BgState> | undefined),
+        color: image.color,
+        opacity: clamp01(stored?.opacity ?? legacyWallpaperOpacity(r.wallpaperOpacity), image.opacity),
+        blur: clamp(stored?.blur ?? r.blur, 0, 60, image.blur),
+      }
+      // A holiday's shipped 100% is not written as a key unless the user set one:
+      // absence is what tells "untouched" from "chose 100" (see BgImage.brightness).
+      const brightness = stored?.brightness === undefined
+        ? (r.brightness === undefined
+            ? undefined
+            : clamp(r.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, DEFAULT_WALLPAPER_BRIGHTNESS))
+        : clamp(stored.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, DEFAULT_WALLPAPER_BRIGHTNESS)
+      if (brightness !== undefined) merged.brightness = brightness
+      return merged
+    }),
   }
+}
+
+/**
+ * The rule-level opacity a schema-9 holiday entry carried, or `undefined` so the
+ * caller can tell "absent" from "set to 1" and leave `clamp01` its default.
+ */
+function legacyWallpaperOpacity(raw: unknown): number | undefined {
+  return typeof raw === 'number' && isFinite(raw) ? raw : undefined
 }
 
 /** Coerce the whole holiday block; unknown ids are dropped, missing ones defaulted. */

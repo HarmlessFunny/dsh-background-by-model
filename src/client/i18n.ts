@@ -88,6 +88,9 @@ export const zh: Record<string, string> = {
   // The merged slider's menu. It names what the track edits, and each option
   // borrows the label that effect had when it had a track of its own.
   ruleEffectPick: '调节项',
+  // The row edits ONE picture, so a rule with no picture has nothing to expose —
+  // the same state the layout chips describe, said once for these three.
+  ruleEffectNoImage: '添加图片后可分别设置每张图的透明度、亮度与模糊',
 
   // ── 多图轮换 ──────────────────────────────────────────────────────────────
   // 默认关闭：轮换会真的花流量、内存和电，不能靠"默认"偷偷替用户做主。
@@ -283,6 +286,7 @@ export const en: Record<string, string> = {
   ruleBlur: 'Image blur',
   // The merged slider's menu — see the note on the zh entry.
   ruleEffectPick: 'Effect',
+  ruleEffectNoImage: 'Add an image to give each one its own opacity, brightness and blur',
 
   // ── Multi-image rotation ──────────────────────────────────────────────────
   // Off by default: rotating really does spend bandwidth, memory and battery,

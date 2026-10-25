@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 > Forked from [`Tkingxiao/dsh-any-background`](https://github.com/Tkingxiao/dsh-any-background) and renamed to `dsh-background-by-model`.
 
-A **DeepSeek Harness** appearance plugin built around an **ordered list of model rules**: each rule carries its own images, opacity, brightness and blur, and each image its own layout mode, framing and theme color. Switch the model and the background switches with it, through the global [switch effect](#switch-effect-global) you choose on the Config page.
+A **DeepSeek Harness** appearance plugin built around an **ordered list of model rules**: each rule carries its own images, and each image its own layout mode, framing, theme color, opacity, brightness and blur. Switch the model and the background switches with it, through the global [switch effect](#switch-effect-global) you choose on the Config page.
 
 > **v0.3.0 was a breaking release** — video wallpapers, generated backgrounds and the single global theme color were removed. See the [v0.3.0 entry in CHANGELOG.md](./CHANGELOG.md#v030).
 
@@ -61,7 +61,7 @@ One interface, one config — only the current model differs:
 <p align="center">
   <img src="https://cdn.jsdelivr.net/gh/HarmlessFunny/assets@v0.1.0/dsh-background-by-model/rule-editor.webp" alt="One rule's editor" width="660">
   <br/>
-  <em>One rule on the Model Background tab · the wallpaper, its opacity, its brightness and its blur belong to the rule; the layout mode, the framing and the theme color belong to the image being edited</em>
+  <em>One rule on the Model Background tab · the layout mode, the framing, the theme color and the opacity/brightness/blur all belong to the image being edited</em>
 </p>
 
 <p align="center">
@@ -74,7 +74,7 @@ One interface, one config — only the current model differs:
 
 An ordered list of rules, matched first-hit against the current model's name, with rule 1 as the fallback.
 
-- **Rules** — add, remove, reorder and name them; each carries its own match string, opacity, brightness and blur.
+- **Rules** — add, remove, reorder and name them; each carries its own match string, and a set of images with their own look.
 - **Images per rule** — a filmstrip filled by file picker, drag & drop or a list of URLs; reorder it, promote one to first, or replace one in place (which keeps its position in the rotation). A rule may also hold none, and an empty rule still matches while it has a theme color of its own, so emptying one is a visible state rather than a trap.
 - **Live match readout** — the Model Background tab shows which model was read and which rule it resolved to.
 - **Import / export** — the whole rule set as `dsh-background-by-model-theme.json` with every image inlined; files written by earlier releases still import.
@@ -116,7 +116,7 @@ One switch on the Config page and nothing else: on 中秋节 and 国庆节 the w
 - **Theme color** — HSL wheel, numeric input, **Extract from this image** and an eyedropper. It belongs to the **image**, and an image with none follows the system theme rather than inheriting its rule's.
 - **Layout mode** — fit / fill / stretch / tile / center, stored per image; disabled on a rule that holds no picture, rather than hidden.
 - **Framing** — drag to pan and scroll to zoom, editable in fit mode only, stored per image and stable across window resizes.
-- **Image opacity** `0–100%`, **image brightness** `0–200%` (`100%` is the picture as saved) and **image blur** `0–60 px`, all three per rule and edited through **one slider with a menu beside it** that picks the effect. They treat the image (wallpaper) layer only — the Interface tab's opacity treats interface surfaces.
+- **Image opacity** `0–100%`, **image brightness** `0–200%` (`100%` is the picture as saved) and **image blur** `0–60 px`, all three **saved per image** and edited through **one slider with a menu beside it** that picks the effect — so a daylight photo and a night shot in one rotation keep their own exposures. They treat the image (wallpaper) layer only; the Interface tab's opacity treats interface surfaces. A rule with no image has all three disabled rather than hidden.
 
 ### Global settings (Interface tab)
 
@@ -141,6 +141,7 @@ The last card on the Config tab. Images are stored at **full fidelity**, so an i
 - **Only unreferenced files** — every byte a current rule uses is untouched, and the config itself is never written. The card re-reads after the sweep instead of subtracting, so a file that failed to delete still counts.
 - **Failures are named** — one undeletable file does not protect the other six, and it is not reported as success either: the toast lists which ones.
 - **No confirmation step** — what it deletes is by definition referenced by no rule, and is not a choice made from a working set, so a "confirm?" here only teaches people to click through. The safety is in the **gate**: when the config cannot be read the button is disabled (next bullet), rather than seven files being listed and then asked about.
+- **A corrupt live file is answered by the backup** — when the live config will not parse but the `.bak` does, the sweep runs against the **backup's** rules, because that is the config you are about to get back; only when neither parses does it read as unknown and disable the button.
 - **It also clears a stray `modelbg-h-*`** — that slot belongs to no config (festival art lives in `holiday-cache/`, and the slot is read-only), so this is the only path that can ever remove such a file.
 - **An older host reads as "unknown", not "0 B"** — the two nothings must not look the same.
 
@@ -162,7 +163,8 @@ Data directory: `~/.dsh/.dsh-background-by-model-data/` (Windows: `C:\Users\<you
 
 | File | Contents |
 | --- | --- |
-| `theme-config.json` | The rule list (each rule with its image list and rotation) plus the global Interface settings, the global switch effect and the holiday overrides |
+| `theme-config.json` | The rule list (each rule with its image list, and each image with its own look and rotation settings) plus the global Interface settings, the global switch effect and the holiday overrides |
+| `theme-config.json.bak` | The previous config, as of the last **successful** save. Every save writes a temp file and renames it over the live one, rotating the current good file into `.bak` first; a live file that will not parse is restored from here instead of falling back to the factory defaults. With neither readable, the cleanup card refuses to delete images |
 | `modelbg-<slot>` | One image, stored as raw bytes without a file extension — one file per image, so a rule with three images owns three slots |
 | `holiday-cache/<tag>/<asset>` | Festival art downloaded from the CDN, one file per holiday (`mid-autumn.webp`, `national-day.webp`) inside a directory named after the assets release this build pins (`v0.1.0`). The tag is part of the path so that a build pinning a new tag starts from an empty directory instead of being answered with the previous generation's bytes; the file inside is named after the **asset**, deliberately outside the slot namespace, which is what keeps a holiday slot read-only. Superseded generations are pruned once the new art is on disk. Delete a file here and it is simply re-downloaded the next time that holiday is in force |
 
@@ -224,14 +226,14 @@ After changing anything under `src/`, run `pnpm run bundle` again — the mounte
 - **`check:transition`** — `resolveFadeMs` / `transitionPlan`: the shipped default still producing byte-for-byte the transition string earlier releases wrote, every route to a hard cut being one, reduced motion vetoing rather than shortening, and every effect ending visible and unscaled.
 - **`check:repaint`** — `shouldRepaint`, including the edit that **creates** the winner, plus a failure if any write path stops asking, or if a rotation step stops re-emitting the interface palette.
 - **`check:code-plate`** — the code block's plate: its tokens declared on both `:root` and `body`, the light branch emitting the banner, and each surface reading its own plugin variable.
-- **`check:image-mode`** — the layout mode's lift onto the image, and which image a control edits against which the render layer reads.
+- **`check:image-mode`** — the lift onto the image for the layout mode and the three paint effects, and which image a control edits against which the render layer reads.
 - **`check:rules`** — the two decisions behind the tab strip, which live in `src/client/rules-view.ts`, plus the page structure the layout rests on.
 - **`check:preset`** — the recommended profile's retry policy and what a failed attempt holds for the next one, with both halves shown using them.
 - **`check:ui`** — both dictionaries carrying the same keys, every `dab-…` class styled, no dead entry, and every `var(--dsw-…)` published by the installed theme.
 - **`check:watchdogs`** — one heartbeat, entries firing on their own due time, paused while the tab is hidden, no timer left by dispose, and no module outside the entry starting its own interval.
 - **`check:scheme`** — the `data-ds-dark-theme` hand-off: the plugin only rewrites the value it wrote, hands the flag back when it drops its tokens, and repaints when the scheme moves.
 - **`check:store`** — the two decisions behind the storage cleanup, `referencedSlots` and `orphanSlots`: a picture in use is never an orphan, a stray holiday-slot file always is, and the browser half sends RULE slots rather than the whole config.
-- **`check:node`** — the built node half through its real RPC handler with `DSH_HOME` redirected and `fetch` stubbed: the holiday block, the festival art's caching and pruning, mirror fallback, the per-image color lift, the global switch effect, the store's usage report and cleanup, and the recommended profile end to end.
+- **`check:node`** — the built node half through its real RPC handler with `DSH_HOME` redirected and `fetch` stubbed: the holiday block, the festival art's caching and pruning, mirror fallback, the per-image color AND effect lifts, the global switch effect, the atomic config write with its backup and its recovery, the store's usage report and cleanup, and the recommended profile end to end.
 
 ## FAQ
 
@@ -242,7 +244,10 @@ Rule 1 probably has an empty match string, which makes it a pure fallback holdin
 Matching is first-hit, not best-hit: put the more specific rule higher in the list, or reorder.
 
 **Where are my wallpapers?**
-In `~/.dsh/.dsh-background-by-model-data/`, one `modelbg-<slot>` file per image plus `theme-config.json`.
+In `~/.dsh/.dsh-background-by-model-data/`, one `modelbg-<slot>` file per image plus `theme-config.json` and its `.bak` backup.
+
+**What is `theme-config.json.bak`, and can I delete it?**
+The previous config as of the last **successful** save. Every save writes a temp file and renames it over the live one, keeping the then-current parseable file as the backup — so if the live file ever stops parsing (a crash, a pulled cable, a hand edit gone wrong), the plugin restores from it instead of falling back to the factory defaults. You can delete it; the cost is having nothing to restore the next time the live file really is broken.
 
 **I turned the rotation on and the background never changed.**
 Three things can hold it: the rule needs two or more images, the tab has to be visible, and only the rule the current model resolved to rotates.
@@ -284,21 +289,19 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
 
+### v0.10.0
+
+- **The config is written atomically, with a `.bak` of the last good file** — a save writes a temp file and renames it over the live one, keeping the previous parseable file as the backup; a corrupt live file is restored from it instead of falling back to the factory defaults and then being overwritten by your next drag.
+- **Opacity, brightness and blur are saved per image** — the same layer as the layout mode, framing and theme color; a schema-9 config's rule-level values are lifted onto every image on read, so nothing changes on screen.
+- **`SCHEMA_VERSION` is 10** — the fields moved, and an older host would drop them in silence, so the browser half has to know.
+- **A blurred wallpaper no longer paints a dark rim around the viewport** — the layer's box is grown 2σ past the screen edge and clipped, with the framing moved back by the same amount, so the blur samples off screen instead of fading into the page behind it.
+- **A switch between two different opacity, brightness or blur values animates now** — each layer keeps its own picture's filter, and the wallpaper's opacity rides the transition instead of snapping.
+- **Dragging one of the three sliders no longer repaints everything per frame** — a drag frame writes only that field's property, and one full repaint lands when the gesture ends.
+
 ### v0.9.2
 
 - **The Config tab gains an "Image storage" card** — it reports how much is cleanable and how many files that is, then offers the button; only unreferenced files go, the config and the festival art stay, and any file that resists is named.
 - **`check:store`, so there are thirteen checks now** — both READMEs had been claiming ten, having missed `check:watchdogs` and `check:scheme` since v0.8.1; they are listed again alongside the new one.
-
-### v0.9.1
-
-- **The three wallpaper sliders are now one slider plus a picker** — the options read Image opacity / Image brightness / Image blur, the picker matches the buttons, and the hint below is gone.
-
-### v0.9.0
-
-- **The RPC channel is the plugin's own prefix route on `webServer`**, so envelope, body cap and the auth fence stay here and `requestRejection` is asked per request.
-- **One scheduler for every recurring check** — model poll, theme watchdog, holiday rollover and the delayed restores share a clock, pause while the tab is hidden, and stop with one dispose.
-- **The browser entry point is wiring again** — skin, watchdogs, rotation, boot, model state, extraction and theme files are their own modules.
-- **Exporting a theme no longer cancels its own download**, and comments say why the code is what it is rather than what it used to be.
 
 ## Star History
 [![Star History Chart](https://api.star-history.com/chart?repos=HarmlessFunny/dsh-background-by-model&type=timeline&legend=bottom-right)](https://www.star-history.com/?repos=HarmlessFunny%2Fdsh-background-by-model&type=timeline&legend=bottom-right)

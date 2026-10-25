@@ -241,21 +241,31 @@ export function rColor(): [number, number, number] { return activeColor() ?? [22
  * default — the renderer's null case, painted as "no wallpaper".
  */
 export function rBgMode(): BgMode { return activeImage()?.bgMode ?? 'fit' }
-export function rWop(): number { return clamp01(activeRule()?.wallpaperOpacity, 1) }
+/**
+ * Opacity of the wallpaper layer, 0..1 (per image, see BgImage).
+ *
+ * Read from the image being painted, not from the rule: one rule's rotation can go
+ * through a full-bleed photo and a faint decorative plate, and a rule-level answer
+ * would be wrong for one of them. A rule with no image paints nothing at all, so
+ * there is no layer for the value to describe.
+ */
+export function rWop(): number { return clamp01(activeImage()?.opacity, 1) }
 /**
  * Brightness of the wallpaper layer, in percent (100 = the picture exactly as the
  * file has it).
  *
- * Read from the ACTIVE rule like the opacity and blur beside it, and defaulted the
- * same way: a rule whose `brightness` key is absent — every config written before
- * the setting existed — is left alone, so an upgrade changes nothing on screen.
- * The default and the ceiling live in ../schema, so the render layer holds no
- * numbers of its own (see ./wallpaper's `wpFilter`).
+ * Read from the CURRENT image, like the opacity and blur beside it, and defaulted
+ * the same way: an image whose `brightness` key is absent — every config written
+ * before the setting existed, and every picture whose rule never named one — is
+ * left alone, so an upgrade changes nothing on screen. The default and the ceiling
+ * live in ../schema, so the render layer holds no numbers of its own (see
+ * ./wallpaper's `wpFilter`).
  */
 export function rBrightness(): number {
-  return clamp(activeRule()?.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, DEFAULT_WALLPAPER_BRIGHTNESS)
+  return clamp(activeImage()?.brightness, 0, WALLPAPER_BRIGHTNESS_MAX, DEFAULT_WALLPAPER_BRIGHTNESS)
 }
-export function rBl(): number { return clamp(activeRule()?.blur, 0, 60, 0) }
+/** Blur of the CURRENT image, in px (0 = the picture as its file has it). */
+export function rBl(): number { return clamp(activeImage()?.blur, 0, 60, 0) }
 /** Framing of the CURRENT image (per image, see BgImage). */
 export function rBgState(): BgState { return activeImage()?.bgState ?? DEFAULT_BG_STATE }
 /** Rotation of the active rule; the shipped default when nothing is active. */

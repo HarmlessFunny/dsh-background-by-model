@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
-import type { BgMode, BgRule, ThemeSectionProps, ThemeStoreState } from '../../types'
+import type { BgImage, BgMode, BgRule, ThemeSectionProps, ThemeStoreState } from '../../types'
 import { cfg } from '../../state'
 // The wallpaper-brightness range and its neutral value come from the shared shape,
 // exactly like the colour conversions below come from ./utils/color: the slider's
@@ -16,6 +16,9 @@ import { ColorInputs } from '../ColorInputs'
 import { ColorPicker } from '../ColorPicker'
 import { BgEditor } from '../BgEditor'
 import { LiveSlider } from '../LiveSlider'
+// The two live wallpaper writers: a drag frame may only cost a layer property
+// write, never the full repaint `setRule` performs (see `WallpaperEffectRow`).
+import { setWpFilter, setWpOpacity } from '../../wallpaper'
 import { ChevronDownIcon, DropletIcon, EditIcon, LinkIcon, PipetteIcon, PlusIcon, SparkleIcon, SunIcon, TrashIcon, UploadIcon } from '../icons'
 
 const BG_MODES: Array<{ mode: BgMode; key: string }> = [
@@ -300,47 +303,93 @@ function RulesTabs({ rules, activeId, liveId, p, onSelect, onAdd }: {
 }
 
 /**
- * The rule's three wallpaper effects on ONE row: the menu names the target and a
- * single track edits it.
+ * The selected image's three paint effects on ONE row: the menu names the target
+ * and a single track edits it.
+ *
+ * Per IMAGE, like the layout mode, the framing and the colour above it. The move
+ * is the same argument: a rotation through a daylight photo and a night shot does
+ * not want one exposure, and a rule-level value forced one of them to live at the
+ * other's compromise. A rule with no picture has nothing to expose, so the row is
+ * DISABLED (not hidden) there — the same way the layout chips behave.
  *
  * The three ranges are not interchangeable — opacity and brightness are
  * percentages (brightness ceilings at the shared `WALLPAPER_BRIGHTNESS_MAX`),
  * blur is pixels — so changing the menu swaps the whole track: limits, formatter
  * and writer together. It never reinterprets one track under another name. The
- * `key` remounts the input so `defaultValue` starts at the new field's current
- * value; LiveSlider's drag-live path then works exactly as it did when the three
- * tracks were stacked.
+ * `key` remounts the input so `defaultValue` starts at the new target's value.
+ *
+ * A drag has TWO writers, and which one runs is the whole reason this row is not
+ * a one-liner. `onInput` runs on every frame and must cost a wallpaper-layer
+ * property write (./wallpaper's `setWpOpacity` / `setWpFilter`) — the same cheap
+ * path the Interface page uses. `onChange` runs once, when the gesture ends, and
+ * is the one that goes through `setImageEffects`: that is a full repaint (skin,
+ * palette, wallpaper), and paying it per frame made a drag stall on a big image.
  */
-function WallpaperEffectRow({ p, rule, field, onField }: {
+function WallpaperEffectRow({ p, rule, image, painted, field, onField, active }: {
   p: ThemeSectionProps
   rule: BgRule
+  /** The image being EDITED (the strip's selection), or undefined for an empty rule. */
+  image: BgImage | undefined
+  /** Whether that image is the one on screen — the only case a preview can show. */
+  painted: boolean
   field: WallpaperField
   onField: (field: WallpaperField) => void
+  /** Whether THIS rule is the one on screen (only then can a preview show). */
+  active: boolean
 }) {
   const { t } = p
+  /**
+   * One frame of a drag: write the image in place, then touch only the layer
+   * property that field owns.
+   *
+   * Gated on `active && painted`: the wallpaper layer paints the ACTIVE rule's
+   * CURRENT image, so previewing any other one would write this card's numbers onto
+   * a different picture's pixels — the visible lie the per-image split makes
+   * possible and this gate prevents. The commit still lands, addressed by slot.
+   *
+   * Writing in place rather than through `setImageEffects` is deliberate and narrow:
+   * that one bumps `rulesRev` and closes with a repaint, which is exactly the
+   * per-frame cost being removed. Nothing is lost — the gesture's `onChange` hands
+   * the settled value over, and that path clamps and saves.
+   */
+  const preview = (patch: Partial<BgImage>, paint: () => void): void => {
+    if (!active || !painted || image === undefined) return
+    Object.assign(image, patch)
+    paint()
+  }
   // Brightness sits BETWEEN opacity and blur in the menu because that is the
   // order `wpFilter` composes them in (see ./wallpaper): the wallpaper is tinted,
   // then lit, then frosted — and it is the order the stacked sliders read in.
-  // `def` for brightness falls back to the shared 100 for a rule whose config
+  // `def` for brightness falls back to the shared 100 for an image whose config
   // predates the field, so the knob reads the value the render layer paints;
   // double-clicking any field restores that field's neutral value.
+  //
+  // Each field pairs a drag `preview` with its one-shot `onChange`. The preview
+  // hands the VALUE to the layer for opacity (it is a plain property), while
+  // brightness and blur go through `setWpFilter()`: they share the `filter`
+  // property, so that one function is the only thing allowed to compose them.
+  const slot = image?.slot
   const spec = field === 'opacity'
     ? {
         label: t('ruleOpacity'), min: 0, max: 100, step: 1,
-        def: Math.round(rule.wallpaperOpacity * 100), fmt: (v: number) => `${v}%`,
-        onChange: (v: number) => p.setRule(rule.id, { wallpaperOpacity: v / 100 }),
+        def: Math.round((image?.opacity ?? 1) * 100), fmt: (v: number) => `${v}%`,
+        preview: (v: number) => preview({ opacity: v / 100 }, () => setWpOpacity(v / 100)),
+        onChange: (v: number) => { if (slot !== undefined) p.setImageEffects(rule.id, slot, { opacity: v / 100 }) },
       }
     : field === 'brightness'
       ? {
           label: t('ruleBrightness'), min: 0, max: WALLPAPER_BRIGHTNESS_MAX, step: 1,
-          def: rule.brightness ?? DEFAULT_WALLPAPER_BRIGHTNESS, fmt: (v: number) => `${v}%`,
-          onChange: (v: number) => p.setRule(rule.id, { brightness: v }),
+          def: image?.brightness ?? DEFAULT_WALLPAPER_BRIGHTNESS, fmt: (v: number) => `${v}%`,
+          preview: (v: number) => preview({ brightness: v }, setWpFilter),
+          onChange: (v: number) => { if (slot !== undefined) p.setImageEffects(rule.id, slot, { brightness: v }) },
         }
       : {
           label: t('ruleBlur'), min: 0, max: 60, step: 1,
-          def: rule.blur, fmt: (v: number) => `${v}px`,
-          onChange: (v: number) => p.setRule(rule.id, { blur: v }),
+          def: image?.blur ?? 0, fmt: (v: number) => `${v}px`,
+          preview: (v: number) => preview({ blur: v }, setWpFilter),
+          onChange: (v: number) => { if (slot !== undefined) p.setImageEffects(rule.id, slot, { blur: v }) },
         }
+  const disabled = image === undefined
 
   return (
     <div className="dab-wp-row">
@@ -349,6 +398,8 @@ function WallpaperEffectRow({ p, rule, field, onField }: {
       <select
         className="dab-select"
         value={field}
+        disabled={disabled}
+        title={disabled ? t('ruleEffectNoImage') : undefined}
         aria-label={t('ruleEffectPick')}
         onChange={e => onField(e.target.value as WallpaperField)}>
         <option value="opacity">{t('ruleOpacity')}</option>
@@ -356,9 +407,9 @@ function WallpaperEffectRow({ p, rule, field, onField }: {
         <option value="blur">{t('ruleBlur')}</option>
       </select>
       <LiveSlider
-        key={field} ariaLabel={spec.label}
+        key={`${field}:${slot ?? ''}`} ariaLabel={spec.label}
         min={spec.min} max={spec.max} step={spec.step} def={spec.def}
-        fmt={spec.fmt} onChange={spec.onChange} />
+        fmt={spec.fmt} onInput={spec.preview} onChange={spec.onChange} />
     </div>
   )
 }
@@ -417,6 +468,15 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify, sel, onSel
   const selIdx = rule.images.length === 0 ? 0 : Math.min(sel, rule.images.length - 1)
   const image = rule.images[selIdx]
   const url = image === undefined ? null : p.imageOf(image.slot)
+  /**
+   * Whether the image being EDITED is also the one on screen.
+   *
+   * The wallpaper layer paints the active rule's CURRENT image, so a drag preview
+   * may only write a layer property when the two coincide — otherwise the card's
+   * numbers would land on another picture's pixels. This is the per-image split's
+   * own version of the `active` gate beside it.
+   */
+  const painted = active && selIdx === liveIndex
 
   // ── What the theme-color section edits ─────────────────────────────────────
   // The color belongs to an IMAGE, so the wheel, the swatches, the extractor and
@@ -1000,7 +1060,8 @@ function RuleCard({ p, rule, index, total, active, liveIndex, notify, sel, onSel
               )}
 
               <div style={{ marginTop: 16 }}>
-                <WallpaperEffectRow p={p} rule={rule} field={field} onField={onField} />
+                <WallpaperEffectRow p={p} rule={rule} image={image} painted={painted} field={field} onField={onField} active={active} />
+                {image === undefined ? <p className="dab-hint" style={{ marginTop: 8 }}>{t('ruleEffectNoImage')}</p> : null}
               </div>
 
               {/* ── rotation ──────────────────────────────────────────────── */}

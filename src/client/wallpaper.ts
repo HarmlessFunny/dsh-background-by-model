@@ -1240,6 +1240,21 @@ interface WpLayer {
   el: HTMLDivElement
   /** Display URL of the image painted on this layer; null when empty. */
   url: string | null
+  /** Placement of the image in pixels, relative to the UNGROWN viewport box, or
+   *  null when the placement is `center` (or sized by the box). The blur pad
+   *  moves the box's origin by -pad, so a numeric placement has to be written
+   *  back +pad to land on the same pixel — see `writeLayerBox`. */
+  posX: number | null
+  posY: number | null
+  /** Brightness and blur of THIS layer's own picture, taken when it was painted.
+   *
+   *  Per layer rather than read live, because the two layers hold two DIFFERENT
+   *  pictures during a switch: composing both from the active image made the
+   *  outgoing photo snap to the incoming one's exposure on the very frame the
+   *  fade began, so a change between two different settings never actually
+   *  animated — the picture was already the new one's before the first frame. */
+  brightness: number
+  blur: number
 }
 
 let layers: [WpLayer, WpLayer] | null = null
@@ -1248,12 +1263,20 @@ let front = 0
 /** Index of the layer fading in right now, if any. */
 let pending: 0 | 1 | null = null
 let fadeTimer: number | null = null
+/** The wallpaper's steady opacity — the ACTIVE picture's, as last committed.
+ *
+ *  Mirrored rather than read back off the style string, because a repaint that
+ *  runs in the middle of a fade (a theme re-registration, a panel re-render) has
+ *  to re-write the value the fade is HEADING for; reading `rWop()` there would
+ *  snap the whole layer to the incoming picture's alpha and cut the fade short.
+ */
+let wpAlpha = 1
 
 function createLayer(): WpLayer {
   const el = document.createElement('div')
   el.dataset.dabWpLayer = ''
   el.style.cssText = 'position:absolute;inset:0;opacity:0;background-repeat:no-repeat;background-position:center;'
-  return { el, url: null }
+  return { el, url: null, posX: null, posY: null, brightness: 100, blur: 0 }
 }
 
 function ensureWpContainer(): void {
@@ -1268,6 +1291,7 @@ function ensureWpContainer(): void {
   layers = [a, b]
   front = 0
   pending = null
+  wpAlpha = 1
   document.body.prepend(wpEl)
 }
 
@@ -1277,6 +1301,7 @@ function dropWpContainer(): void {
   pending = null
   front = 0
   layers = null
+  wpAlpha = 1
   wpEl?.remove()
   wpEl = null
 }
@@ -1285,9 +1310,16 @@ function dropWpContainer(): void {
 function clearLayer(l: WpLayer): void {
   if (l.url === null) return
   l.url = null
+  l.posX = null
+  l.posY = null
+  l.brightness = 100
+  l.blur = 0
   l.el.style.backgroundImage = ''
   l.el.style.backgroundSize = ''
   l.el.style.backgroundPosition = ''
+  // The blur pad is part of what a layer IS too: a recycled layer that kept a
+  // grown box would paint the next wallpaper from outside the viewport.
+  l.el.style.inset = '0px'
   // The transition's own property is part of what a layer IS, not just how it
   // arrived: a layer retired mid-zoom would otherwise keep `scale(1.06)` and
   // paint the next wallpaper 6% too large.
@@ -1314,6 +1346,36 @@ function imageNatSize(url: string, cb: (w: number, h: number) => void): void {
   img.src = url
 }
 
+/** How far a layer's box is grown on every side to hide a blurred edge.
+ *
+ *  `filter: blur(σ)` convolves the layer's own rendering with a Gaussian of
+ *  standard deviation σ and treats everything outside the box as transparent, so
+ *  the outermost pixels come out half opaque and the image fades inward over
+ *  ~2σ — composited over the page behind it, that half-transparent rim is the
+ *  black border the blur slider paints, and it grows thicker with the slider.
+ *  Growing the box by 2σ puts every visible pixel at least 2σ inside the edge,
+ *  where ~2% of the page still shows through the outermost row: gone to the eye.
+ *  Two sigma rather than three is the trade for the `cover` modes, which pay for
+ *  the growth by framing slightly tighter — a fifth of the image at most, at the
+ *  slider's maximum, where the detail a wider frame would reveal is blurred out.
+ */
+function wpBlurPad(blur: number): number {
+  return blur > 0 ? Math.ceil(blur * 2) + 2 : 0
+}
+
+/** Grow a layer's box by `pad` on every side while keeping its image on the same
+ *  pixels. The background positioning area starts at the border box, so a box
+ *  whose origin moved by -pad needs a numeric placement moved by +pad; `center`
+ *  (and the box-relative `cover` / `100% 100%` sizes) sit in the middle of a
+ *  symmetrically grown box and need no compensation. The container clips the
+ *  growth, so nothing about the visible layout changes: it exists only to give
+ *  the blur pixels to sample beyond the viewport. */
+function writeLayerBox(l: WpLayer, pad: number): void {
+  const { posX, posY } = l
+  l.el.style.inset = `${-pad}px`
+  l.el.style.backgroundPosition = posX === null || posY === null ? 'center' : `${posX + pad}px ${posY + pad}px`
+}
+
 /** Paint one layer's image and its placement. The placement always follows the
  *  ACTIVE rule: the incoming layer is painted right after a switch, and a
  *  repaint of the same URL (framing edit, viewport resize) must use the rule's
@@ -1329,6 +1391,12 @@ function paintLayer(l: WpLayer, url: string): void {
   if (el.style.backgroundImage !== next) {
     el.style.backgroundImage = next
   }
+  // The placement is stored in viewport pixels and written by `writeLayerBox`,
+  // which is also the one place the blur pad moves the box: keeping the two in
+  // separate writers is what would let a blurred layer paint from the wrong
+  // origin (or a framed photo jump by the pad) after a slider move.
+  l.posX = null
+  l.posY = null
   if (mode === 'fit') {
     el.style.backgroundRepeat = 'no-repeat'
     if (bg.iw > 0) {
@@ -1338,39 +1406,40 @@ function paintLayer(l: WpLayer, url: string): void {
       const w = bg.iw * fit * bg.zoom
       const h = bg.ih * fit * bg.zoom
       el.style.backgroundSize = `${w}px ${h}px`
-      el.style.backgroundPosition = `${bg.x * window.innerWidth - w / 2}px ${bg.y * window.innerHeight - h / 2}px`
+      l.posX = bg.x * window.innerWidth - w / 2
+      l.posY = bg.y * window.innerHeight - h / 2
     } else {
       // Fresh image: match the editor's initial centered contain view.
       el.style.backgroundSize = 'contain'
-      el.style.backgroundPosition = 'center'
     }
   } else if (mode === 'fill') {
     el.style.backgroundRepeat = 'no-repeat'
     el.style.backgroundSize = 'cover'
-    el.style.backgroundPosition = 'center'
   } else if (mode === 'stretch') {
     el.style.backgroundRepeat = 'no-repeat'
     el.style.backgroundSize = '100% 100%'
-    el.style.backgroundPosition = 'center'
   } else if (mode === 'tile') {
     el.style.backgroundRepeat = 'repeat'
-    // background-size:auto resolves the intrinsic size per tile.
+    // background-size:auto resolves the intrinsic size per tile; the 0/0 origin
+    // is numeric so the pad keeps the tile phase anchored to the viewport.
     el.style.backgroundSize = 'auto'
-    el.style.backgroundPosition = '0px 0px'
+    l.posX = 0
+    l.posY = 0
   } else {
     // Center: native size, centered. The intrinsic size needs an async decode;
     // 'contain' keeps a sensible frame until it lands.
     el.style.backgroundRepeat = 'no-repeat'
     el.style.backgroundSize = 'contain'
-    el.style.backgroundPosition = 'center'
     imageNatSize(url, (w, h) => {
       if (l.url !== url || el.style.backgroundImage !== next || rBgMode() !== 'center') return
-      if (w > 0 && h > 0) {
-        el.style.backgroundSize = `${w}px ${h}px`
-        el.style.backgroundPosition = 'center'
-      }
+      if (w > 0 && h > 0) el.style.backgroundSize = `${w}px ${h}px`
     })
   }
+  // The picture's own effects are taken here, in the one place a layer starts
+  // painting a picture: everything after this reads the layer, never the store.
+  l.brightness = rBrightness()
+  l.blur = rBl()
+  applyLayerEffects(l)
 }
 
 /** Whether there is anything to animate FROM: a wallpaper on screen that is
@@ -1394,6 +1463,11 @@ function finishFade(idx: 0 | 1): void {
   if (fadeTimer !== null) { window.clearTimeout(fadeTimer); fadeTimer = null }
   pending = null
   front = idx
+  if (wpEl !== null) {
+    // The container's opacity may have been on the same clock: land it and disarm.
+    wpEl.style.transition = 'none'
+    wpEl.style.opacity = String(wpAlpha)
+  }
   const el = layers[idx].el
   // Re-asserted so a fade whose frames never ran (background tab) still ends on
   // the visible image, at the END of the effect (a zoom left at 1.06 crops).
@@ -1440,11 +1514,27 @@ function applyImageWp(url: string): void {
   if (pending !== null) {
     // A → B → A inside one fade: keep whichever layer already paints the wanted
     // image instead of queueing a third one.
-    if (ls[pending].url === url) { paintLayer(ls[pending], url); applyWpEffects(); return }
-    if (ls[front].url === url) { cancelFade(); paintLayer(ls[front], url); applyWpEffects(); return }
+    if (ls[pending].url === url) {
+      // The fade is going to the picture we already want: keep it, and let the
+      // container land on its opacity instead of being left mid-way.
+      paintLayer(ls[pending], url)
+      wpAlpha = rWop()
+      applyWpEffects()
+      return
+    }
+    if (ls[front].url === url) {
+      cancelFade(); paintLayer(ls[front], url); wpAlpha = rWop(); applyWpEffects(); return
+    }
     settleFade()
   }
-  if (ls[front].url === url) { paintLayer(ls[front], url); applyWpEffects(); return }
+  if (ls[front].url === url) {
+    // Same picture: this is a repaint (a commit, a framing edit, a resize), not a
+    // switch — so the container simply adopts the current alpha.
+    paintLayer(ls[front], url)
+    wpAlpha = rWop()
+    applyWpEffects()
+    return
+  }
   const from = ls[front]
   const idx: 0 | 1 = front === 0 ? 1 : 0
   const target = ls[idx]
@@ -1467,7 +1557,17 @@ function applyImageWp(url: string): void {
   applyLayerStyle(el, plan.from)
   el.style.zIndex = '1'
   from.el.style.zIndex = '0'
+  // The wallpaper's OWN opacity is part of what a switch shows, and it used to
+  // snap: the container was set to the incoming picture's alpha on the first
+  // frame, so two pictures at different opacities changed instantly and only the
+  // layer under them faded. It rides the same transition as the layers now —
+  // written to the OUTGOING value first, then armed and moved to the incoming one
+  // in the frame the layers start moving, so the whole composite fades together.
+  const toAlpha = rWop()
+  const fadeAlpha = plan.animate && Math.abs(toAlpha - wpAlpha) > 0.001
+  if (fadeAlpha) wpEl!.style.transition = 'none'
   paintLayer(target, url)
+  if (!fadeAlpha) wpAlpha = toAlpha
   applyWpEffects()
   if (!plan.animate) {
     // No animation: land on the end state at once (`transition` is already
@@ -1486,16 +1586,25 @@ function applyImageWp(url: string): void {
     if (pending !== idx || layers === null) return
     el.style.transition = plan.transition
     applyLayerStyle(el, plan.to)
+    if (fadeAlpha) {
+      wpEl!.style.transition = plan.transition
+      wpEl!.style.opacity = String(toAlpha)
+      wpAlpha = toAlpha
+    }
   })
   fadeTimer = window.setTimeout(() => finishFade(idx), plan.durationMs + 160)
 }
 
 /**
- * The `filter` a wallpaper layer carries, from the active rule's brightness and
- * blur.
+ * The `filter` ONE LAYER carries, from the brightness and blur of the picture
+ * painted on IT.
+ *
+ * Both are per image (see BgImage): one rule's rotation can run a daylight photo
+ * and a night shot, and a rule-level answer forced the second one to live at the
+ * first one's exposure.
  *
  * ONE declaration, because the two are one CSS property: assigning `filter` twice
- * would leave whichever ran last, so a rule that is both brightened and blurred
+ * would leave whichever ran last, so an image that is both brightened and blurred
  * would silently lose one of them. Brightness is written first and blur second for
  * a reason that is visible: blurring a dimmed picture softens the highlights the
  * dimming just brought down, while dimming an already-blurred one simply darkens
@@ -1505,26 +1614,44 @@ function applyImageWp(url: string): void {
  * The neutral brightness is LEFT OUT rather than written as `brightness(100%)`.
  * A layer with neither effect gets `''`, which is what an untouched wallpaper has
  * always carried, and keeps the layer off the compositor's filter path entirely.
+ *
+ * The numbers are the LAYER's, not live reads: during a switch the two layers
+ * hold two different photos, and a live read made the outgoing one jump to the
+ * incoming one's exposure at the first frame of every fade.
  */
-function wpFilter(): string {
+function wpFilter(brightness: number, blur: number): string {
   const parts: string[] = []
-  const brightness = rBrightness()
   if (brightness !== 100) parts.push(`brightness(${brightness}%)`)
-  const blur = rBl()
   if (blur > 0) parts.push(`blur(${blur}px)`)
   return parts.join(' ')
 }
 
 function applyWpEffects(): void {
   if (wpEl === null || layers === null) return
-  wpEl.style.opacity = String(rWop())
+  // The CONTAINER carries the picture's own opacity, because it is a property of
+  // the wallpaper as a whole: the two layers are one composite, and giving each of
+  // them the incoming picture's alpha would make the outgoing one show through it
+  // (two pictures summed) for the length of the fade. `wpAlpha` rather than
+  // `rWop()` so a repaint mid-fade re-writes the value the fade is heading for.
+  wpEl.style.opacity = String(wpAlpha)
   // The filter sits on each LAYER rather than on the container: with it on the
   // parent, every frame of an opacity fade would re-run a full-screen filter pass
-  // instead of just re-compositing the treated surface. `wpFilter` is the ONE
-  // place the two effects sharing that property are composed.
-  const filter = wpFilter()
-  layers[0].el.style.filter = filter
-  layers[1].el.style.filter = filter
+  // instead of just re-compositing the treated surface.
+  applyLayerEffects(layers[0])
+  applyLayerEffects(layers[1])
+}
+
+/** Write what a layer takes from ITS picture: the filter, and the box growth that
+ *  keeps a blurred edge from drawing a dark rim.
+ *
+ *  ONE function for both, because the two are one visible decision — the same
+ *  blur that makes `filter` non-empty is what makes the pad non-zero — and
+ *  because BOTH update paths (a full repaint and a drag frame) write it, so a
+ *  blur dragged to its top cannot leave the rim behind until the slider is
+ *  released. */
+function applyLayerEffects(l: WpLayer): void {
+  l.el.style.filter = wpFilter(l.brightness, l.blur)
+  writeLayerBox(l, wpBlurPad(l.blur))
 }
 
 /** Repaint the wallpaper layer, the token palette and every interface part from
@@ -1596,8 +1723,13 @@ export function teardownWp(): void {
   stopWatchingParts()
 }
 
-/** Live wallpaper-opacity updates during slider drag (no full re-apply). */
+/** Live wallpaper-opacity updates during slider drag (no full re-apply).
+ *
+ *  The container is the one holder of this value (see `applyWpEffects`), so the
+ *  mirror and the style are written together — a later repaint then re-asserts
+ *  what the drag ended on rather than the value it started from. */
 export function setWpOpacity(v: number): void {
+  wpAlpha = v
   if (wpEl) wpEl.style.opacity = String(v)
 }
 
@@ -1606,12 +1738,21 @@ export function setWpOpacity(v: number): void {
  *
  * Deliberately parameterless: the filter composes TWO settings (brightness and
  * blur), so a function trusting one caller's value would write half of it and
- * drop the other. Both are read back from the active rule instead (./state),
- * which is the same store the drag has already written to before calling this.
+ * drop the other. Both are read back from the store instead (./state), which is
+ * the same store the drag has already written to before calling this.
+ *
+ * Written onto the layer PAINTING that picture rather than onto both: during a
+ * switch the other layer is still showing the previous photo, and giving it this
+ * one's brightness and blur is exactly the snap this snapshot exists to prevent.
  */
 export function setWpFilter(): void {
   if (layers === null) return
-  const filter = wpFilter()
-  layers[0].el.style.filter = filter
-  layers[1].el.style.filter = filter
+  const url = rWp()
+  if (url === null) return
+  for (const l of layers) {
+    if (l.url !== url) continue
+    l.brightness = rBrightness()
+    l.blur = rBl()
+    applyLayerEffects(l)
+  }
 }
