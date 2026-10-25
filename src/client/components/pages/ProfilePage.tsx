@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { ThemeFile, ThemeSectionProps, ThemeStoreState } from '../../types'
+import type { ThemeFile, ThemeSectionProps, ThemeStoreState, StoreUsage } from '../../types'
 import { cfg, rFadeMs } from '../../state'
 import { matchRule } from '../../modelbg'
 import { saveConfig } from '../../rpc'
 import { normalizeTransition, TRANSITION_EASINGS, TRANSITION_EFFECTS } from '../../../schema'
 import { transitionPlan } from '../../transition'
+import { fmtBytes, fmtStoreBytes } from '../../../format'
 import type { TransitionEffect, TransitionEasing } from '../../../schema'
 import { LiveSlider } from '../LiveSlider'
 import { Portal } from '../Portal'
 import { REPO_URL } from '../../repo'
-import { DownloadIcon, SparkleIcon, UploadIcon } from '../icons'
+import { DownloadIcon, RefreshIcon, SparkleIcon, TrashIcon, UploadIcon } from '../icons'
 
 /** Chip labels, keyed by the value they set — so no chip can be built from a
  *  value the schema does not accept, and `check:ui` still sees every key used. */
@@ -51,10 +52,6 @@ const REC_ERROR_KEYS: Record<string, string | undefined> = {
   'too large': 'recFailTooLarge',
 }
 
-/** Size of a download, at the precision a person reads it at. */
-const fmtBytes = (n: number): string => (n >= 1024 * 1024
-  ? `${(n / 1024 / 1024).toFixed(1)} MB`
-  : `${Math.max(1, Math.round(n / 1024))} KB`)
 
 export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg: string, ok?: boolean) => void }) {
   const { t, exportTheme, importTheme, setTransition } = p
@@ -202,6 +199,63 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
     setRecBusy(false)
     setPending(null)
     notify(ok ? t('recDone') : t('recFailApply'), ok)
+  }
+
+  // ── image storage ─────────────────────────────────────────────────────────
+  // Images are stored at FULL fidelity (see `readImg` in ../../utils/image), so a
+  // picture that was replaced or removed leaves its bytes behind unless the one
+  // path that removed it also deleted the file — which is exactly the path an
+  // interrupted write, a hand-edited config or a rule deleted mid-upload misses.
+  // The residue is invisible by construction: boot reads only the slots the config
+  // names, so an orphaned file is never loaded and never reported anywhere.
+  //
+  // Hence a READ first: the card shows what the store occupies and how much of it
+  // nothing points at, and only then offers to delete. `null` (a node half from
+  // before these methods existed) renders as "unknown" rather than as "nothing to
+  // clean", because those two states must not look the same.
+  const [usage, setUsage] = useState<StoreUsage | null>(null)
+  /** Distinguishes "not asked yet" from "asked, and the host cannot answer". */
+  const [usageRead, setUsageRead] = useState(false)
+  const [storeBusy, setStoreBusy] = useState(false)
+
+  const refreshStore = async (): Promise<void> => {
+    const next = await p.readStoreUsage()
+    setUsage(next)
+    setUsageRead(true)
+  }
+
+  // Re-read whenever the RULES change: an upload, a removal or an import moves the
+  // orphan set, and a card still showing the number from before it would be
+  // describing a store that no longer exists. `rulesRev` is the store's own counter
+  // for exactly that, so no polling is needed.
+  useEffect(() => {
+    let live = true
+    void (async () => {
+      const next = await p.readStoreUsage()
+      if (!live) return
+      setUsage(next)
+      setUsageRead(true)
+    })()
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.rulesRev])
+
+  const onClean = async (): Promise<void> => {
+    setStoreBusy(true)
+    const res = await p.pruneOrphanImages()
+    // Re-read rather than subtract: a file that failed to delete (see `failed`) is
+    // still there, and a number computed by subtraction would claim otherwise.
+    await refreshStore()
+    setStoreBusy(false)
+    if (res === null) { notify(t('storeUnknown'), false); return }
+    if (res.refused) { notify(t('storeRefused'), false); return }
+    if (res.failed.length > 0) {
+      notify(`${t('storePartial')}${res.failed.join(', ')}`, false)
+      return
+    }
+    notify(res.removed.length === 0
+      ? t('storeCleanNone')
+      : `${t('storeDoneFreed')} ${fmtStoreBytes(res.freedBytes)}`, true)
   }
 
   return (
@@ -382,6 +436,67 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
             const f = e.target.files?.[0]; if (!f) return
             void onImport(f); e.target.value = ''
           }} />
+        </section>
+
+        {/* Last, because it is maintenance rather than a way to move a profile
+            around. It is the only destructive control in the panel that does NOT
+            ask first, and that is a decision rather than an omission: what it
+            deletes is by definition referenced by no rule, so the "question" could
+            only list files the user cannot identify — one click away from a store
+            they cannot restore, and a dialog that teaches people to click through.
+            The safety lives in the GATE instead (`trusted`: an unreadable config
+            refuses rather than guesses), which is a fact about the config rather
+            than a habit to be confirmed.
+
+            The numbers are the whole point of the card: without them "clean up" is
+            a button with an unknown price. They count what a press would FREE, not
+            what the store holds: "2.1 MB in use" answers a question nobody asked
+            here, and a total file count reads as "eight files to delete" when the
+            honest answer is one. */}
+        <section className="dab-card dab-card-hover">
+          <div className="dab-profile-ico"><TrashIcon size={17} /></div>
+          <div className="dab-profile-title">{t('storeCardTitle')}</div>
+          <div className="dab-profile-desc">{t('storeCardDesc')}</div>
+          {usage === null ? (
+            // Two different nothings: still reading, and the host cannot answer.
+            // Printing "0 B" for either would claim a measurement nobody made.
+            <p className="dab-hint" style={{ marginBottom: 12 }}>
+              {usageRead ? t('storeUnknown') : t('storeReading')}
+            </p>
+          ) : (
+            <>
+              <div className="dab-store-stats">
+                <div className="dab-store-stat">
+                  <span className="dab-store-stat-v">{fmtStoreBytes(usage.orphanBytes)}</span>
+                  <span className="dab-store-stat-k">{t('storeOrphans')}</span>
+                </div>
+                <div className="dab-store-stat">
+                  <span className="dab-store-stat-v">{usage.orphans.length}</span>
+                  <span className="dab-store-stat-k">{t('storeFiles')}</span>
+                </div>
+              </div>
+              {/* The numbers above are still true, and still shown — but with an
+                  unreadable config nothing on disk can be told apart from an
+                  orphan, so the button is disabled rather than offered and then
+                  refused. Saying why is the whole value of the line. */}
+              {usage.trusted ? null : (
+                <p className="dab-hint dab-stale" style={{ marginBottom: 12 }}>{t('storeRefused')}</p>
+              )}
+            </>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="dab-btn"
+              disabled={storeBusy || usage === null || usage.orphanBytes === 0 || !usage.trusted}
+              title={usage !== null && !usage.trusted ? t('storeRefused')
+                : usage !== null && usage.orphanBytes === 0 ? t('storeCleanNone') : t('storeClean')}
+              onClick={() => void onClean()}>
+              <TrashIcon size={14} />{t('storeClean')}
+            </button>
+            <button type="button" className="dab-btn dab-btn-ghost" disabled={storeBusy}
+              onClick={() => void refreshStore()}>
+              <RefreshIcon size={14} />{t('storeRefresh')}
+            </button>
+          </div>
         </section>
       </div>
 

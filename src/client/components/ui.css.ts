@@ -231,6 +231,13 @@ export const UI_CSS = `
 .dab-profile-ico{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;margin-bottom:13px;color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
 .dab-profile-title{font-size:14px;font-weight:650}
 .dab-profile-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.55;margin:5px 0 15px}
+/* The image store's three numbers. A row of VALUES with a caption under each,
+   not a sentence: they are read as a measurement ("how much is orphaned"), and a
+   sentence makes the reader hunt for the one number that matters. */
+.dab-store-stats{display:flex;gap:16px;margin:2px 0 14px}
+.dab-store-stat{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dab-store-stat-v{font-size:14px;font-weight:650;font-family:var(--dab-mono);letter-spacing:.01em;color:var(--dsw-alias-label-primary)}
+.dab-store-stat-k{font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
 .dab-footer{margin-top:6px;padding:14px 4px 0;border-top:1px solid var(--dsw-alias-border-l2);display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .dab-footer-mono{font-family:var(--dab-mono);letter-spacing:.02em}
 /* Same reset as the brand: the package name links to the repository, and the

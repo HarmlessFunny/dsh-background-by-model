@@ -1,4 +1,4 @@
-import type { FetchResult, PresetHead, PresetImage, RpcResultLike } from './types'
+import type { FetchResult, PresetHead, PresetImage, PruneResult, RpcResultLike, StoreUsage } from './types'
 import { cfg } from './state'
 // The shape this bundle writes, and the one the host announces on `read`.
 import { SCHEMA_VERSION } from '../schema'
@@ -225,4 +225,54 @@ export async function readDefaultModel(): Promise<string | null> {
   const d = data as { provider?: unknown; model?: unknown }
   const parts = [d.provider, d.model].filter((s): s is string => typeof s === 'string' && s !== '')
   return parts.length > 0 ? parts.join(' ') : null
+}
+
+/**
+ * What the store occupies and what nothing points at — read-only.
+ *
+ * `keep` is this bundle's live slot list, which the node half unions with the config
+ * on disk (see `storeUsage`): the two are written at different moments, and the
+ * report must never call a file an orphan in the gap between an upload's bytes
+ * landing and its rule entry arriving. Sending the list can therefore only SPARE a
+ * slot, never condemn one.
+ */
+export async function readStoreUsage(keep: readonly string[]): Promise<StoreUsage | null> {
+  const data = await rpcCall('storeUsage', { keep })
+  if (data === null || typeof data !== 'object') return null
+  const d = data as Partial<StoreUsage>
+  return {
+    totalBytes: numberOr(d.totalBytes, 0),
+    usedBytes: numberOr(d.usedBytes, 0),
+    orphanBytes: numberOr(d.orphanBytes, 0),
+    files: numberOr(d.files, 0),
+    slots: Array.isArray(d.slots) ? d.slots.filter((s): s is string => typeof s === 'string') : [],
+    orphans: Array.isArray(d.orphans)
+      ? d.orphans
+        .filter((o): o is { slot: string; bytes: number } => o !== null && typeof o === 'object' && typeof o.slot === 'string')
+        .map(o => ({ slot: o.slot, bytes: numberOr(o.bytes, 0) }))
+      : [],
+    // Absent means "a node half that predates the flag", which is the same state a
+    // config we cannot vouch for puts us in: refuse, do not guess.
+    trusted: d.trusted === true,
+  }
+}
+
+/**
+ * Delete every stored image nothing points at. The one destructive half of the
+ * pair, and it takes the same `keep` for the same reason.
+ */
+export async function pruneOrphanImages(keep: readonly string[]): Promise<PruneResult | null> {
+  const data = await rpcCall('pruneOrphans', { keep })
+  if (data === null || typeof data !== 'object') return null
+  const d = data as Partial<PruneResult>
+  return {
+    removed: Array.isArray(d.removed) ? d.removed.filter((s): s is string => typeof s === 'string') : [],
+    failed: Array.isArray(d.failed) ? d.failed.filter((s): s is string => typeof s === 'string') : [],
+    freedBytes: numberOr(d.freedBytes, 0),
+    refused: d.refused === true,
+  }
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && isFinite(value) && value >= 0 ? value : fallback
 }

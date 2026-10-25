@@ -161,6 +161,22 @@ export const zh: Record<string, string> = {
   recFailImage: '这张壁纸没拿到（素材库里缺这个文件）：',
   recFailApply: '未能写入推荐配置，你原来的配置没有被改动',
 
+  // ── 图片存储（配置页）─────────────────────────────────────────────────────
+  // 图片按原图保存，只有意外中断的上传、失败的删除或整批替换才会留下不再被任何
+  // 规则引用的文件。卡片先读数字、再删；先删后报数是没人会同意的操作。
+  storeCardTitle: '图片存储',
+  storeCardDesc: '因意外导致的孤儿图片这里可以清掉',
+  storeOrphans: '可清理',
+  storeFiles: '个可删文件',
+  storeReading: '正在读取…',
+  storeUnknown: '读不到存储信息（宿主进程可能是旧版插件，重启 DSH 后可用）',
+  storeCleanNone: '没有多余的文件',
+  storeClean: '清理',
+  storeDoneFreed: '已清理，释放',
+  storePartial: '有些文件没能删除：',
+  storeRefused: '配置文件读不出来（theme-config.json 解析失败），现在分不清哪些图片还在用，所以没有删除任何东西。修好或删掉那个文件后重启 DSH 再试',
+  storeRefresh: '重新读取',
+
   footerTag: '按模型换背景插件',
   repoLink: '在 GitHub 上打开仓库',
 
@@ -341,6 +357,24 @@ export const en: Record<string, string> = {
   recFailTooLarge: 'The recommended profile is too large. Nothing was changed.',
   recFailImage: 'Could not fetch this wallpaper — the asset host has no such file:',
   recFailApply: 'Could not write the recommended profile — your own is untouched',
+
+  // ── Image store (Config page) ─────────────────────────────────────────────
+  // Images are kept at full fidelity, so only an interrupted upload, a failed
+  // deletion or a wholesale replacement leaves a file nothing references. The card
+  // reads the numbers BEFORE deleting — reporting the size afterwards is a cleanup
+  // nobody agrees to.
+  storeCardTitle: 'Image storage',
+  storeCardDesc: 'Orphaned image files left behind by an accident can be cleared here',
+  storeOrphans: 'Cleanable',
+  storeFiles: 'deletable files',
+  storeReading: 'Reading…',
+  storeUnknown: 'Could not read the store — the host process may be an older build; restart DSH',
+  storeCleanNone: 'Nothing to clean up',
+  storeClean: 'Clean up',
+  storeDoneFreed: 'Cleaned up, freed',
+  storePartial: 'Some files could not be deleted: ',
+  storeRefused: 'The config file could not be read (theme-config.json does not parse), so nothing on disk can be told apart from an orphan. Nothing was deleted — fix or remove that file and restart DSH',
+  storeRefresh: 'Refresh',
 
   footerTag: 'Per-model wallpaper plugin',
   repoLink: 'Open the repository on GitHub',

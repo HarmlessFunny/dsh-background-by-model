@@ -130,8 +130,19 @@ One click on the Config tab downloads the author's own configuration — rules, 
 
 - **Hosted in the store's own shape** (`preset/preset.json`, `preset/theme-config.json`, one `modelbg-<slot>` file per wallpaper), so it stays editable on GitHub and publishing it is a `cp`.
 - **Every interface number in it is what the plugin already ships with**, so on a new install the button adds rules and pictures; on a store you have already tuned it resets those too, because it is a whole configuration and not a patch.
-- **The download comes before the question**, so the confirmation can say what is actually in hand — and the wipe comes after the download, never before it. It is the only destructive action in the panel.
+- **The download comes before the question**, so the confirmation can say what is actually in hand — and the wipe comes after the download, never before it. It is the only card in the panel that **asks before it deletes**.
 - **One missing wallpaper fails the whole attempt and names the slot**, and every file retries on its own, keeping what arrived for the next press.
+
+### Image storage cleanup
+
+The last card on the Config tab. Images are stored at **full fidelity**, so an interrupted upload, a failed file deletion or a wholesale config replacement can leave a file on disk that no rule references any more — and on a tidy machine that number is normally **0**. The card reads the numbers, and the button deletes **without asking**.
+
+- **Read first, delete second** — it shows how much is cleanable and how many files that is, before it offers the button. A cleanup whose size is announced afterwards is a cleanup nobody agrees to. The numbers describe only **what the press would free**: "2.1 MB in use" answers a question nobody asked on this card, and a total file count reads as "eight to delete" when the honest answer is one.
+- **Only unreferenced files** — every byte a current rule uses is untouched, and the config itself is never written. The card re-reads after the sweep instead of subtracting, so a file that failed to delete still counts.
+- **Failures are named** — one undeletable file does not protect the other six, and it is not reported as success either: the toast lists which ones.
+- **No confirmation step** — what it deletes is by definition referenced by no rule, and is not a choice made from a working set, so a "confirm?" here only teaches people to click through. The safety is in the **gate**: when the config cannot be read the button is disabled (next bullet), rather than seven files being listed and then asked about.
+- **It also clears a stray `modelbg-h-*`** — that slot belongs to no config (festival art lives in `holiday-cache/`, and the slot is read-only), so this is the only path that can ever remove such a file.
+- **An older host reads as "unknown", not "0 B"** — the two nothings must not look the same.
 
 ## Settings
 
@@ -141,7 +152,7 @@ Settings → **Theme** now has three tabs:
 | --- | --- | --- |
 | **Interface** | Global, shared by every model | Opacity for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box, trajectory page and every plugin page |
 | **Model Background** | Per rule, per image | The ordered rule list, the live match readout, and each rule's images (filmstrip), **per-image layout mode, framing and theme color**, plus the rule's opacity, brightness, blur and [rotation](#image-rotation) |
-| **Config** | — | The global [switch effect](#switch-effect-global), the whole rule set as a file — [recommended profile](#recommended-profile), import and export (`dsh-background-by-model-theme.json`) — plus the single [holiday background](#holiday-backgrounds) switch |
+| **Config** | — | The global [switch effect](#switch-effect-global), the whole rule set as a file — [recommended profile](#recommended-profile), import and export (`dsh-background-by-model-theme.json`) — plus the single [holiday background](#holiday-backgrounds) switch and the [image storage cleanup](#image-storage-cleanup) |
 
 The old **Color** tab is gone — the theme color is now a property of each rule — and the old **Background** tab became **Model Background**.
 
@@ -184,7 +195,7 @@ npx @deepseek-ai/dsh web
 git clone https://github.com/HarmlessFunny/dsh-background-by-model.git
 cd dsh-background-by-model
 pnpm install
-pnpm test            # builds lib/, typechecks, runs the ten checks
+pnpm test            # builds lib/, typechecks, runs the thirteen checks
 ```
 
 `pnpm run bundle` rebuilds `lib/` on its own. Either has to run before the plugin can load: a fresh clone has no `lib/`.
@@ -206,7 +217,7 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
-`pnpm test` builds, typechecks and runs ten checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:node`:
+`pnpm test` builds, typechecks and runs thirteen checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:node`:
 
 - **`check:holiday`** — the two holiday windows, the Beijing day boundary, leap eighth months across 1900–2100, and the four gates `pickHoliday` applies.
 - **`check:rotation`** — `nextIndex` / `isRotating`: no walking off the end, shuffle never repeating the image on screen, and nothing called "rotating" with nothing to rotate.
@@ -217,7 +228,10 @@ After changing anything under `src/`, run `pnpm run bundle` again — the mounte
 - **`check:rules`** — the two decisions behind the tab strip, which live in `src/client/rules-view.ts`, plus the page structure the layout rests on.
 - **`check:preset`** — the recommended profile's retry policy and what a failed attempt holds for the next one, with both halves shown using them.
 - **`check:ui`** — both dictionaries carrying the same keys, every `dab-…` class styled, no dead entry, and every `var(--dsw-…)` published by the installed theme.
-- **`check:node`** — the built node half through its real RPC handler with `DSH_HOME` redirected and `fetch` stubbed: the holiday block, the festival art's caching and pruning, mirror fallback, the per-image color lift, the global switch effect, and the recommended profile end to end.
+- **`check:watchdogs`** — one heartbeat, entries firing on their own due time, paused while the tab is hidden, no timer left by dispose, and no module outside the entry starting its own interval.
+- **`check:scheme`** — the `data-ds-dark-theme` hand-off: the plugin only rewrites the value it wrote, hands the flag back when it drops its tokens, and repaints when the scheme moves.
+- **`check:store`** — the two decisions behind the storage cleanup, `referencedSlots` and `orphanSlots`: a picture in use is never an orphan, a stray holiday-slot file always is, and the browser half sends RULE slots rather than the whole config.
+- **`check:node`** — the built node half through its real RPC handler with `DSH_HOME` redirected and `fetch` stubbed: the holiday block, the festival art's caching and pruning, mirror fallback, the per-image color lift, the global switch effect, the store's usage report and cleanup, and the recommended profile end to end.
 
 ## FAQ
 
@@ -269,6 +283,11 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 ## Recent Optimizations
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
+
+### v0.9.2
+
+- **The Config tab gains an "Image storage" card** — it reports how much is cleanable and how many files that is, then offers the button; only unreferenced files go, the config and the festival art stay, and any file that resists is named.
+- **`check:store`, so there are thirteen checks now** — both READMEs had been claiming ten, having missed `check:watchdogs` and `check:scheme` since v0.8.1; they are listed again alongside the new one.
 
 ### v0.9.1
 

@@ -19,7 +19,7 @@ import { applyThemeFile, buildThemeFile, saveThemeFile } from './theme-file'
 import { createSchedule } from './watchdogs'
 import type {
   Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, BgMode, BgRule, BgState, HolidayRule,
-  FetchResult, ModelFacts, TransitionConfig, ThemeFile, PresetResult,
+  FetchResult, ModelFacts, TransitionConfig, ThemeFile, PresetResult, PruneResult, StoreUsage,
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
@@ -41,6 +41,7 @@ import {
   RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
   writeImage, deleteImage, fetchImageUrl, readDefaultModel, hostIsLegacy,
   canWriteConfig, fetchPresetConfig, fetchPresetImage,
+  readStoreUsage, pruneOrphanImages,
 } from './rpc'
 import {
   applyWp, teardownWp, applySettingsOverrides, applyRightbarOverrides, SETTINGS_STYLE_RULE, TRAJECTORY_STYLE_RULE,
@@ -875,6 +876,24 @@ export function apply(ctx: Ctx): void {
         // go through while every config write is held (`canWriteConfig`).
         if (!canWriteConfig()) return false
         return await applyThemeFile({ applyActive }, preset, true)
+      },
+
+      // ── The image store ──────────────────────────────────────────────────
+      // `keep` is THIS bundle's live rule slots and nothing else. Rule slots only,
+      // deliberately: a holiday's slot belongs to the package's art (downloaded
+      // into `holiday-cache/`), so echoing it back would make a stray
+      // `modelbg-h-*` file permanently unprunable — the one residue nothing else
+      // could ever clear. The node half unions the list with the config on disk, so
+      // a slot whose bytes have landed but whose rule entry has not yet reaches it
+      // is spared either way.
+      readStoreUsage: (): Promise<StoreUsage | null> => readStoreUsage(cfg.rules.flatMap(ruleSlots)),
+      pruneOrphanImages: async (): Promise<PruneResult | null> => {
+        const res = await pruneOrphanImages(cfg.rules.flatMap(ruleSlots))
+        // The in-memory cache is keyed by slot, and a removed file's bytes have no
+        // card left to appear on — dropping them is what keeps a replaced picture
+        // from keeping a multi-megabyte data URL alive for the rest of the session.
+        for (const slot of res?.removed ?? []) setImage(slot, null)
+        return res
       },
     }
   }

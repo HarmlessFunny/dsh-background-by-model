@@ -222,6 +222,53 @@ export type PresetResult =
   | { ok: true; preset: ThemeFile }
   | { ok: false; error: string; slot?: string }
 
+/**
+ * What the image store occupies, and which of it nothing points at any more.
+ *
+ * `orphanBytes` is a SUBSET of `totalBytes` (so `usedBytes = total − orphan`), which
+ * is the only arrangement the panel can print without arithmetic of its own. Bytes
+ * are the node half's measurement of the files themselves — the store keeps full
+ * fidelity images, so this number is not a rounding of something smaller.
+ */
+export interface StoreUsage {
+  /** Every image file in the store, in bytes. */
+  totalBytes: number
+  /** The part of `totalBytes` something still points at. */
+  usedBytes: number
+  /** The part of `totalBytes` nothing points at — what a cleanup would free. */
+  orphanBytes: number
+  /** How many image files there are. */
+  files: number
+  /** Every stored slot, in the store's own order. */
+  slots: string[]
+  /** The slots nothing points at, each with its size. */
+  orphans: Array<{ slot: string; bytes: number }>
+  /**
+   * Whether the numbers may be acted on: false when `theme-config.json` is there
+   * but unreadable, in which case NOTHING can be told apart from an orphan and the
+   * card must not offer the button at all. The numbers are still shown — "what is
+   * on disk" has an answer — but they are not a licence to delete.
+   */
+  trusted: boolean
+}
+
+/**
+ * What one cleanup removed.
+ *
+ * `failed` exists because a per-file failure must not read as success: the sweep
+ * continues past one locked file, and the panel has to be able to say that the
+ * number did not reach zero, and why. `refused` is the unreadable-config case —
+ * nothing was deleted, on purpose.
+ */
+export interface PruneResult {
+  removed: string[]
+  failed: string[]
+  /** The bytes the removed files occupied. */
+  freedBytes: number
+  /** The sweep declined to run because the config on disk could not be read. */
+  refused: boolean
+}
+
 /** Props the slots host injects into the theme section (built once). */
 export interface ThemeSectionProps {
   t: (key: string) => string
@@ -346,6 +393,22 @@ export interface ThemeSectionProps {
    * why the page asks first.
    */
   applyRecommended: (preset: ThemeFile) => Promise<boolean>
+
+  // ── The image store ────────────────────────────────────────────────────────
+  // Two halves of one question, and the split matters: the card must be able to
+  // say how much is orphaned WITHOUT deleting anything, because a cleanup whose
+  // size is announced after the fact is a cleanup nobody agrees to.
+  /**
+   * Measure the store. `null` when the host could not be asked (a node half from
+   * before this method existed), which the card renders as "unknown" rather than
+   * as "nothing to clean".
+   */
+  readStoreUsage: () => Promise<StoreUsage | null>
+  /**
+   * Delete every stored image nothing points at any more. Only the files that
+   * `readStoreUsage` called orphans; the config and the festival art are outside it.
+   */
+  pruneOrphanImages: () => Promise<PruneResult | null>
 }
 
 export interface RpcResultLike { ok: boolean; value?: any; error?: any }

@@ -15,7 +15,7 @@
  * route. A legacy single-wallpaper / video-background store is migrated to rule 1
  * on first read.
  */
-import { access, mkdir, readFile, writeFile, rm, rename, readdir } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile, rm, rename, readdir, stat } from 'node:fs/promises'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 // The holiday calendar: the node half only needs the fixed slot ids and
 // the asset names (the date maths belongs to the browser half).
@@ -28,6 +28,9 @@ import type { BgState, ThemeConfig } from './schema'
 // ./preset for why the two questions live in one module).
 import { PRESET_ATTEMPTS, presetRetryDelayMs, presetRetryable } from './preset'
 import type { FetchFailure } from './preset'
+// Which stored image files nothing points at any more — the decision lives in
+// ./store, which both halves import and neither side's runtime can reach into.
+import { orphanSlots, referencedSlots } from './store'
 
 export const name = 'dsh-background-by-model'
 export const inject = ['connection', 'webServer']
@@ -241,6 +244,53 @@ async function readConfig(): Promise<ThemeConfig> {
     raw = {}
   }
   return normalizeConfig(await migrateLegacy(raw))
+}
+
+/**
+ * The config, plus whether it is safe to decide what the store still owns from it.
+ *
+ * `readConfig` deliberately swallows a corrupt file and answers with defaults —
+ * right for painting (a broken file must not leave a blank panel) and WRONG for
+ * the cleanup, which would then see zero referenced slots and treat every image on
+ * disk as an orphan. That is the one way this feature could delete a user's whole
+ * wallpaper collection, so the two cases are told apart here and the sweep refuses
+ * rather than guesses:
+ *
+ *   - no file at all → trusted. A fresh store has images only if something wrote
+ *     them, and nothing did;
+ *   - a file that parses to an object → trusted (its rules are what they say);
+ *   - a file that is there but does not parse, or is not an object → NOT trusted.
+ *
+ * A config whose `rules` are missing entirely is trusted: `normalizeConfig` seeds
+ * one blank rule for that case, which owns no slot, and the sanitizer's answer is
+ * exactly what a reload would paint.
+ *
+ * The untrusted branch deliberately does NOT go through `migrateLegacy`: that one
+ * WRITES a repaired config back to disk for the shapes earlier releases left
+ * behind, and running it here would turn "refuse to delete" into "quietly rewrite
+ * whatever the user's broken file said, then delete against the rewrite". The
+ * display answer for an unreadable file is the sanitizer's defaults, computed
+ * without touching the disk.
+ */
+async function readConfigForSweep(): Promise<{ config: ThemeConfig; trusted: boolean }> {
+  await ensureDir()
+  let text: string
+  try {
+    text = await readFile(configPath(), 'utf8')
+  } catch {
+    // No config file: nothing has ever been configured here.
+    return { config: await readConfig(), trusted: true }
+  }
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    return { config: normalizeConfig({}), trusted: false }
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { config: normalizeConfig({}), trusted: false }
+  }
+  return { config: normalizeConfig(await migrateLegacy(raw)), trusted: true }
 }
 
 // ── Two-half drift guard ───────────────────────────────────────────────────
@@ -734,6 +784,108 @@ async function resetStore(): Promise<boolean> {
 }
 
 /**
+ * What the image store occupies, and which of it nothing points at any more.
+ *
+ * Read-only: it reports, it never deletes. Splitting the two is what lets the panel
+ * show a number before asking, and it is also the only honest way to answer "how
+ * much would this free" — a cleanup whose size is announced AFTER the fact is a
+ * cleanup nobody agrees to.
+ *
+ * `keep` is the browser half's own slot list. It is unioned with the config ON DISK
+ * rather than replacing it because the two are not written at the same moment: an
+ * upload writes the bytes first and the config that names them a moment later, so a
+ * read landing in between would see a file the store is about to legitimately own.
+ * The union can only ever make the report SMALLER (a slot is spared), which is the
+ * safe direction for something whose answer is "delete these files".
+ *
+ * A file that cannot be stat'd is still listed, at 0 bytes: it exists as far as
+ * `readdir` is concerned, and hiding it would leave a residue the panel claims is
+ * not there.
+ *
+ * `trusted` is false when the config file on disk is there but unreadable (see
+ * `readConfigForSweep`). The numbers are then still reported — the user asked what
+ * the store occupies, and that question has an answer — but the caller must not
+ * delete: with no trustworthy rule list, EVERY file would look like an orphan.
+ */
+async function storeUsage(keep: readonly string[]): Promise<{
+  totalBytes: number
+  usedBytes: number
+  orphanBytes: number
+  files: number
+  slots: string[]
+  orphans: Array<{ slot: string; bytes: number }>
+  trusted: boolean
+}> {
+  const stored = await listSlots()
+  const { config, trusted } = await readConfigForSweep()
+  const referenced = referencedSlots(config.rules)
+  // A `modelbg-h-*` file is an artifact no config can own — the holiday art is
+  // downloaded into `holiday-cache/`, and the slot is read-only — so it is never
+  // spared by `referencedSlots`. That is deliberate: this is the only way such a
+  // file is ever cleared.
+  const orphans = orphanSlots(stored, referenced, keep)
+  const sizes = new Map<string, number>()
+  let totalBytes = 0
+  for (const slot of stored) {
+    let bytes = 0
+    try { bytes = (await stat(imagePath(slot))).size } catch { /* listed, unmeasurable */ }
+    sizes.set(slot, bytes)
+    totalBytes += bytes
+  }
+  let orphanBytes = 0
+  for (const slot of orphans) orphanBytes += sizes.get(slot) ?? 0
+  return {
+    totalBytes,
+    usedBytes: totalBytes - orphanBytes,
+    orphanBytes,
+    files: stored.length,
+    slots: stored,
+    orphans: orphans.map(slot => ({ slot, bytes: sizes.get(slot) ?? 0 })),
+    trusted,
+  }
+}
+
+/**
+ * Delete every stored image nothing points at, and report what was removed.
+ *
+ * `keep` is the caller's live slot list, with the same meaning and the same
+ * union-with-disk rule as `storeUsage`. The answer carries the freed byte count so
+ * the panel can say what happened, and `failed` names the slots that resisted —
+ * a cleanup that removed six of seven files and said "done" would leave the user
+ * with a number that never goes down and no way to learn why.
+ *
+ * Failures are per file and never abort the sweep: one locked file must not protect
+ * the other six. Nothing else in the store is touched — the config, the festival art
+ * and the released generations under `holiday-cache/` are all outside this walk.
+ *
+ * REFUSES on an unreadable config (`trusted: false`): every file would look
+ * unreferenced, and this is the one operation in the plugin that could delete a
+ * whole wallpaper collection in a single press. A refusal costs a number on a card;
+ * guessing costs the user their pictures.
+ */
+async function pruneOrphans(keep: readonly string[]): Promise<{ removed: string[]; failed: string[]; freedBytes: number; refused: boolean }> {
+  const usage = await storeUsage(keep)
+  if (!usage.trusted) {
+    console.warn('dsh-background-by-model: refusing to prune — "theme-config.json" is unreadable, so nothing on disk can be told apart from an orphan')
+    return { removed: [], failed: [], freedBytes: 0, refused: true }
+  }
+  const removed: string[] = []
+  const failed: string[] = []
+  let freedBytes = 0
+  for (const entry of usage.orphans) {
+    try {
+      await rm(imagePath(entry.slot), { force: true })
+      removed.push(entry.slot)
+      freedBytes += entry.bytes
+    } catch (e) {
+      failed.push(entry.slot)
+      console.warn(`dsh-background-by-model: failed to remove the orphaned image for slot "${entry.slot}"`, e)
+    }
+  }
+  return { removed, failed, freedBytes, refused: false }
+}
+
+/**
  * Download an image from a network URL into one slot (replacing its bytes).
  * Returns { ok, dataUrl?, error? }; never throws.
  */
@@ -812,6 +964,13 @@ export async function handleRpcMethod(ctx: any, endpoint: unknown, payload: unkn
   const method = endpoint.startsWith(`${RPC_NS}/`) ? endpoint.slice(RPC_NS.length + 1) : ''
   const rawSlot = (payload as { slot?: unknown } | null)?.slot
   const slot = typeof rawSlot === 'string' && SLOT_RE.test(rawSlot) ? rawSlot : null
+  // The browser half's live slots, for the two store methods: anything it names is
+  // not an orphan even when the config on disk does not name it yet. Only real slot
+  // names get through, so a malformed payload cannot widen the spared set.
+  const rawKeep = (payload as { keep?: unknown } | null)?.keep
+  const keep = Array.isArray(rawKeep)
+    ? rawKeep.filter((s): s is string => typeof s === 'string' && SLOT_RE.test(s))
+    : []
   try {
     switch (method) {
       case 'read':
@@ -841,6 +1000,13 @@ export async function handleRpcMethod(ctx: any, endpoint: unknown, payload: unkn
         return { ok: true, value: await fetchPresetImage(slot) }
       case 'resetStore':
         return { ok: true, value: await resetStore() }
+      // The two store-reporting methods. `storeUsage` is read-only and answers the
+      // panel's card; `pruneOrphans` is the only one that deletes, and only what
+      // that same report called an orphan.
+      case 'storeUsage':
+        return { ok: true, value: await storeUsage(keep) }
+      case 'pruneOrphans':
+        return { ok: true, value: await pruneOrphans(keep) }
       case 'defaultModel':
         return { ok: true, value: defaultModel(ctx) }
       default:

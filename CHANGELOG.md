@@ -1,6 +1,16 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.9.1 / v0.9.0).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.9.2 / v0.9.1).
+
+## v0.9.2
+
+- **The Config tab reports how many unreferenced images there are, and clears them** — images are stored at full fidelity, so an interrupted upload, a failed file deletion or a wholesale replacement can leave a `modelbg-<slot>` file that no rule references. That residue is invisible by construction: boot reads the slots the config names, so an orphaned file is never loaded, never painted and never reported anywhere.
+- **Read first, delete second** — the card prints how much is cleanable and how many files that is, and only then offers the button; the figures describe what the press would free, not the store's total (a total file count reads as "delete all eight"). The sweep re-reads afterwards rather than subtracting, so a file that failed to delete still counts, and the toast names any that resisted.
+- **The sweep asks nothing** — one press deletes. What goes is by definition referenced by no rule, and a "confirm?" here only teaches people to click through; the safety moved into the **gate** (an unreadable config disables the button). The numbers are still read first — announcing a size after deleting is the cleanup nobody would agree to.
+- **A `modelbg-h-*` file is prunable** — that slot belongs to no config (the festival art lives in `holiday-cache/`, and the slot is read-only), so this is the only path that can ever remove one. `referencedSlots` deliberately takes RULES only, and `check:store` pins the call site so a future edit cannot add the holiday entries back.
+- **An older host reads as "unknown", not "0 B"** — the node half answers two new methods (`storeUsage`, `pruneOrphans`), and a bundle talking to a node half from before them shows "restart DSH" instead of claiming a measurement nobody made.
+- **`check:store`** — the two decisions (`referencedSlots` / `orphanSlots`) on plain node: a picture in use is never an orphan, `keep` only ever spares a slot (the gap between an upload's bytes and the rule entry that names them), and the client sends rule slots only. `check:node` covers the sweep through the real RPC handler.
+- **The READMEs catch up with the checks** — they had been claiming ten since v0.8.1's `check:watchdogs` and `check:scheme` landed; both are now listed, as is `check:store`.
 
 ## v0.9.1
 

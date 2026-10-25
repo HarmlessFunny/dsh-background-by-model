@@ -889,6 +889,122 @@ check('deleting one leaves the other', await (async () => {
 })())
 await call('deleteImage', { slot: 'm3' })
 
+// ── the image store's orphans ──────────────────────────────────────────────
+// Every image is stored at full fidelity, so replacing one writes a NEW slot and
+// only the path that removed the old entry deletes its file. An interrupted write,
+// a hand-edited config or a rule deleted mid-upload all leave a `modelbg-<slot>`
+// file no config names — and it is invisible: boot reads the slots the config
+// references, so nothing ever loads, paints or reports it. It only shows up as a
+// number in `du`. These checks are about the two RPC methods that surface it.
+console.log('\n--- the store reports what nothing points at, and clears exactly that ---')
+// A config whose single rule owns ONE picture, and three files on disk: the used
+// one, one nothing names, and one at a holiday slot — which no config can ever own
+// (the festival art lives in `holiday-cache/`, the slot is read-only), so it is
+// residue by definition and the one thing a cleanup must be able to clear.
+const storeConfig = {
+  ...first,
+  rules: [{
+    id: 'r-store', images: [{ slot: 'm1', bgMode: 'fit', bgState: {}, color: null }],
+    match: '', enabled: true, color: null, wallpaperOpacity: 1, brightness: 100, blur: 0,
+    rotate: { enabled: false, intervalMs: 60000, order: 'order', advanceOnSwitch: false },
+  }],
+}
+await call('writeConfig', { config: storeConfig })
+await call('writeImage', { slot: 'm1', dataUrl: pngUrl })
+await call('writeImage', { slot: 'm2', dataUrl: pngUrl })
+await call('writeImage', { slot: 'm3', dataUrl: pngUrl })
+writeFileSync(join(DATA, 'modelbg-h-midautumn'), png)
+const usage = (await call('storeUsage')).value
+check('the report counts every image file in the store', usage.files === 4, JSON.stringify(usage))
+check('the used bytes are one picture', usage.usedBytes === png.length, String(usage.usedBytes))
+check('and the orphans are the other three', usage.orphanBytes === png.length * 3, String(usage.orphanBytes))
+check('the two add up to the total, so a card can print either',
+  usage.usedBytes + usage.orphanBytes === usage.totalBytes, JSON.stringify(usage))
+check('the orphans are named, with their sizes',
+  JSON.stringify(usage.orphans.map(o => o.slot).sort()) === JSON.stringify(['h-midautumn', 'm2', 'm3']),
+  JSON.stringify(usage.orphans))
+// Read-only is the whole point of the split: asking the question must not answer it.
+check('reporting deleted nothing', existsSync(join(DATA, 'modelbg-m2')) && existsSync(join(DATA, 'modelbg-m3')))
+
+// `keep` is the browser half's live slot list, which exists because an upload
+// writes the bytes BEFORE the config that names them: a report landing in that
+// window must not call the new picture an orphan. It can only SPARE a slot.
+const withKeep = (await call('storeUsage', { keep: ['m2'] })).value
+check('a slot the client still holds is spared', withKeep.orphanBytes === png.length * 2, String(withKeep.orphanBytes))
+check('and it is not listed as an orphan', !withKeep.orphans.some(o => o.slot === 'm2'),
+  JSON.stringify(withKeep.orphans))
+check('a malformed keep entry spares nothing', (await call('storeUsage', { keep: ['../etc/passwd', 7] })).value.orphanBytes === png.length * 3)
+
+// The sweep. `keep` here is what the report was given, so the two agree by
+// construction — and a file that is spared is still there afterwards.
+const swept = (await call('pruneOrphans', { keep: ['m2'] })).value
+check('the sweep removes the orphans and only the orphans',
+  JSON.stringify(swept.removed.sort()) === JSON.stringify(['h-midautumn', 'm3']), JSON.stringify(swept))
+check('and reports the bytes it freed', swept.freedBytes === png.length * 2, String(swept.freedBytes))
+check('nothing failed', swept.failed.length === 0, JSON.stringify(swept.failed))
+check('the spared slot is untouched', existsSync(join(DATA, 'modelbg-m2')))
+check('the used picture is untouched, and still serves its bytes',
+  (await dataUrl('m1'))?.startsWith('data:image/png') === true)
+check('the config is untouched by the sweep',
+  JSON.stringify((await readConfig()).rules[0].images.map(i => i.slot)) === JSON.stringify(['m1']))
+// A second sweep with the SAME keep has nothing left to do — the button reads
+// "nothing to clean", and pressing it again costs no deletions.
+check('a second sweep with the same keep finds nothing',
+  (await call('pruneOrphans', { keep: ['m2'] })).value.removed.length === 0)
+// …and once the client stops naming it, the spared file is an orphan too: `keep`
+// is a grace period, not a permanent exemption.
+check('an unreferenced file the client stopped naming is collected next time',
+  JSON.stringify((await call('pruneOrphans', {})).value.removed) === JSON.stringify(['m2']),
+  JSON.stringify(readdirSync(DATA)))
+check('leaving the store with just the used picture',
+  readdirSync(DATA).filter(n => n.startsWith('modelbg-')).join(',') === 'modelbg-m1',
+  readdirSync(DATA).join(', '))
+// Hand the store back to the sections below in the state they expect: the
+// multi-image rule the next section reads off disk.
+await call('writeConfig', { config: { ...first, rules: [multiRule] } })
+
+// The one way this feature could destroy a collection: a `theme-config.json` that
+// is THERE but does not parse. `readConfig` swallows it and answers with defaults —
+// right for painting, catastrophic for a cleanup, which would then see zero
+// referenced slots and call every file on disk an orphan.
+console.log('\n--- an unreadable config makes the sweep refuse, not guess ---')
+await call('writeImage', { slot: 'm1', dataUrl: pngUrl })
+await call('writeImage', { slot: 'm2', dataUrl: pngUrl })
+const goodConfig = readFileSync(join(DATA, 'theme-config.json'), 'utf8')
+check('there is a config and two pictures to lose', existsSync(join(DATA, 'modelbg-m1')) && existsSync(join(DATA, 'modelbg-m2')))
+writeFileSync(join(DATA, 'theme-config.json'), '{ this is not json')
+const brokenUsage = (await call('storeUsage')).value
+check('the report still answers what is on disk', brokenUsage.files >= 2, JSON.stringify(brokenUsage))
+// The numbers are shown but flagged: the card disables the button instead of
+// offering an action it would then refuse.
+check('but it is flagged as untrusted', brokenUsage.trusted === false, JSON.stringify(brokenUsage.trusted))
+const brokenSweep = (await call('pruneOrphans', {})).value
+check('and the sweep refuses', brokenSweep.refused === true, JSON.stringify(brokenSweep))
+check('deleting nothing at all', brokenSweep.removed.length === 0, JSON.stringify(brokenSweep.removed))
+check('both pictures are still on disk',
+  existsSync(join(DATA, 'modelbg-m1')) && existsSync(join(DATA, 'modelbg-m2')),
+  readdirSync(DATA).join(', '))
+// A config that is valid JSON but not an OBJECT is the same hazard: the sanitizer
+// would seed a blank rule, and every file would look unreferenced.
+writeFileSync(join(DATA, 'theme-config.json'), '[1, 2, 3]')
+check('an array is not a config either', (await call('storeUsage')).value.trusted === false)
+check('and is refused the same way', (await call('pruneOrphans', {})).value.refused === true)
+// With the file restored, the same store cleans normally — the refusal is about the
+// broken file, not a permanent lockout.
+writeFileSync(join(DATA, 'theme-config.json'), goodConfig)
+check('a repaired config restores the button', (await call('storeUsage')).value.trusted === true)
+check('and the sweep runs again', (await call('pruneOrphans', {})).value.refused === false)
+// A store with NO config file is not this case: nothing has ever been configured,
+// so nothing is on disk to protect.
+rmSync(join(DATA, 'theme-config.json'), { force: true })
+check('a missing config is trusted, not refused', (await call('storeUsage')).value.trusted === true)
+// Hand the store back the way the next section reads it off disk: the multi-image
+// rule, and the bytes its slots name.
+await call('writeConfig', { config: { ...first, rules: [multiRule] } })
+await call('writeImage', { slot: 'm2', dataUrl: pngUrl })
+await call('writeImage', { slot: 'm3', dataUrl: pngUrl })
+await call('writeImage', { slot: 'm4', dataUrl: pngUrl })
+
 console.log('\n--- the config on disk round-trips ---')
 const onDisk = JSON.parse(readFileSync(join(DATA, 'theme-config.json'), 'utf8'))
 check('holidays are persisted', Array.isArray(onDisk.holidays?.items) && onDisk.holidays.items.length === 2)
