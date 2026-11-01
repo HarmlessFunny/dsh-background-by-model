@@ -1,4 +1,4 @@
-import type { FetchResult, PresetHead, PresetImage, PruneResult, RpcResultLike, StoreUsage } from './types'
+import type { FetchResult, PresetImage, PruneResult, RpcResultLike, StoreUsage } from './types'
 import { cfg } from './state'
 // The shape this bundle writes, and the one the host announces on `read`.
 import { SCHEMA_VERSION } from '../schema'
@@ -172,19 +172,13 @@ export async function fetchImageUrl(slot: string, url: string): Promise<FetchRes
 }
 
 /**
- * The profile's manifest and config, in one answer. Reads nothing, writes nothing.
+ * One of the profile's wallpapers, addressed by the slot the built-in config names.
  *
  * Raw rather than `rpcCall` for the same reason `fetchImageUrl` is: the node half
- * answers this one with a value that CARRIES its own failure, and the `error`
- * inside it is the only thing worth showing the user — the generic "rpc failed"
- * log would throw that distinction away.
+ * answers this one with a value that CARRIES its own failure, and the `error` inside
+ * it is the only thing worth showing the user — the generic "rpc failed" log would
+ * throw that distinction away.
  */
-export async function fetchPresetConfig(): Promise<PresetHead> {
-  const res = await rpcRaw('fetchPresetConfig', {})
-  return unwrapPreset<PresetHead>(res)
-}
-
-/** One of the profile's wallpapers, addressed by the slot the config names. */
 export async function fetchPresetImage(slot: string): Promise<PresetImage> {
   const res = await rpcRaw('fetchPresetImage', { slot })
   return unwrapPreset<PresetImage>(res)

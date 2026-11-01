@@ -1,6 +1,19 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.10.0 / v0.9.2).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.11.0 / v0.10.0).
+
+## v0.11.0
+
+- **The runtime download source moves to Bilibili's image CDN** — the recommended profile's seven wallpapers and both holiday pictures now come from `i0`/`i1`/`i2.hdslb.com`, three edges falling back to each other (measured: same path, same bytes, identical sha1). The README's three screenshots play no part at runtime and stay where they were.
+- **The recommended profile's rules ship inside the plugin** — seven model rules and their interface numbers moved into `src/profile.ts`, and the button downloads only the seven pictures. It no longer depends on GitHub being reachable, and the `preset.json` manifest, the schema-version gate and the "not a profile" error codes retire with it: what gets installed is always what this build itself writes, and nothing remote chooses what that is.
+- **The request set is a compile-time constant** — slot → BFS path, written out in one table, and `fetchPresetImage` honours only that table: a slot it does not carry answers `bad slot` before any request, so a wrong press cannot become "fetch 64 files because somebody else's document said so". `PRESET_IMAGE_COUNT_MAX` and that whole attack surface go with it.
+- **A BFS path is a content hash, so an address is immutable** — the "a tag can be re-pointed at different bytes" case cannot arise, which also retires "remember to bump `*_ASSETS_REF` along with the art".
+- **The addresses must carry `@3840w.webp`** — the uploads are 2.4–12 MB PNGs (76 MB for the set); that suffix is what serves 250–365 KB 4K WebPs, byte-for-byte what an existing data directory already holds, so nothing is re-downloaded and nothing loses detail on a 4K screen.
+- **The festival cache is keyed by content hash** — `holiday-cache/<tag>/` became `holiday-cache/<first eight of the hash>/`, computed by `holidayArtGeneration` from the URL. New art means a new address, therefore a new directory and a guaranteed re-download, with no version constant to remember; the old tag directories (and 0.7.9's flat layout) are taken by the same `pruneHolidayCache` once the new art lands, whose keep-set is the deduplicated set of "the current generation of each holiday".
+- **`SCHEMA_VERSION` stays 10** — nothing entered or left the config shape: what changed is where these numbers come from, not what they look like, so an older host and an older exported file both still read it.
+- **`check:preset` now pins the built-in profile itself** — rule order and paintability, the slot ↔ URL table agreeing in both directions, the webp transform and content hash in every address, `profileImagePath`'s null whitelist, generations that cannot collide, and the old remote wiring being gone.
+- **`check:node` rewrites the holiday and profile sections** — the three edges asked in order and always for the SAME path, a holiday failing only when every edge does, a retry budget of nine requests (three edges × three rounds) for weather worth waiting out, the old `fetchPresetConfig` method provably gone, the slot whitelist (holiday slots, table-missing slots and malformed names all refused before anything is requested), a stale `holiday-cache/v0.1.0` directory being swept, and `resetStore` still leaving the festival art alone.
+- **`check:scheme` section 3 no longer reaches the network** — it used to fetch the remote `preset.json` and compare schemas; that manifest is gone, so it now pins that the client asks for no head at all, that the slot list comes from the built-in table, and that the addresses carry the webp transform at Bilibili's hosts.
 
 ## v0.10.0
 

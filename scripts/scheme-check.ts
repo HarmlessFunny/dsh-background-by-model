@@ -117,50 +117,30 @@ ok('and a publish updates it', /lastScheme = dark/.test(appearance))
 ok('the entry hands the watchdog the appearance pass',
   /restore: appearance\.watch/.test(entry))
 
-// ── 3. the recommended profile's manifest agrees with this build ───────────
-// The adapter lives in the assets repository, one release away from this one, and
-// the gate that reads it fails with the NETWORK's copy ("check your connection")
-// when it actually means "the assets are stale". That is what the user saw, so
-// the declared version is fetched here and put next to SCHEMA_VERSION. The fetch
-// mirrors the node half exactly (`fetchAsset` + `fetchPresetFile`), so the two
-// mirrors and the retry rounds are exercised rather than assumed.
-console.log('\n--- the recommended profile declares a shape this build can read ---')
-check('this build publishes a numeric shape', Number.isFinite(SCHEMA_VERSION), true)
-const REF = 'v0.1.0'
-const HOSTS = [
-  `https://cdn.jsdelivr.net/gh/HarmlessFunny/assets@${REF}/dsh-background-by-model/preset`,
-  `https://raw.githubusercontent.com/HarmlessFunny/assets/${REF}/dsh-background-by-model/preset`,
-]
-async function manifestVersion(): Promise<number | 'unreachable' | 'malformed'> {
-  for (let round = 0; round < 3; round++) {
-    let retry = false
-    for (const host of HOSTS) {
-      try {
-        const res = await fetch(`${host}/preset.json`, { redirect: 'follow', signal: AbortSignal.timeout(15_000) })
-        if (!res.ok) { retry ||= res.status >= 500 || res.status === 429 || res.status === 408; continue }
-        const body = await res.json() as { version?: unknown }
-        return typeof body?.version === 'number' ? body.version : 'malformed'
-      } catch { retry = true }
-    }
-    if (!retry) return 'unreachable'
-  }
-  return 'unreachable'
-}
-const declared = await manifestVersion()
-if (declared === 'unreachable') {
-  // Offline is not a regression of this repo: the gate is checked where the
-  // network exists (CI, a developer machine), and a sandbox without it must not
-  // report a failure it cannot see.
-  console.log('skip the assets manifest (neither mirror answered — offline sandbox)')
-} else if (declared === 'malformed') {
-  check('the assets manifest carries a numeric version', declared, 'a number')
-} else {
-  check(`the profile's schema (${declared}) is not newer than this build's (${SCHEMA_VERSION})`,
-    declared <= SCHEMA_VERSION, true)
-  // The other half of the same gate: an OLD profile is fine (the sanitizer lifts
-  // it), so the assertion is one-sided on purpose and says so.
-  console.log(`     (a profile older than ${SCHEMA_VERSION} still imports — the sanitizer lifts it)`)
-}
+// ── 3. nothing here goes to the network any more ───────────────────────────
+// This section used to fetch the recommended profile's `preset.json` and compare
+// its declared schema with SCHEMA_VERSION, because the profile was a REMOTE
+// document one release away from this build and a stale one made the button fail
+// with the network's copy. The profile is compiled in now (../src/profile.ts), so
+// there is no manifest to compare: the shape on disk and the shape in the bundle
+// are the same value. What is worth pinning instead is that the client half stops
+// asking for a head at all — a leftover call would 404 on every press.
+console.log('\n--- the recommended profile no longer needs a remote manifest ---')
+const rpc = strip(read('rpc.ts'))
+const entrySrc = strip(read('index.tsx'))
+ok('the client no longer asks the host for a profile head',
+  !/fetchPresetConfig/.test(rpc) && !/fetchPresetConfig/.test(entrySrc))
+ok('and the slot list it downloads comes from the built-in table',
+  /PROFILE_SLOTS/.test(entrySrc))
+// The pictures are the one thing still fetched, so the transform that keeps them
+// small must be part of the URL the table hands out — pinned here as well as in
+// `preset-check.ts`, because this is the file a reader opens to learn what the
+// plugin talks to.
+const profileSrc = readFileSync(resolve(CLIENT, '../profile.ts'), 'utf8')
+ok('the wallpaper URLs carry a webp transform',
+  /@\$\{?BFS_SUFFIX\}?|@3840w\.webp/.test(profileSrc), profileSrc.match(/@\w+webp[^`'"]*/)?.[0] ?? 'none')
+ok('and they name Bilibili edges rather than a git host',
+  /hdslb\.com/.test(profileSrc) && !/jsdelivr|raw\.githubusercontent/.test(profileSrc))
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

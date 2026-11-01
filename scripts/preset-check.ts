@@ -1,17 +1,21 @@
 /**
- * Checks for the recommended profile's transfers — `pnpm check:preset`.
+ * Checks for the recommended profile — `pnpm check:preset`.
  *
- * The profile is one button that fires a SET of downloads (a manifest, a config,
- * one file per wallpaper) over two mirrors. Two things about that are decisions
- * rather than plumbing, and both fail silently:
+ * The profile is one button that fires a SET of picture downloads. Its RULES are
+ * compiled in (`src/profile.ts`), so what can go wrong is narrower than it used to
+ * be, and this file pins the parts that still can:
  *
  *   1. the POLICY (`src/preset.ts`) — which failures get another round, how long
- *      the wait is, and whether a held picture still belongs to the revision being
+ *      the wait is, and whether a held picture still belongs to the generation being
  *      installed. A retry that also retries "the file is not there" makes the one
  *      message this feature owes its author arrive late; a resume that skips the
- *      revision comparison installs a profile glued together from two different
- *      pushes to `main`.
- *   2. the WIRING (both halves) — the policy is worth nothing if the pool still
+ *      revision comparison installs a profile glued together from two releases.
+ *   2. the CONTENT (`src/profile.ts`) — the rule list, the slot ↔ URL table and the
+ *      revision constant. It is a constant now, which is exactly why it needs
+ *      pinning: nothing else in the repo would notice a slot that no rule uses, two
+ *      rules that would both match one model, or a URL that lost its transform
+ *      suffix and started serving an 8 MB upload.
+ *   3. the WIRING (both halves) — the policy is worth nothing if the pool still
  *      fetches the whole slot list, or if a failed attempt drops what it has. Those
  *      are properties of the source, pinned textually, the same way
  *      `rules-view-check.ts` pins the page structure it cannot run.
@@ -28,10 +32,15 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  PRESET_ATTEMPTS, PRESET_RETRY_BASE_MS, presetKey, presetMissing, presetResume, presetRetryDelayMs,
+  PRESET_ATTEMPTS, PRESET_RETRY_BASE_MS, presetMissing, presetResume, presetRetryDelayMs,
   presetRetryable,
 } from '../src/preset.ts'
 import type { FetchFailure, PresetHeld } from '../src/preset.ts'
+import {
+  PROFILE_HOSTS, PROFILE_SLOTS, RECOMMENDED_REVISION, profileImagePath, recommendedConfig,
+} from '../src/profile.ts'
+import { HOLIDAYS, holidayArtGeneration } from '../src/holiday.ts'
+import { SCHEMA_VERSION } from '../src/schema.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const read = (rel: string): string => readFileSync(resolve(HERE, '..', rel), 'utf8')
@@ -85,32 +94,76 @@ ok('the wait grows with the round',
 ok('and stays under five seconds', presetRetryDelayMs(PRESET_ATTEMPTS) < 5_000,
   `${presetRetryDelayMs(PRESET_ATTEMPTS)} ms before the last round`)
 
-// ── 3. what makes two attempts "the same profile" ──────────────────────────
-console.log('\n--- the revision key ---')
-const cfg = { rules: [{ id: 'r1', match: 'flash', images: [{ slot: 'm1' }, { slot: 'm2' }] }], settingsOpacity: 1 }
-check('the same revision keys the same', presetKey(6, cfg), presetKey(6, cfg))
-// THE property this key exists for: the config is read off the wire and rebuilt by
-// the sanitizer, so key order is an accident of assembly. A key that moved with it
-// would quietly throw the hold away — the safe direction, and still a bug.
-check('a config whose keys were built in another order is the same revision',
-  presetKey(6, { settingsOpacity: 1, rules: [{ images: [{ slot: 'm1' }, { slot: 'm2' }], match: 'flash', id: 'r1' }] }),
-  presetKey(6, cfg))
-check('nested objects are ordered the same way',
-  presetKey(6, { a: { b: 1, c: 2 } }), presetKey(6, { a: { c: 2, b: 1 } }))
-ok('a different shape version is a different revision', presetKey(7, cfg) !== presetKey(6, cfg))
-ok('a changed match string is a different revision',
-  presetKey(6, { ...cfg, rules: [{ ...cfg.rules[0]!, match: 'pro' }] }) !== presetKey(6, cfg))
-ok('a renamed slot is a different revision',
-  presetKey(6, { ...cfg, rules: [{ ...cfg.rules[0]!, images: [{ slot: 'm9' }] }] }) !== presetKey(6, cfg))
-// Arrays are NOT sorted: the image list IS the rotation, so two revisions that
-// name the same pictures in another order are two revisions.
-ok('the order of the image list matters',
-  presetKey(6, { images: ['m1', 'm2'] }) !== presetKey(6, { images: ['m2', 'm1'] }))
-// JSON's own semantics, so the key agrees with what would actually be persisted.
-check('a key JSON cannot carry is ignored rather than fatal',
-  presetKey(6, { a: 1, b: undefined }), presetKey(6, { a: 1 }))
-ok('and the key is still a string for a config that is not an object',
-  typeof presetKey(6, null) === 'string' && presetKey(6, null) !== presetKey(6, {}))
+// ── 3. the profile itself ──────────────────────────────────────────────────
+console.log('\n--- the built-in profile ---')
+const profile = recommendedConfig()
+// Seven models, one rule each, in the order the fallback depends on: matching runs
+// top→bottom and the first usable rule is what an unmatched model gets.
+check('one rule per model', profile.rules.length, 7)
+check('the rules match the models the plugin knows',
+  profile.rules.map(r => r.match), ['deepseek', 'gpt', 'claude', 'qwen', 'glm', 'kimi', 'grok'])
+ok('every rule is switched on and carries exactly one picture',
+  profile.rules.every(r => r.enabled && r.images.length === 1))
+ok('every picture is full-bleed (a letterboxed wallpaper is not a profile)',
+  profile.rules.every(r => r.images[0]!.bgMode === 'fill'),
+  JSON.stringify(profile.rules.map(r => r.images[0]!.bgMode)))
+ok('every picture carries its own theme colour',
+  profile.rules.every(r => Array.isArray(r.images[0]!.color) && r.images[0]!.color!.length === 3))
+// A rule that named no colour AND no picture would be skipped by `ruleCanPaint`, so
+// the seventh model would silently fall through to the first rule.
+ok('and none of them paints nothing (every rule is usable)',
+  profile.rules.every(r => r.images.length > 0 || r.color !== null))
+// The request set is derived from the rules and must agree with the URL table in
+// BOTH directions — a rule whose slot has no URL would fail the whole download with
+// a sentence about a slot the author never meant to ship.
+const ruleSlots = profile.rules.map(r => r.images[0]!.slot)
+check('the URL table names exactly the slots the rules use', [...PROFILE_SLOTS].sort(), [...ruleSlots].sort())
+ok('no slot is named twice in the table', new Set(PROFILE_SLOTS).size === PROFILE_SLOTS.length)
+check('the profile is written for the shape this build sanitizes', profile.version, undefined)
+// The interface numbers are the ones a fresh install already starts on — that is
+// what makes installing the profile "add the rules and the pictures" on a clean
+// store. Pinned by value, so a constant changed here alone fails.
+check('the interface opacities are the shipped defaults',
+  JSON.stringify(profile.opacities), JSON.stringify({ bg: 0, sidebar: 0.1, card: 1, code: 0.81, input: 0.88 }))
+check('the tint alphas are the shipped defaults',
+  [profile.settingsOpacity, profile.chatTextOpacity, profile.trajectoryOpacity, profile.rightbarOpacity],
+  [1, 0.35, 0.73, 0.45])
+check('the switch effect is the shipped one',
+  JSON.stringify(profile.transition), JSON.stringify({ effect: 'fade', easing: 'ease', durationMs: 320 }))
+// The one setting the profile deliberately differs on: a fresh install ships the
+// festival overrides OFF, and this is a configuration somebody chose.
+check('the holiday overrides ship ON in the profile (and off in a fresh config)', profile.holidays.enabled, true)
+check('with one entry per built-in holiday', profile.holidays.items.map(i => i.id),
+  ['mid-autumn', 'national-day'])
+
+console.log('\n--- the pictures come from Bilibili, by content address ---')
+ok('three edges are tried, in order', PROFILE_HOSTS.length === 3
+  && PROFILE_HOSTS.every(h => h.endsWith('.hdslb.com')), JSON.stringify(PROFILE_HOSTS))
+for (const slot of PROFILE_SLOTS) {
+  const path = profileImagePath(slot)
+  // THE transform: without it the CDN answers the uploaded PNG, which for the
+  // largest of these is 12 MB — past `PRESET_IMAGE_MAX`, and 76 MB of wallpapers on
+  // disk if it ever landed.
+  ok(`${slot} carries the webp transform`, path !== null && /@\d+w\.webp$/.test(path), path ?? 'null')
+  ok(`${slot} is content-addressed`, path !== null && /\/bfs\/new_dyn\/[0-9a-f]{24,}/.test(path), path ?? 'null')
+}
+check('a slot the profile does not carry has no URL', profileImagePath('m9'), null)
+check('nor does a holiday slot (it has no file to download into)', profileImagePath('h-midautumn'), null)
+ok('the revision is a constant, so a hold can only be invalidated on purpose',
+  typeof RECOMMENDED_REVISION === 'string' && RECOMMENDED_REVISION !== '')
+
+console.log('\n--- the festival art follows the same rules ---')
+for (const def of HOLIDAYS) {
+  ok(`${def.id} has a BFS source with a transform`,
+    /^\/bfs\/new_dyn\/[0-9a-f]+\w*\.png@\d+w\.webp$/.test(def.source), def.source)
+  // The cache directory is derived from the content hash, so new art cannot be
+  // answered from the old generation's directory — the property the pinned assets
+  // release tag used to provide, now impossible to forget.
+  check(`${def.id} caches by content hash, not by a version constant`,
+    holidayArtGeneration(def), /new_dyn\/([0-9a-f]{8})/.exec(def.source)![1])
+}
+ok('two different holidays cannot share a generation',
+  new Set(HOLIDAYS.map(holidayArtGeneration)).size === HOLIDAYS.length)
 
 // ── 4. what the next attempt may reuse ─────────────────────────────────────
 console.log('\n--- the resume ---')
@@ -150,15 +203,27 @@ ok('and asks the policy whether a round is worth repeating',
   /presetRetryable\(got\.reason\)/.test(node) && /sleep\(presetRetryDelayMs\(attempt\)\)/.test(node))
 // The holiday path deliberately does NOT get the rounds (it is fetched during boot
 // and every later read tries again), so the loop must be the profile's alone.
-const holidayFn = node.slice(node.indexOf('async function fetchHolidayAsset'), node.indexOf('async function fetchPresetFile'))
+const holidayFn = node.slice(node.indexOf('async function fetchHolidayAsset'), node.indexOf('async function fetchProfileFile'))
 ok('the festival art is not dragged into the retry rounds',
   holidayFn.length > 0 && !/attempt|presetRetryable/.test(holidayFn), holidayFn.slice(0, 80))
+// One URL per slot comes from the CONSTANT table, never from a slot name the caller
+// chose — that indirection is the whole whitelist on a public RPC.
+ok('the wallpaper fetch resolves its URL from the built-in table',
+  /profileImagePath\(slot\)/.test(node))
+ok('and a slot the table does not carry is refused before any request',
+  /if \(path === null\) return \{ ok: false, error: 'bad slot' \}/.test(node), 'no table-miss refusal')
+// Nothing may be downloaded to CHECK a profile any more: the rules are local, so a
+// manifest or config request would be a leftover of the old shape.
+ok('no manifest or config is fetched', !/fetchProfileFile\([^)]*PRESET_(MANIFEST|CONFIG)/.test(node)
+  && !/preset\.json/.test(node))
 // The client half: the pool must be sized and ordered by what is MISSING, or the
 // resume would still re-download everything.
 ok('the pool walks the missing files, not the whole slot list',
   /Math\.min\(PRESET_CONCURRENCY, missing\.length\)/.test(client), 'the pool still counts `slots`')
-ok('the held bytes are keyed to the config that was just fetched',
-  /presetKey\(head\.version, head\.config\)/.test(client))
+ok('the slot list comes from the built-in table, not from a download',
+  /const slots = PROFILE_SLOTS/.test(client) && !/head\.slots/.test(client))
+ok('the held bytes are keyed to the profile generation',
+  /const key = RECOMMENDED_REVISION/.test(client))
 ok('a failed attempt holds what arrived', /presetHeld = \{ key, images \}/.test(client))
 ok('a complete download holds nothing', /presetHeld = null/.test(client))
 // The cap has to be checked BEFORE a file is taken into the result: checked after,

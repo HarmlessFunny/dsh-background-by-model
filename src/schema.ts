@@ -13,8 +13,13 @@
  * the browser bundle and by the node half alike.
  */
 
-import { HOLIDAYS } from './holiday'
-import type { HolidayDef } from './holiday'
+// The `.ts` extension is deliberate and load-bearing: with it, this module (and
+// everything that imports it, like ./profile) can be imported by a plain `node`
+// script — `scripts/*-check.ts` run without a transform, and the extensionless
+// specifier is the one thing their resolver cannot guess. The bundler accepts it
+// either way; `allowImportingTsExtensions` in tsconfig.json is what tsc needs.
+import { HOLIDAYS } from './holiday.ts'
+import type { HolidayDef } from './holiday.ts'
 
 /** Placement state of one background image (zoom + fractional center + intrinsic size). */
 export interface BgState { zoom: number; x: number; y: number; iw: number; ih: number }

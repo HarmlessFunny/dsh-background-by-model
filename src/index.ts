@@ -18,9 +18,10 @@
  */
 import { access, mkdir, readFile, writeFile, rm, rename, readdir, stat } from 'node:fs/promises'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-// The holiday calendar: the node half only needs the fixed slot ids and
-// the asset names (the date maths belongs to the browser half).
-import { HOLIDAYS } from './holiday'
+// The holiday calendar: the node half only needs the slot ids, the asset names,
+// the source paths the art is fetched from, and the content-hash generation the
+// cache is keyed by (the date maths belongs to the browser half).
+import { HOLIDAYS, holidayArtGeneration } from './holiday'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
 import { SCHEMA_VERSION, SLOT_RE, normalizeConfig } from './schema'
 import type { BgState, ThemeConfig } from './schema'
@@ -32,6 +33,10 @@ import type { FetchFailure } from './preset'
 // Which stored image files nothing points at any more — the decision lives in
 // ./store, which both halves import and neither side's runtime can reach into.
 import { orphanSlots, referencedSlots } from './store'
+// The recommended profile's pictures: a constant slot → URL table published for
+// the public `fetchPresetImage` method, so the request set is compile-time rather
+// than something a remote document chooses (see ./profile).
+import { PROFILE_HOSTS, profileImagePath } from './profile'
 
 export const name = 'dsh-background-by-model'
 export const inject = ['connection', 'webServer']
@@ -66,98 +71,57 @@ const WALLPAPER_FETCH_MAX = 25 * 1024 * 1024
 const WALLPAPER_FETCH_TIMEOUT = 20_000
 
 /**
- * Where the festival art is hosted, and which revision of it this build wants.
+ * Where the festival art is hosted.
  *
- * The art is fetched from the `assets` repository the first time a holiday needs it
- * (see `readHolidayAsset`), never shipped in the package.
+ * Three edges of Bilibili's image CDN, tried in order. They are not mirrors by
+ * configuration — `i0`/`i1`/`i2.hdslb.com` answer the same path with the same bytes
+ * (checked by sha1) — which is the same arrangement the recommended profile uses
+ * (see `PROFILE_HOSTS` in ./profile).
  *
- * The reference is a **release tag**, never a branch: runtime art has to be
- * immutable, and a branch reference would let a reshuffle of the documentation
- * screenshots silently kill a shipped feature. One tag also means one version of
- * everything the plugin fetches (art, profile, README screenshots). A MOVED tag
- * does not reach jsDelivr's edge on its own, so new art means a new tag, never a
- * force-push of the old one.
+ * A path under `bfs/new_dyn/` is CONTENT-ADDRESSED (the tail is a hash of the
+ * upload), so nothing here needs a version constant: the art a build names cannot be
+ * swapped under it the way a re-pointed git tag could, and `holidayArtGeneration`
+ * (./holiday) derives the cache's directory from that same hash.
  */
-const HOLIDAY_ASSETS_REPO = 'HarmlessFunny/assets'
-const HOLIDAY_ASSETS_REF = 'v0.1.0'
-const HOLIDAY_ASSETS_DIR = 'dsh-background-by-model/holiday'
-/**
- * Mirrors, tried in order: jsDelivr is reachable where `raw.githubusercontent.com`
- * is not, and raw is the fallback for a CDN that is blocked or down. Both serve the
- * same version, so a fallback cannot mix revisions.
- */
-const HOLIDAY_ASSET_HOSTS: readonly string[] = [
-  `https://cdn.jsdelivr.net/gh/${HOLIDAY_ASSETS_REPO}@${HOLIDAY_ASSETS_REF}/${HOLIDAY_ASSETS_DIR}`,
-  `https://raw.githubusercontent.com/${HOLIDAY_ASSETS_REPO}/${HOLIDAY_ASSETS_REF}/${HOLIDAY_ASSETS_DIR}`,
+const HOLIDAY_HOSTS: readonly string[] = [
+  'https://i0.hdslb.com',
+  'https://i1.hdslb.com',
+  'https://i2.hdslb.com',
 ]
 /**
  * Sub-directory of the store holding downloaded festival art: one directory per
- * release of the asset repository, one file per asset inside it.
+ * GENERATION of the art (see `holidayArtGeneration`), one file per asset inside it.
  *
  * NOT part of the slot namespace, and must never become part of it: files are named
- * after the ASSET and their parent after the pinned release, never after a slot, so
- * nothing here can be mistaken for a user's `modelbg-<slot>`. That is what lets a
+ * after the ASSET and their parent after the art's content hash, never after a slot,
+ * so nothing here can be mistaken for a user's `modelbg-<slot>`. That is what lets a
  * holiday slot stay read-only while the art itself is downloaded.
  *
- * The version segment is load-bearing: a cache keyed by asset name alone would
- * answer a NEW generation with the OLD bytes and say nothing about it. With the tag
- * in the path, a build that pins a new tag looks in a directory nobody has written
- * to yet, so the first holiday after an update is a miss. Superseded generations
- * are swept by `pruneHolidayCache`.
+ * The generation segment is load-bearing: a cache keyed by asset name alone would
+ * answer a NEW upload with the OLD bytes and say nothing about it. With the hash in
+ * the path, a build that names new art looks in a directory nobody has written to
+ * yet, so the first holiday after an update is a miss. Superseded generations are
+ * swept by `pruneHolidayCache`.
  */
 const HOLIDAY_CACHE_DIR = 'holiday-cache'
-/** Cap and timeout for one asset download; these files are 228 KB and 500 KB. */
+/** Cap and timeout for one asset download; these files are 207 KB and 446 KB. */
 const HOLIDAY_FETCH_MAX = 8 * 1024 * 1024
 const HOLIDAY_FETCH_TIMEOUT = 10_000
 
 /**
- * The recommended profile, served from the same assets repository as the festival
- * art — as a DIRECTORY in the store's own shape: a readable `theme-config.json`
- * plus one raw file per slot. Publishing it is a `cp` out of the data directory,
- * not an export step.
+ * Caps for the recommended profile's pictures.
  *
- * Nothing lists the images: the request set is DERIVED from the config's own
- * `rules[].images[].slot`, so adding a wallpaper is a rule entry and a file.
+ * A profile is a SET of transfers, and what can go wrong is different per file: the
+ * node half bounds ONE download (`PRESET_IMAGE_MAX`) and the client bounds the
+ * running TOTAL, because it is the only side that sees more than one file.
  *
- * Referenced by the same release tag as the art (one tag = one version of
- * everything the plugin fetches). The re-pointed-tag case is why `presetKey`
- * exists: an edge that has not been purged can still answer with the previous
- * bytes of the same URL, and a resumed download must not glue two revisions
- * together (see `fetchPresetConfig`). A profile written for a config shape this
- * build cannot read is refused by the `preset.json` gate.
+ * The count is a constant now rather than something a remote config declares
+ * (`PROFILE_SLOTS` in ./profile), so there is nothing left to bound: seven names,
+ * each already inside `SLOT_RE`. The timeout is set by measurement — a 250–365 KB
+ * wallpaper takes a second or two over the CDN, and the second edge is the slower
+ * one, so a tight budget would fail exactly in the situation it exists for.
  */
-const PRESET_ASSETS_REPO = 'HarmlessFunny/assets'
-const PRESET_ASSETS_REF = 'v0.1.0'
-const PRESET_ASSET_DIR = 'dsh-background-by-model/preset'
-/** The shape gate: `{"version": 9}` — see SCHEMA_VERSION in ./schema. */
-const PRESET_MANIFEST = 'preset.json'
-const PRESET_CONFIG = 'theme-config.json'
-/** Images are named after the slot they fill, exactly as they are on disk. */
-const PRESET_IMAGE_PREFIX = 'modelbg-'
-/** Mirrors, tried in order — same reason as the festival art's. */
-const PRESET_ASSET_HOSTS: readonly string[] = [
-  `https://cdn.jsdelivr.net/gh/${PRESET_ASSETS_REPO}@${PRESET_ASSETS_REF}/${PRESET_ASSET_DIR}`,
-  `https://raw.githubusercontent.com/${PRESET_ASSETS_REPO}/${PRESET_ASSETS_REF}/${PRESET_ASSET_DIR}`,
-]
-
-/**
- * Caps for the profile, now per file rather than for one document: a profile is a
- * SET of transfers, and each has a different way of going wrong.
- *
- * The count is the one that matters — the request set is derived from the config,
- * so a hostile config could name a thousand slots and turn one button press into a
- * thousand downloads. `SLOT_RE` bounds each name, `PRESET_IMAGE_COUNT_MAX` bounds
- * how many there are, and the running TOTAL is bounded on the client, which is the
- * only side that sees more than one file.
- *
- * The timeout is set by measurement: a 350 KB wallpaper takes a second or two over
- * jsDelivr, and the fallback mirror is the slower one, so a tight budget would fail
- * exactly in the situation it exists for.
- */
-const PRESET_MANIFEST_MAX = 64 * 1024
-const PRESET_CONFIG_MAX = 1024 * 1024
 const PRESET_IMAGE_MAX = 8 * 1024 * 1024
-const PRESET_IMAGE_COUNT_MAX = 64
 const PRESET_FETCH_TIMEOUT = 60_000
 
 // The config shape, its defaults and its sanitizers are shared with the browser
@@ -169,8 +133,14 @@ const configBackupPath = (): string => dshHomePath(DATA_DIR, CONFIG_BACKUP)
 const configTempPath = (): string => dshHomePath(DATA_DIR, `${CONFIG_FILE}${CONFIG_TEMP}`)
 const legacyWallpaperPath = (): string => dshHomePath(DATA_DIR, LEGACY_WALLPAPER)
 const imagePath = (slot: string): string => dshHomePath(DATA_DIR, `${IMAGE_PREFIX}${slot}`)
-const holidayCachePath = (asset: string): string =>
-  dshHomePath(DATA_DIR, HOLIDAY_CACHE_DIR, HOLIDAY_ASSETS_REF, asset)
+/** The cache directory of one GENERATION of the festival art (see `holidayCachePath`). */
+const holidayGenerationPath = (generation: string): string =>
+  dshHomePath(DATA_DIR, HOLIDAY_CACHE_DIR, generation)
+/** The cached file of one asset: its own generation directory, named by the asset. */
+const holidayCachePath = (asset: string): string => {
+  const def = HOLIDAYS.find(h => h.asset === asset)
+  return dshHomePath(DATA_DIR, HOLIDAY_CACHE_DIR, def === undefined ? 'v1' : holidayArtGeneration(def), asset)
+}
 
 const exists = async (p: string): Promise<boolean> => { try { await access(p); return true } catch { return false } }
 
@@ -542,7 +512,7 @@ async function writeConfig(config: unknown): Promise<boolean> {
  *
  * The null answer is what a DOWNLOAD is checked against (see `fetchHolidayAsset`):
  * neither a status code nor a `content-type` header survives contact with a
- * misconfigured mirror, so the payload's own magic bytes are the only claim that
+ * misconfigured origin, so the payload's own magic bytes are the only claim that
  * cannot lie.
  */
 function imageMimeOrNull(buf: Buffer): string | null {
@@ -620,10 +590,12 @@ async function readHolidayAsset(asset: string): Promise<Buffer | null> {
   return await task
 }
 
-/** Try every mirror in turn; the first usable answer is cached and returned. */
+/** Try every host in turn; the first usable answer is cached and returned. */
 async function downloadHolidayAsset(asset: string): Promise<Buffer | null> {
-  for (const host of HOLIDAY_ASSET_HOSTS) {
-    const buf = await fetchHolidayAsset(`${host}/${asset}`)
+  const def = HOLIDAYS.find(h => h.asset === asset)
+  if (def === undefined) return null
+  for (const host of HOLIDAY_HOSTS) {
+    const buf = await fetchHolidayAsset(`${host}${def.source}`)
     if (buf === null) continue
     await writeHolidayCache(asset, buf)
     return buf
@@ -662,7 +634,7 @@ async function fetchAsset(
     return { ok: true, buf: Buffer.from(arr) }
   } catch {
     // The abort this side armed is the one failure it can tell apart from the
-    // rest: `fetch` rejects the same way for a dead network, and there the mirror
+    // rest: `fetch` rejects the same way for a dead network, and there the edge
     // never answered at all rather than answering too late.
     return { ok: false, reason: ctl.signal.aborted ? 'timeout' : 'network' }
   } finally {
@@ -671,19 +643,19 @@ async function fetchAsset(
 }
 
 /**
- * The status codes worth another round: 5xx is a mirror having a bad moment, 429 one
+ * The status codes worth another round: 5xx is a host having a bad moment, 429 one
  * asking to be left alone, 408 one giving up on us. Every other non-2xx means the
- * file is not there (jsDelivr answers 403 outside the repository, 404 for a missing
- * file), and that answer must arrive fast and unchanged.
+ * file is not there (404 for a missing path, 403 for a refused one), and that answer
+ * must arrive fast and unchanged.
  */
 function fetchFailureForStatus(status: number): FetchFailure {
   return status >= 500 || status === 429 || status === 408 ? 'server' : 'missing'
 }
 
 /**
- * One festival picture, or null when no mirror served an image.
+ * One festival picture, or null when no host served an image.
  *
- * One round, unlike the profile's (`fetchPresetFile`): this is fetched during boot,
+ * One round, unlike the profile's (`fetchProfileFile`): this is fetched during boot,
  * before the first wallpaper is painted, and a retry round would delay that paint.
  * The art is cached once it arrives and every later read tries again.
  */
@@ -693,23 +665,24 @@ async function fetchHolidayAsset(url: string): Promise<Buffer | null> {
 }
 
 /**
- * One file out of the profile directory, or null when no mirror served it.
+ * One of the profile's pictures, or null when no host served it.
  *
- * Every mirror is asked in every round, so a round is "all the hosts there are" and
- * the rounds are the retry (a mirror that answers 502 once and correctly the next
+ * Every host is asked in every round, so a round is "all the hosts there are" and
+ * the rounds are the retry (a host that answers 502 once and correctly the next
  * time, on the sixth of seven files). A round whose failures were all terminal — the
- * file is gone, or too big — ends the attempts outright, so a renamed file costs two
- * requests and a sentence naming the slot (`presetRetryable`, ./preset).
+ * path is gone, or too big — ends the attempts outright, so a wrong URL costs three
+ * requests rather than nine and a sentence naming the slot (`presetRetryable`,
+ * ./preset).
  */
-async function fetchPresetFile(name: string, max: number): Promise<Buffer | null> {
+async function fetchProfileFile(path: string, max: number): Promise<Buffer | null> {
   for (let attempt = 1; attempt <= PRESET_ATTEMPTS; attempt++) {
     let retryable = false
-    for (const host of PRESET_ASSET_HOSTS) {
-      const got = await fetchAsset(`${host}/${name}`, max, PRESET_FETCH_TIMEOUT)
+    for (const host of PROFILE_HOSTS) {
+      const got = await fetchAsset(`${host}${path}`, max, PRESET_FETCH_TIMEOUT)
       if (got.ok) return got.buf
-      // Any mirror worth retrying makes the ROUND worth repeating: jsDelivr
-      // answering 404 while raw answers 503 is a round that has not been answered
-      // yet, not a file that is gone.
+      // Any host worth retrying makes the ROUND worth repeating: i0 answering 404
+      // while i1 answers 503 is a round that has not been answered yet, not a file
+      // that is gone.
       if (presetRetryable(got.reason)) retryable = true
     }
     if (!retryable || attempt === PRESET_ATTEMPTS) return null
@@ -719,89 +692,26 @@ async function fetchPresetFile(name: string, max: number): Promise<Buffer | null
 }
 
 /**
- * The profile's shape gate and its configuration, in one answer.
+ * One of the profile's wallpapers, as a data URL ready to be written into a slot.
  *
- * Two files in order: the manifest says what SHAPE the config is written for, and a
- * config this build cannot read is refused here — before anything is downloaded in
- * earnest, long before anything is deleted. The config then says what the profile IS.
- *
- * The sanitizer runs on this side on purpose: the download list is DERIVED from
- * `rules[].images[].slot`, so an unsanitized config would let a remote file choose
- * what this process requests. After `normalizeConfig` every slot has passed `SLOT_RE`
- * (`normalizeImage`). Holiday slots are then DROPPED rather than refused: they are
- * named legally in `holidays.items`, have no file at all, and `writeImage` refuses
- * them anyway, so a rule pointing at one is already inert on the client.
+ * The same two checks the festival art gets, for the same reason: the bytes must
+ * actually be an image (`imageMimeOrNull`, never the `content-type` header — a CDN
+ * may label a transform it does not serve), and the slot must be one this build is
+ * willing to write. The slot name is re-checked here because this is a public RPC:
+ * `profileImagePath` is the whitelist, and a name it does not carry has no URL at
+ * all, so a caller cannot ask this process for a file of its own choosing.
  *
  * Nothing is cached to disk, unlike the festival art: that cache exists because the
  * art is fetched on a schedule and must work offline afterwards, while this is a
  * button whose whole point is to fetch what is there NOW.
  */
-async function fetchPresetConfig(): Promise<
-  { ok: true; version: number; config: ThemeConfig; slots: string[] } | { ok: false; error: string }
-> {
-  const manifestRaw = await fetchPresetFile(PRESET_MANIFEST, PRESET_MANIFEST_MAX)
-  if (manifestRaw === null) return { ok: false, error: 'download failed' }
-  let manifest: unknown
-  try {
-    manifest = JSON.parse(manifestRaw.toString('utf8'))
-  } catch {
-    return { ok: false, error: 'not a profile' }
-  }
-  const declared = (manifest as { version?: unknown } | null)?.version
-  if (typeof declared !== 'number' || !isFinite(declared)) return { ok: false, error: 'not a profile' }
-  // ONE direction is a refusal. A profile written for a NEWER shape cannot be read
-  // at all, so it is refused before a single wallpaper is fetched.
-  //
-  // A profile written for an OLDER shape is ACCEPTED, and that is the documented
-  // contract (`SCHEMA_VERSION` in ./schema): the shared sanitizer lifts what it can
-  // and defaults what the file predates. Refusing it — which an earlier 0.9.0 build
-  // did — makes the button unusable for as long as the asset host lags this build,
-  // which is the normal state between a plugin release and an assets tag.
-  if (declared > SCHEMA_VERSION) {
-    console.warn(`dsh-background-by-model: the recommended profile declares schema ${declared}, this build writes ${SCHEMA_VERSION}`)
-    return { ok: false, error: 'newer version' }
-  }
-  if (declared < SCHEMA_VERSION) {
-    console.warn(`dsh-background-by-model: the recommended profile is written for schema ${declared}; importing it with defaults for the fields it predates`)
-  }
-
-  const configRaw = await fetchPresetFile(PRESET_CONFIG, PRESET_CONFIG_MAX)
-  if (configRaw === null) return { ok: false, error: 'download failed' }
-  let raw: unknown
-  try {
-    raw = JSON.parse(configRaw.toString('utf8'))
-  } catch {
-    return { ok: false, error: 'not a profile' }
-  }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'not a profile' }
-  const config = normalizeConfig(raw)
-
-  const slots = new Set<string>()
-  for (const rule of config.rules) {
-    for (const image of rule.images) {
-      if (holidayAssetFor(image.slot) !== null) continue
-      slots.add(image.slot)
-    }
-  }
-  if (slots.size > PRESET_IMAGE_COUNT_MAX) return { ok: false, error: 'too many images' }
-  return { ok: true, version: declared, config, slots: [...slots] }
-}
-
-/**
- * One of the profile's wallpapers, as a data URL ready to be written into a slot.
- *
- * The same two checks the festival art gets, for the same reason: the bytes must
- * actually be an image (`imageMimeOrNull`, never the `content-type` header — the
- * mirror serves extensionless files as `application/octet-stream`), and the slot
- * must be one this process is willing to write. The slot name is re-checked here
- * because this is a public RPC: the list this side hands out is not the only
- * thing a caller could ask for.
- */
 async function fetchPresetImage(
   slot: string,
 ): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
   if (!SLOT_RE.test(slot) || holidayAssetFor(slot) !== null) return { ok: false, error: 'bad slot' }
-  const buf = await fetchPresetFile(`${PRESET_IMAGE_PREFIX}${slot}`, PRESET_IMAGE_MAX)
+  const path = profileImagePath(slot)
+  if (path === null) return { ok: false, error: 'bad slot' }
+  const buf = await fetchProfileFile(path, PRESET_IMAGE_MAX)
   if (buf === null) return { ok: false, error: 'download failed' }
   const mime = imageMimeOrNull(buf)
   if (mime === null) return { ok: false, error: 'not an image' }
@@ -818,7 +728,9 @@ async function fetchPresetImage(
 async function writeHolidayCache(asset: string, buf: Buffer): Promise<void> {
   try {
     await ensureDir()
-    await mkdir(dshHomePath(DATA_DIR, HOLIDAY_CACHE_DIR, HOLIDAY_ASSETS_REF), { recursive: true })
+    const def = HOLIDAYS.find(h => h.asset === asset)
+    if (def === undefined) return
+    await mkdir(holidayGenerationPath(holidayArtGeneration(def)), { recursive: true })
     const target = holidayCachePath(asset)
     const temp = `${target}.tmp`
     await writeFile(temp, buf)
@@ -829,21 +741,29 @@ async function writeHolidayCache(asset: string, buf: Buffer): Promise<void> {
   }
 }
 
+/** The generation directories this build still reads — one per holiday, deduped. */
+function holidayGenerations(): string[] {
+  return [...new Set(HOLIDAYS.map(holidayArtGeneration))]
+}
+
 /**
- * Drop every generation of the cache except the one this build reads.
+ * Drop every generation of the cache except the ones this build reads.
  *
- * Called AFTER a successful download, never before it: a pinned release that turns
- * out to be unreachable must not cost the user the art they already had.
+ * Called AFTER a successful download, never before it: a build whose art turns out
+ * to be unreachable must not cost the user the art they already had.
  *
- * It walks the cache ROOT and compares GENERATION names, never asset names, so the
- * generation in use cannot be touched. That also makes an upgrade clean up after
- * itself (0.7.9's flat `holiday-cache/<asset>` files are removed here).
+ * It walks the cache ROOT and compares GENERATION names, never asset names, so a
+ * generation in use cannot be touched. That is also what makes an upgrade clean up
+ * after itself twice over: the release-tag directories of every earlier version
+ * (`holiday-cache/<tag>/`) and 0.7.9's flat `holiday-cache/<asset>` files are both
+ * gone from here, because neither name is a content hash.
  */
 async function pruneHolidayCache(): Promise<void> {
   try {
     const root = dshHomePath(DATA_DIR, HOLIDAY_CACHE_DIR)
+    const keep = new Set(holidayGenerations())
     for (const entry of await readdir(root)) {
-      if (entry === HOLIDAY_ASSETS_REF) continue
+      if (keep.has(entry)) continue
       await rm(dshHomePath(DATA_DIR, HOLIDAY_CACHE_DIR, entry), { recursive: true, force: true })
     }
   } catch (e) {
@@ -866,7 +786,7 @@ function holidayAssetFor(slot: string): string | null {
 async function writeImage(slot: string, dataUrl: string | null): Promise<boolean> {
   // A holiday slot is not the user's. The one funnel every write, delete and URL
   // fetch goes through, so the read-only invariant cannot be bypassed one entry
-  // point at a time. (The download caches under `holiday-cache/<tag>/`, never here.)
+  // point at a time. (The download caches under `holiday-cache/<hash>/`, never here.)
   if (holidayAssetFor(slot) !== null) return false
   await ensureDir()
   try {
@@ -1147,11 +1067,9 @@ export async function handleRpcMethod(ctx: any, endpoint: unknown, payload: unkn
       case 'fetchImageUrl':
         if (slot === null) return { ok: true, value: { ok: false, error: 'bad slot' } }
         return { ok: true, value: await fetchImageUrl(slot, ((payload as { url?: unknown } | null)?.url ?? null) as string | null) }
-      case 'fetchPresetConfig':
-        // The failure is a VALUE, not an RPC error: "the CDN is down" is an
-        // ordinary answer the button renders, not a broken plugin.
-        return { ok: true, value: await fetchPresetConfig() }
       case 'fetchPresetImage':
+        // One wallpaper. The failure is a VALUE, not an RPC error: "the CDN is
+        // down" is an ordinary answer the button renders, not a broken plugin.
         if (slot === null) return { ok: true, value: { ok: false, error: 'bad slot' } }
         return { ok: true, value: await fetchPresetImage(slot) }
       case 'resetStore':

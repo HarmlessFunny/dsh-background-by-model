@@ -25,16 +25,29 @@ export interface HolidayDef {
    */
   slot: string
   /**
-   * File name of this holiday's wallpaper in the hosted asset directory —
-   * `holiday/` beside the README screenshots (see `HOLIDAY_ASSET_HOSTS` in
-   * ./index for where that is and which revision of it is pinned).
+   * File name of this holiday's wallpaper INSIDE its cache directory, and the tail
+   * of the download URL that serves it.
    *
    * Named HERE, with the slot and the colour, because the three are one
-   * definition of a festival: the node half derives the download URL from this
-   * field alone, so adding a holiday is still a change to this table plus one
-   * file in the assets repository.
+   * definition of a festival. The extension is `.webp` even though the CDN path
+   * ends in `.png`: what is fetched is the transformed variant `source` names, and
+   * this is the name it is CACHED under.
    */
   asset: string
+  /**
+   * Where the art lives: the BFS path on Bilibili's image CDN, transform suffix
+   * included (./index turns it into a URL per host — see `HOLIDAY_HOSTS`).
+   *
+   * A PATH rather than a URL, unlike the festival's other fields, because the
+   * hosts are a list of one dimension (three edges serving identical bytes) while
+   * the path is the same everywhere.
+   *
+   * The suffix is sized to each file's own width (`@1672w` for 中秋's 1672×941
+   * original, `@3456w` for 国庆's 3456×1920) rather than uniformly: a wider number
+   * would upscale, and the point of the suffix is to download a compressed
+   * re-encode of the original instead of the 2.6 MB / 10 MB uploads.
+   */
+  source: string
   /**
    * The theme color this holiday paints with, as `#RRGGBB`.
    *
@@ -52,9 +65,40 @@ export interface HolidayDef {
 }
 
 export const HOLIDAYS: readonly HolidayDef[] = [
-  { id: 'mid-autumn', slot: 'h-midautumn', asset: 'mid-autumn.webp', color: '#384A77', kind: 'lunar' },
-  { id: 'national-day', slot: 'h-nationalday', asset: 'national-day.webp', color: '#FFF6EB', kind: 'gregorian' },
+  {
+    id: 'mid-autumn',
+    slot: 'h-midautumn',
+    asset: 'mid-autumn.webp',
+    source: '/bfs/new_dyn/42e22801827aff71267b03c95fcfd7834168597.png@1672w.webp',
+    color: '#384A77',
+    kind: 'lunar',
+  },
+  {
+    id: 'national-day',
+    slot: 'h-nationalday',
+    asset: 'national-day.webp',
+    source: '/bfs/new_dyn/30e97211189f7869dae83b909d2a3cc84168597.png@3456w.webp',
+    // The one festival whose color is a nearly-white ivory: 国庆's art is an
+    // almost white plate, so the palette has to be light or the ink disappears.
+    color: '#FFF6EB',
+    kind: 'gregorian',
+  },
 ]
+
+/**
+ * The generation a holiday's ART belongs to, for the on-disk cache.
+ *
+ * The BFS path is content-addressed (`bfs/new_dyn/<sha1 of the upload>`), so the
+ * first eight characters of that hash are a content identity: change the art, change
+ * the directory, and a cache keyed by this cannot answer a new upload with the
+ * previous bytes. That is the property the pinned assets release tag used to provide
+ * and the reason it is now derivable instead of remembered — there is no version
+ * constant to bump, and a forgotten bump is not possible.
+ */
+export function holidayArtGeneration(def: HolidayDef): string {
+  const hash = /new_dyn\/([0-9a-f]+)/.exec(def.source)
+  return hash === null ? 'v1' : hash[1]!.slice(0, 8)
+}
 
 /** 中秋 always falls between these two Gregorian days, so a scan can skip the rest. */
 const MID_AUTUMN_FROM = { m: 9, d: 7 }

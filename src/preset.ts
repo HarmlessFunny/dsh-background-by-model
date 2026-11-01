@@ -3,20 +3,20 @@
  * what an attempt that failed halfway leaves behind for the next one.
  *
  * Both halves ask this module, and neither question needs a socket to answer. The
- * NODE half owns the network — a mirror just failed, is that worth asking again? —
+ * NODE half owns the network — an edge just failed, is that worth asking again? —
  * and the BROWSER half owns the pool and the resume — the sixth file of seven
  * failed, what does the next press still have to fetch? Deciding those here rather
  * than inside a `fetch` call is what lets `scripts/preset-check.ts` pin them: this
  * module touches no DOM, no timer and no runtime of either side, the same rule
  * ./schema follows.
  *
- * Why a retry exists at all: the profile is a SET of transfers (a manifest, a
- * config, and one file per wallpaper) over two mirrors, and it used to be exactly
- * one attempt per file per mirror. One 502, one reset connection or one CDN hiccup
- * on the last of seven files therefore threw away six good downloads — and the
- * user's only recourse, pressing the button again, started from zero. Now a
- * failure that looks like weather gets another round, and an attempt that failed
- * holds its bytes for the next one.
+ * Why a retry exists at all: the profile is a SET of transfers (one file per
+ * wallpaper) over three CDN edges, and it used to be exactly one attempt per file
+ * per edge. One 502, one reset connection or one CDN hiccup on the last of seven
+ * files therefore threw away six good downloads — and the user's only recourse,
+ * pressing the button again, started from zero. Now a failure that looks like
+ * weather gets another round, and an attempt that failed holds its bytes for the
+ * next one.
  */
 
 /**
@@ -38,20 +38,21 @@ export const PRESET_RETRY_BASE_MS = 400
  *
  * Three reasons are terminal, and each for its own:
  *
- *   - `missing` — the host says the file is not there. The profile follows a
- *     BRANCH (see `PRESET_ASSET_HOSTS` in ./index), so a renamed or deleted file
- *     has to reach the user as a loud failure NAMING the slot — and it has to
- *     reach them FAST: paying two more rounds for a file that is provably absent
- *     only makes the sentence later, on a button the user is watching.
+ *   - `missing` — the host says the file is not there. A BFS path is a hash of an
+ *     upload (see `PROFILE_HOSTS` in ./profile), so a 404 is not a flake that might
+ *     clear: the picture it names either exists or never will. It has to reach the
+ *     user as a loud failure NAMING the slot — and it has to reach them FAST:
+ *     paying two more rounds for a file that is provably absent only makes the
+ *     sentence later, on a button the user is watching.
  *   - `oversized` — the bytes are the problem, and the next round would serve the
  *     same bytes.
- *   - `timeout` — sixty seconds of silence is not weather. Both mirrors were
- *     already asked inside the SAME round, so a retry round would re-ask two hosts
- *     that each just spent a minute not answering. This is also what keeps the
- *     worst case for one file at three minutes instead of six: a round in which BOTH
- *     mirrors were silent is over immediately (two minutes, exactly what it cost
- *     before there were rounds at all), and only a round that mixed a silent mirror
- *     with a transient one can carry a minute into the next round.
+ *   - `timeout` — sixty seconds of silence is not weather. Every host was already
+ *     asked inside the SAME round, so a retry round would re-ask hosts that each
+ *     just spent a minute not answering. This is also what keeps the worst case for
+ *     one file at three minutes instead of nine: a round in which every edge was
+ *     silent is over immediately (three minutes, exactly what it cost before there
+ *     were rounds at all), and only a round that mixed a silent edge with a
+ *     transient one can carry a round's worth of latency into the next one.
  *
  * Everything else is a hiccup: a thrown connection, a 5xx, a 429, a 408, or a 200
  * with no body.
@@ -64,7 +65,7 @@ export function presetRetryable(reason: FetchFailure): boolean {
  * The delay before the round that follows `failedAttempt` (1-based), in ms.
  *
  * Doubling rather than fixed: the second retry is the one that has to survive a
- * mirror having a bad few hundred milliseconds, and it is still short enough that
+ * edge having a bad few hundred milliseconds, and it is still short enough that
  * a user staring at "downloading" does not read it as a hang.
  */
 export function presetRetryDelayMs(failedAttempt: number): number {
@@ -73,53 +74,15 @@ export function presetRetryDelayMs(failedAttempt: number): number {
 
 /** What one attempt already has in hand, and which revision it belongs to. */
 export interface PresetHeld {
-  /** `presetKey` of the config those bytes came from. */
+  /**
+   * Which generation of the profile those bytes belong to — `RECOMMENDED_REVISION`
+   * (./profile). The rules are compiled in, so this is a constant rather than a hash
+   * of a downloaded config, but the question it answers is unchanged: a hold may only
+   * be reused for the generation it was fetched for.
+   */
   key: string
   /** Slot → data URL, for the files that did arrive. */
   images: Record<string, string>
-}
-
-/**
- * JSON with object keys in a fixed (sorted) order — the same string for the same
- * value, whatever order the object that carried it happened to build its keys in.
- *
- * `JSON.stringify` alone is not an identity for a value that came off the wire and
- * through a sanitizer: key order is an accident of how the object was assembled,
- * and a resume that missed on it would silently re-download everything (the safe
- * direction) while a resume that MATCHED on a value it should not have would be
- * the unsafe one — so this is deliberately total as well: anything JSON cannot
- * carry (a function, a `Symbol`, `undefined`) serializes as `null` and an
- * `undefined` property is skipped, exactly as `JSON.stringify` treats it.
- */
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`)
-    return `{${entries.join(',')}}`
-  }
-  return JSON.stringify(value) ?? 'null'
-}
-
-/**
- * The identity of one revision of the profile: the manifest's shape version plus
- * the config, in canonical form.
- *
- * The profile is served at ONE version of the assets repository, but a version
- * reference is only as fixed as the tag behind it: re-point the tag and every
- * edge that has not been purged keeps answering with the previous bytes of the
- * same URL. So "the profile" is still not guaranteed to be one fixed thing, and
- * the bytes a previous attempt is holding are only known to belong to what is
- * being installed when that config comes back the same. Order-insensitivity is
- * what lets this be a comparison of VALUES rather than of spellings —
- * `normalizeConfig` (./schema) rebuilds the config it reads, so pinning the key
- * to the exact key order the wire happened to use would make the hold useless
- * the moment anything upstream normalized differently.
- */
-export function presetKey(version: number, config: unknown): string {
-  return `${version}\n${canonical(config)}`
 }
 
 /**

@@ -10,17 +10,20 @@
  *   - the holiday block survives the shared sanitizer on the way to disk;
  *   - the festival art is FETCHED on demand and cached under `holiday-cache/`,
  *     keyed by asset and never by slot — including the three ways the fetch can
- *     go wrong (a dead mirror, a mirror answering with junk, a corrupt cache);
+ *     go wrong (a dead edge, an edge answering with junk, a corrupt cache);
  *   - a holiday slot is READ-ONLY: a file dropped into it is ignored by every
  *     read, and writing, deleting and URL-fetching are all refused — that is
  *     what makes the festival art impossible to swap;
  *   - an ordinary rule slot still writes, reads back and deletes as before;
  *   - a hand-edited config cannot point a holiday at another rule's image.
  *
- * `globalThis.fetch` is REPLACED for the whole run (see the stub below). The art
- * lives on a CDN now, and a suite that needs a CDN to be up — or that asserts
+ * `globalThis.fetch` is REPLACED for the whole run (see the stub below). Every
+ * picture comes from Bilibili's image CDN now (./src/profile and ./src/holiday
+ * name the addresses), and a suite that needs a CDN to be up — or that asserts
  * today's bytes of a file it does not own — fails for reasons that have nothing
- * to do with this code.
+ * to do with this code. What IS asserted about the addresses is their SHAPE
+ * (content hash, webp transform) and the order the edges are tried in, both of
+ * which are this repository's decisions.
  *
  * Needs `lib/` to be built; `pnpm test` runs tsdown first. Plain `.mjs` on
  * purpose — no dependency, no transform.
@@ -66,27 +69,28 @@ if (!Number.isFinite(SCHEMA_VERSION)) {
 // purpose — nothing here is about how big the real art is.
 const WEBP = Buffer.from('UklGRh4AAABXRUJQVlA4TBEAAAAvAUAAAAdQpeL0rv+BiOh/AAA=', 'base64')
 const fetchLog = []
-let downMirrors = []  // substrings; a URL containing one throws (a dead mirror)
+let downMirrors = []  // substrings; a URL containing one throws (a dead CDN edge)
 let junkBody = false  // answer 200 with a non-image (a broken proxy, an error page)
 // Additive knobs for the recommended-profile checks below, which need a body
-// that is not an image at all, a mirror that is up but broken, and a mirror that
+// that is not an image at all, an edge that is up but broken, and an edge that
 // lies about how much it is sending.
-let jsonBody = null      // when set, every mirror answers with these exact bytes
-let httpStatus = 200     // when not 2xx, every live mirror answers with this
-let claimedLength = null // when set, mirrors announce this content-length instead
-// A mirror having a BAD MOMENT: the next N requests answer 503, which is a status
+let jsonBody = null      // when set, every edge answers with these exact bytes
+let httpStatus = 200     // when not 2xx, every live edge answers with this
+let claimedLength = null // when set, edges announce this content-length instead
+// An edge having a BAD MOMENT: the next N requests answer 503, which is a status
 // the profile's retry policy treats as weather (see `presetRetryable`, ./src/preset)
 // — the only knob here that models a failure which goes away by itself.
 let flaky = 0
-// A whole directory served file by file, which is what the recommended profile
-// has become: the stub answers by FILE NAME, and a name it does not hold is a
-// 404 — which is how "the author renamed one wallpaper" is reproduced here.
+// A directory of files served by name, which is what the recommended profile's
+// pictures are now addressed by (the tail of a BFS path): the stub answers by FILE
+// NAME, and a name it does not hold is a 404 — which is how "this address has no
+// picture behind it" is reproduced here.
 let routes = null        // Map<filename, Buffer>
 
 globalThis.fetch = async (url) => {
   const target = String(url)
   fetchLog.push(target)
-  if (downMirrors.some(d => target.includes(d))) throw new Error('mirror down')
+  if (downMirrors.some(d => target.includes(d))) throw new Error('edge down')
   if (flaky > 0) {
     flaky--
     return { ok: false, status: 503, headers: new Headers({}), async arrayBuffer() { return new ArrayBuffer(0) } }
@@ -258,21 +262,24 @@ check('while a hand-edit that is not a number lands on the shipped 45%',
 await call('writeConfig', { config: first })
 
 console.log('\n--- the festival art is fetched on demand, and cached ---')
-/** The release of the assets repository this build pins — one value, used below. */
-const REF = 'v0.1.0'
 const CACHE = join(DATA, 'holiday-cache')
-const asked = (fragment) => fetchLog.filter(u => u.includes(fragment)).length
-/** The generation of the cache this build reads: `holiday-cache/<tag>/<asset>`. */
-const GEN = join(CACHE, REF)
-const cached = (asset) => (existsSync(join(GEN, asset)) ? readFileSync(join(GEN, asset)) : null)
 /**
- * The pinned reference in either URL shape: jsDelivr writes it beside the
- * repository as `HarmlessFunny/assets@<ref>`, the raw mirror as
- * `HarmlessFunny/assets/<ref>/`. It is lifted out next to the repository name
- * rather than by looking for an `@` — the two mirrors have to be comparable, and
- * a release tag is not a shape the `@`-only spelling can see.
+ * The URL fragment one asset is known by, and the generation directory its cache
+ * lives in. Both are DERIVED from the definition (the BFS path is content-
+ * addressed), so a new upload moves this test with the art instead of leaving a
+ * stale constant behind — which is exactly what the pinned release tag used to be.
  */
-const revision = (u) => (u.match(/(?:assets@|assets\/)([^/]+)\//) ?? [])[1]
+const SRC = {
+  mid: '/bfs/new_dyn/42e22801827aff71267b03c95fcfd7834168597.png@1672w.webp',
+  nat: '/bfs/new_dyn/30e97211189f7869dae83b909d2a3cc84168597.png@3456w.webp',
+}
+const GEN_OF = { mid: '42e22801', nat: '30e97211' }
+const asked = (fragment) => fetchLog.filter(u => u.includes(fragment)).length
+/** `holiday-cache/<content hash>/` — one per holiday, both in use. */
+const GEN = join(CACHE, GEN_OF.mid)
+const GEN_NAT = join(CACHE, GEN_OF.nat)
+const cached = (asset, dir = GEN) => (existsSync(join(dir, asset)) ? readFileSync(join(dir, asset)) : null)
+cached.nat = (asset) => cached(asset, GEN_NAT)
 
 // Loading the plugin and reading the config must not fetch anything: the art is
 // gated on the calendar, and today is not a holiday.
@@ -282,19 +289,27 @@ const mid = await dataUrl('h-midautumn')
 check('a holiday slot is served as webp', mid?.startsWith('data:image/webp;base64,') === true,
   mid === null ? 'null' : `${bytes(mid)} B`)
 check('and serving it took exactly one download', fetchLog.length === 1, JSON.stringify(fetchLog))
-check('pinned to the assets release tag, never to a branch',
-  revision(fetchLog[0]) === REF && !fetchLog[0].includes('@main'), fetchLog[0])
-check('from the holiday asset path, named by the definition',
-  fetchLog[0].endsWith('/dsh-background-by-model/holiday/mid-autumn.webp'), fetchLog[0])
+check('from the image host, at the path the definition names',
+  fetchLog[0] === `https://i0.hdslb.com${SRC.mid}`, fetchLog[0])
+// The transform is load-bearing: without the `@<width>w.webp` suffix the CDN
+// answers the uploaded PNG, which for 国庆 is 10 MB — past `PRESET_IMAGE_MAX`, and
+// the reason the suffix is part of the definition rather than added at the call.
+check('with the webp transform, never the raw upload',
+  /@\d+w\.webp$/.test(fetchLog[0]) && !fetchLog[0].endsWith('.png'), fetchLog[0])
 check('the served bytes are the downloaded ones', mid !== null && bytes(mid) === WEBP.length)
-check('cached under holiday-cache/<tag>/, keyed by ASSET and not by slot',
+check('cached under holiday-cache/<content hash>/, keyed by ASSET and not by slot',
   cached('mid-autumn.webp')?.equals(WEBP) === true,
   JSON.stringify(existsSync(GEN) ? readdirSync(GEN) : []))
+check('and that directory is derived from the URL, so new art lands in a new one',
+  existsSync(GEN) && GEN_OF.mid === /new_dyn\/([0-9a-f]{8})/.exec(SRC.mid)[1], GEN)
 
 const nat = await dataUrl('h-nationalday')
-check('the other holiday is a transfer of its own', asked('national-day.webp') === 1, JSON.stringify(fetchLog))
-check('and is served and cached the same way',
-  nat?.startsWith('data:image/webp;base64,') === true && cached('national-day.webp')?.equals(WEBP) === true)
+check('the other holiday is a transfer of its own', asked(SRC.nat) === 1, JSON.stringify(fetchLog))
+check('and is served and cached in its own generation directory',
+  nat?.startsWith('data:image/webp;base64,') === true
+  && cached.nat('national-day.webp')?.equals(WEBP) === true
+  && existsSync(GEN_NAT) && !existsSync(join(GEN, 'national-day.webp')),
+  JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
 check('an empty non-holiday slot stays empty', await dataUrl('m9') === null)
 check('no holiday slot ever reaches the store as a file',
   !existsSync(join(DATA, 'modelbg-h-midautumn')) && !existsSync(join(DATA, 'modelbg-h-nationalday')))
@@ -314,38 +329,43 @@ check('two simultaneous cold reads share one download',
   fetchLog.length === warm + 1 && raced[0] === raced[1] && raced[0] === mid,
   `${fetchLog.length - warm} new request(s)`)
 
-// A dead first mirror must cost a retry, not the holiday.
-rmSync(join(GEN, 'national-day.webp'), { force: true })
+// A dead first host must cost a retry, not the holiday.
+rmSync(join(GEN_NAT, 'national-day.webp'), { force: true })
 const beforeFallback = fetchLog.length
-downMirrors = ['cdn.jsdelivr.net']
+downMirrors = ['i0.hdslb.com']
 const viaFallback = await dataUrl('h-nationalday')
-check('a dead first mirror falls through to the second',
+check('a dead first host falls through to the second',
   viaFallback === nat && fetchLog.length === beforeFallback + 2
-  && fetchLog[beforeFallback].includes('cdn.jsdelivr.net')
-  && fetchLog[beforeFallback + 1].includes('raw.githubusercontent.com'),
+  && fetchLog[beforeFallback].startsWith('https://i0.hdslb.com')
+  && fetchLog[beforeFallback + 1].startsWith('https://i1.hdslb.com'),
   JSON.stringify(fetchLog.slice(beforeFallback)))
-check('and both mirrors serve the same pinned revision',
-  revision(fetchLog[beforeFallback]) === revision(fetchLog[beforeFallback + 1]),
-  `${revision(fetchLog[beforeFallback])} vs ${revision(fetchLog[beforeFallback + 1])}`)
+// The three edges serve identical bytes, so the path has to be the same one on
+// both — a fallback that shifted the path would be serving different art.
+check('and the second edge is asked for the same path',
+  fetchLog[beforeFallback].slice(fetchLog[beforeFallback].indexOf('/bfs'))
+  === fetchLog[beforeFallback + 1].slice(fetchLog[beforeFallback + 1].indexOf('/bfs')),
+  `${fetchLog[beforeFallback]} vs ${fetchLog[beforeFallback + 1]}`)
 check('the fallback bytes are cached exactly like the primary\'s',
-  cached('national-day.webp')?.equals(WEBP) === true)
+  cached.nat('national-day.webp')?.equals(WEBP) === true)
 downMirrors = []
 
-// Every mirror down: a holiday with no bytes, which is the state the client is
+// Every host down: a holiday with no bytes, which is the state the client is
 // built to fall through — never an exception and never a blank wallpaper.
-rmSync(join(GEN, 'national-day.webp'), { force: true })
-downMirrors = ['cdn.jsdelivr.net', 'raw.githubusercontent.com']
-check('with every mirror down the holiday has no bytes, and does not throw',
+rmSync(join(GEN_NAT, 'national-day.webp'), { force: true })
+downMirrors = ['i0.hdslb.com', 'i1.hdslb.com', 'i2.hdslb.com']
+check('with every host down the holiday has no bytes, and does not throw',
   (await dataUrl('h-nationalday')) === null)
-check('and a failed fetch caches nothing', cached('national-day.webp') === null)
+check('and every edge was tried', fetchLog.filter(u => u.includes('hdslb.com') && u.includes(SRC.nat)).length >= 3,
+  JSON.stringify(fetchLog.slice(-3)))
+check('and a failed fetch caches nothing', cached.nat('national-day.webp') === null)
 downMirrors = []
 
 // A CDN that answers 200 with an error page is the failure a status-code check
 // cannot see, and it must not be cached as if it were art.
 junkBody = true
-rmSync(join(GEN, 'national-day.webp'), { force: true })
-check('a mirror answering 200 with a non-image is rejected, not cached',
-  (await dataUrl('h-nationalday')) === null && cached('national-day.webp') === null)
+rmSync(join(GEN_NAT, 'national-day.webp'), { force: true })
+check('a host answering 200 with a non-image is rejected, not cached',
+  (await dataUrl('h-nationalday')) === null && cached.nat('national-day.webp') === null)
 junkBody = false
 
 // A cache file that is not an image is a MISS, not a permanent sentence: a
@@ -357,24 +377,24 @@ check('a corrupt cache entry is discarded and re-downloaded',
 // Put the cache back for the sections below, which read both holidays.
 await dataUrl('h-nationalday')
 
-// THE reason the cache is keyed by the pinned RELEASE and not by the asset name
-// alone: a build that pins a new tag must not be answered with the previous
-// generation's bytes — and it must not be answered silently, on a day nobody is
-// watching, which is the same failure the pinned reference itself exists to
-// prevent, one layer down. A stale generation is left behind by the update, so
-// it has to be dropped once the new art is on disk.
+// THE reason the cache is keyed by a GENERATION and not by the asset name alone: a
+// build that names new art must not be answered with the previous upload's bytes —
+// and it must not be answered silently, on a day nobody is watching. The
+// generation is now derived from the content hash in the URL, so this is
+// self-maintaining; what is checked here is that the sweep still recognises an
+// unknown directory (any earlier release's tag, or a hand-made one) as superseded.
 const STALE = join(CACHE, 'v0.0.9')
 mkdirSync(STALE, { recursive: true })
 writeFileSync(join(STALE, 'mid-autumn.webp'), Buffer.from('an older generation'))
-rmSync(join(GEN, 'national-day.webp'), { force: true })
+rmSync(join(GEN_NAT, 'national-day.webp'), { force: true })
 const afterPrune = await dataUrl('h-nationalday')
-check('art missing from the pinned generation is re-downloaded, not read stale',
-  afterPrune === nat && cached('national-day.webp')?.equals(WEBP) === true)
+check('art missing from the current generation is re-downloaded, not read stale',
+  afterPrune === nat && cached.nat('national-day.webp')?.equals(WEBP) === true)
 check('and the generation it superseded is dropped once the new art is on disk',
-  !existsSync(STALE) && existsSync(GEN), JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
-check('while the generation in use is left exactly where it is',
-  existsSync(join(GEN, 'mid-autumn.webp')) && existsSync(join(GEN, 'national-day.webp')),
-  JSON.stringify(existsSync(GEN) ? readdirSync(GEN) : []))
+  !existsSync(STALE), JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
+check('while both generations in use are left exactly where they are',
+  existsSync(join(GEN, 'mid-autumn.webp')) && existsSync(join(GEN_NAT, 'national-day.webp')),
+  JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
 
 // The upgrade path: 0.7.9 cached FLAT files (`holiday-cache/<asset>`), so an
 // install that already had the art has a second shape lying in the cache root.
@@ -387,6 +407,18 @@ const afterLegacy = await dataUrl('h-midautumn')
 check('a flat cache file from the previous layout is never read, and is swept',
   afterLegacy === mid && cached('mid-autumn.webp')?.equals(WEBP) === true
   && !existsSync(join(CACHE, 'mid-autumn.webp')),
+  JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
+
+// The tag-keyed layout of 0..0.10 — one directory per pinned assets release. It is
+// never read either (the path carries a content hash now), and the same sweep takes
+// it, so an upgrade replaces the mechanism instead of leaving 40 MB behind.
+const OLD_TAG = join(CACHE, 'v0.1.0')
+mkdirSync(OLD_TAG, { recursive: true })
+writeFileSync(join(OLD_TAG, 'mid-autumn.webp'), Buffer.from('the tag-keyed layout'))
+rmSync(join(GEN, 'mid-autumn.webp'), { force: true })
+const afterTagged = await dataUrl('h-midautumn')
+check('a tag-keyed cache directory from the previous layout is never read, and is swept',
+  afterTagged === mid && cached('mid-autumn.webp')?.equals(WEBP) === true && !existsSync(OLD_TAG),
   JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
 
 // A one-pixel PNG, to have real bytes to try to plant and to write normally.
@@ -1207,196 +1239,130 @@ check('and the save itself still lands',
   readFileSync(join(DATA, 'theme-config.json'), 'utf8').includes('r-atomic-3'))
 
 // ── the recommended profile ────────────────────────────────────────────────
-// A profile is a DIRECTORY in the store's own shape — a manifest, a config and
-// one raw file per slot — so it is hand-editable where it is hosted and a tweak
-// costs no plugin release. The config decides which files exist: the request set
-// is derived from it, so this covers the derivation as much as the download.
-// Unlike the festival art none of it is cached, and every failure is a VALUE.
-console.log('\n--- the recommended profile arrives file by file ---')
-// One rule that is fine, and one that names a HOLIDAY slot. That second one is
-// legal in a config and can never have a file — the festival art lives in its own
-// directory and belongs to no slot — so it must be dropped from the request set
-// rather than asked for and failed on.
-const presetConfig = {
-  rules: [
-    { id: 'r-cdn', match: 'anything', images: [{ slot: 'm1' }, { slot: 'm2' }] },
-    { id: 'r-holiday', match: 'never', images: [{ slot: 'h-midautumn' }] },
-  ],
+// The profile is no longer a directory of files fetched from a repository: its
+// RULES are compiled into the bundle (src/profile.ts) and only the pictures come
+// over the network, from Bilibili's image CDN at content-addressed paths. So what
+// is left to check here is one request per slot, the constant table that decides
+// WHICH requests, and the failure modes — every one of them a VALUE, not a throw.
+console.log('\n--- the recommended profile is a set of pictures, and nothing else ---')
+// The node half no longer has a manifest or config to fetch: that method is gone
+// outright, which is the honest assertion — a leftover would keep answering.
+check('the old manifest/config method is not a method any more',
+  (await call('fetchPresetConfig')).ok === false, JSON.stringify((await call('fetchPresetConfig')).error?.message))
+// The profile's own table is what a request resolves through. The stub answers by
+// PATH, so a slot the table does not carry has no URL at all and cannot reach it.
+const PROFILE_SRC = {
+  m1: 'e4565384e7e5b2d75756e577f505534b4168597',
+  m2: 'aa6e8649701c91e5ac8f43ff28b97a924168597',
+  m3: '5da92b31df5ee2a20b17ec6be353cf5c4168597',
 }
-const presetDir = () => new Map([
-  ['preset.json', Buffer.from(JSON.stringify({ version: SCHEMA_VERSION }))],
-  ['theme-config.json', Buffer.from(JSON.stringify(presetConfig))],
-  ['modelbg-m1', WEBP],
-  ['modelbg-m2', WEBP],
+const profilePath = (slot) => `/bfs/new_dyn/${PROFILE_SRC[slot]}.png@3840w.webp`
+/**
+ * The stub routes by FILE NAME (what is left after the last `/`), which for these
+ * URLs is `<hash>.png@3840w.webp` — the path component the CDN actually keys on.
+ * Nothing about the host participates, so all three edges answer identically.
+ */
+const profileKey = (slot) => profilePath(slot).slice(profilePath(slot).lastIndexOf('/') + 1)
+routes = new Map([
+  [profileKey('m1'), WEBP],
+  [profileKey('m2'), WEBP],
 ])
-routes = presetDir()
-const beforeHead = fetchLog.length
-const head = (await call('fetchPresetConfig')).value
-check('the manifest and the config are fetched, and the config is sanitized',
-  head?.ok === true && head.version === SCHEMA_VERSION && head.config?.rules?.length === 2, JSON.stringify(head?.error ?? head?.version))
-check('and it cost exactly two requests, manifest first',
-  fetchLog.length === beforeHead + 2
-  && fetchLog[beforeHead].endsWith('/dsh-background-by-model/preset/preset.json')
-  && fetchLog[beforeHead + 1].endsWith('/dsh-background-by-model/preset/theme-config.json'),
-  JSON.stringify(fetchLog.slice(beforeHead)))
-// The reference this feature shares with the festival art, and the same release
-// tag the README's screenshots are read at: one version of the assets repository
-// is one version of every byte the plugin fetches, so a profile cannot be
-// changed under a build that already pins it.
-check('and it is read at the assets release tag, not at a branch',
-  fetchLog.slice(beforeHead).every(u => u.includes(`@${REF}`) && revision(u) === REF),
-  JSON.stringify(fetchLog.slice(beforeHead)))
-// THE trap of this shape: `holidays.items` legally carries h-midautumn and
-// h-nationalday, and a rule may name one too, while the store can never hold a
-// `modelbg-h-*` file (see the read-only section above). Asking for one would fail
-// the whole profile on a file the plugin itself guarantees cannot exist.
-check('the slots are derived from the rules, and the holiday slot is dropped',
-  JSON.stringify(head?.slots) === JSON.stringify(['m1', 'm2']), JSON.stringify(head?.slots))
-
-// One wallpaper, measured: the bytes are the served ones and the MIME is sniffed
-// from them rather than read off a header — the asset host serves these
-// extensionless files as `application/octet-stream`.
 const beforeImage = fetchLog.length
 const oneImage = (await call('fetchPresetImage', { slot: 'm1' })).value
-check('one wallpaper is one request, and it is the file the slot names',
+check('one wallpaper is one request, on the first edge',
   oneImage?.ok === true && fetchLog.length === beforeImage + 1
-  && fetchLog[beforeImage].endsWith('/preset/modelbg-m1'),
+  && fetchLog[beforeImage] === `https://i0.hdslb.com${profilePath('m1')}`,
   JSON.stringify(fetchLog.slice(beforeImage)))
 check('and it arrives as a data URL of the sniffed bytes',
   oneImage?.dataUrl?.startsWith('data:image/webp;base64,') === true
   && bytes(oneImage.dataUrl) === WEBP.length,
   `mime=${oneImage?.dataUrl?.slice(0, 24)} bytes=${oneImage?.dataUrl ? bytes(oneImage.dataUrl) : 'none'}`)
+// The transform, which is what keeps a 12 MB upload from being the thing this
+// downloads (see BFS_SUFFIX in src/profile.ts).
+check('the URL carries the webp transform rather than the raw upload',
+  fetchLog[beforeImage].endsWith('@3840w.webp'), fetchLog[beforeImage])
 
-// A holiday slot is refused BEFORE anything is requested, exactly as a write to
-// one is — the bytes could never be stored even if they were fetched.
+// A holiday slot is refused BEFORE anything is requested, exactly as a write to one
+// is — the bytes could never be stored even if they were fetched.
 const beforeRefusal = fetchLog.length
 check('a holiday slot is refused before it downloads',
   (await call('fetchPresetImage', { slot: 'h-midautumn' })).value?.error === 'bad slot'
   && fetchLog.length === beforeRefusal)
-// And so is a name that is not a slot at all: this is a public RPC, so the list
-// the node half hands out is not the only thing a caller could ask for.
+// And so is a well-formed slot the profile does not carry: the table is the
+// whitelist on a public RPC, so a caller cannot name a file of its own choosing.
+const beforeUnknown = fetchLog.length
+check('a slot the profile does not carry is refused before it downloads',
+  (await call('fetchPresetImage', { slot: 'm9' })).value?.error === 'bad slot'
+  && fetchLog.length === beforeUnknown)
 const beforeBadName = fetchLog.length
 check('a malformed slot name is refused before it downloads',
   (await call('fetchPresetImage', { slot: '../theme-config.json' })).value?.error === 'bad slot'
   && fetchLog.length === beforeBadName)
 
-// The strict half: a file the config names and the host does not have. It has to
-// be an error NAMING the slot rather than a profile that is quietly missing a
-// picture — that distinction is the whole reason a branch reference is allowed.
-// And it has to arrive FAST: the file is provably absent, so the retry rounds
-// below must not be spent on it — one request per mirror, and no waiting.
+// The failure this fetcher owes a fast answer to: the path is gone. All three edges
+// are asked once — three requests, no waiting — and the answer is a value.
 const beforeMissing = fetchLog.length
-check('a named wallpaper the host does not have fails, and says which',
-  JSON.stringify((await call('fetchPresetImage', { slot: 'm9' })).value)
+check('a wallpaper no edge answers for fails, and says so',
+  JSON.stringify((await call('fetchPresetImage', { slot: 'm7' })).value)
   === JSON.stringify({ ok: false, error: 'download failed' })
-  && fetchLog.length === beforeMissing + 2
-  && fetchLog.slice(beforeMissing).filter(u => u.includes('cdn.jsdelivr.net')).length === 1
-  && fetchLog.slice(beforeMissing).filter(u => u.includes('raw.githubusercontent.com')).length === 1,
+  && fetchLog.length === beforeMissing + 3
+  && fetchLog.slice(beforeMissing).map(u => new URL(u).host).join(',')
+    === 'i0.hdslb.com,i1.hdslb.com,i2.hdslb.com',
   JSON.stringify(fetchLog.slice(beforeMissing)))
 
-// The failure the retry exists for: BOTH mirrors have a bad moment at once, so the
+// The failure the retry exists for: EVERY edge has a bad moment at once, so the
 // round has not been answered — and the file is asked again after a delay instead
 // of the whole profile failing. Measured in requests, because "it worked" is not
 // the claim; "it worked because it asked again" is.
-flaky = 2
+flaky = 3
 const beforeFlaky = fetchLog.length
-check('a mirror that fails once is asked again, and the file still arrives',
+check('when every edge fails once the file is asked again, and still arrives',
   (await call('fetchPresetImage', { slot: 'm2' })).value?.ok === true
-  && fetchLog.length === beforeFlaky + 3
-  && fetchLog[beforeFlaky].includes('cdn.jsdelivr.net')
-  && fetchLog[beforeFlaky + 1].includes('raw.githubusercontent.com')
-  && fetchLog[beforeFlaky + 2].includes('cdn.jsdelivr.net'),
+  && fetchLog.length === beforeFlaky + 4
+  && fetchLog[beforeFlaky].startsWith('https://i0.')
+  && fetchLog[beforeFlaky + 3].startsWith('https://i0.'),
   JSON.stringify(fetchLog.slice(beforeFlaky)))
-// Hygiene rather than an assertion: a leaked counter here would make every later
-// check fail for a reason that has nothing to do with what it is checking.
 flaky = 0
-routes.set('modelbg-m3', Buffer.from('<html>not an image</html>'))
+routes.set(profileKey('m3'), Buffer.from('<html>not an image</html>'))
 check('a wallpaper that is not an image is refused, not written',
   (await call('fetchPresetImage', { slot: 'm3' })).value?.error === 'not an image')
 
-// The second mirror, per file, for the same reason the art has one.
-downMirrors = ['cdn.jsdelivr.net']
+// The second edge, per file, for the same reason the art has one — and with the
+// SAME path, because three edges that answered different paths would be serving
+// different pictures under one name.
+downMirrors = ['i0.hdslb.com']
 const beforeImageFallback = fetchLog.length
-check('a dead jsDelivr falls through to the raw mirror for one wallpaper',
+check('a dead first edge falls through to the second for one wallpaper',
   (await call('fetchPresetImage', { slot: 'm1' })).value?.ok === true
   && fetchLog.length === beforeImageFallback + 2
-  && fetchLog[beforeImageFallback].includes('cdn.jsdelivr.net')
-  && fetchLog[beforeImageFallback + 1].includes('raw.githubusercontent.com'),
+  && fetchLog[beforeImageFallback].startsWith('https://i0.')
+  && fetchLog[beforeImageFallback + 1].startsWith('https://i1.'),
   JSON.stringify(fetchLog.slice(beforeImageFallback)))
 downMirrors = []
 routes = null
 
-// Every way the profile can fail without a working directory, each one a VALUE.
-// The codes are told apart because the page turns them into different sentences:
-// "retry", "do not retry, it is not a profile", "update the plugin", "nobody
-// should install this".
-downMirrors = ['cdn.jsdelivr.net', 'raw.githubusercontent.com']
-jsonBody = JSON.stringify({ version: SCHEMA_VERSION })
-check('with every mirror down there is no profile, and no exception',
-  (await call('fetchPresetConfig')).value?.error === 'download failed')
+// Every way one transfer can fail without a working network, each one a VALUE.
+downMirrors = ['i0.hdslb.com', 'i1.hdslb.com', 'i2.hdslb.com']
+check('with every edge down there is no wallpaper, and no exception',
+  (await call('fetchPresetImage', { slot: 'm1' })).value?.error === 'download failed')
 downMirrors = []
 httpStatus = 500
-// A permanently broken mirror is the other half of the retry: the budget is a
-// budget. Three rounds over two mirrors is six requests and then it is over — a
-// retry that kept going would leave the user watching a button that never answers.
+// A permanently broken edge is the other half of the retry: the budget is a budget.
+// Three rounds over three edges is nine requests and then it is over — a retry that
+// kept going would leave the user watching a button that never answers.
 const beforeBroken = fetchLog.length
-check('a mirror answering 500 is not a profile, and the retries are finite',
-  (await call('fetchPresetConfig')).value?.error === 'download failed'
-  && fetchLog.length === beforeBroken + 6,
-  JSON.stringify(fetchLog.slice(beforeBroken).length))
+check('a 500 is not a wallpaper, and the retries are finite',
+  (await call('fetchPresetImage', { slot: 'm1' })).value?.error === 'download failed'
+  && fetchLog.length === beforeBroken + 9,
+  `${fetchLog.length - beforeBroken} request(s)`)
 httpStatus = 200
-// The failure a status code cannot see, and the one that matters most now that
-// the reference is a branch: a CDN answering 200 with an error page.
-jsonBody = '<html><body>404: Not Found</body></html>'
-check('a mirror answering 200 with a non-JSON manifest is not a profile',
-  (await call('fetchPresetConfig')).value?.error === 'not a profile')
-jsonBody = JSON.stringify({ version: 'six' })
-check('nor is a manifest whose version is not a number',
-  (await call('fetchPresetConfig')).value?.error === 'not a profile')
-// The OTHER direction: the asset host's profile is older than this build. It is
-// ACCEPTED — that is the documented contract, and the live assets are in exactly
-// this state between a plugin release and an assets tag. Refusing it made the
-// button unusable, which is how this bit the release it shipped in.
-jsonBody = JSON.stringify({ version: SCHEMA_VERSION - 1 })
-check('a profile written for an older shape still imports',
-  (await call('fetchPresetConfig')).value?.ok === true)
-// The gate itself: a profile written for a shape this build cannot read. Refused
-// before a single wallpaper is requested, which is the point of asking early.
-const beforeNewer = fetchLog.length
-jsonBody = JSON.stringify({ version: 99 })
-check('a profile written for a newer shape is refused before anything is fetched',
-  (await call('fetchPresetConfig')).value?.error === 'newer version'
-  && fetchLog.length === beforeNewer + 1,
-  JSON.stringify(fetchLog.slice(beforeNewer)))
-jsonBody = JSON.stringify({ version: SCHEMA_VERSION })
-routes = new Map([
-  ['preset.json', Buffer.from(JSON.stringify({ version: SCHEMA_VERSION }))],
-  ['theme-config.json', Buffer.from('not json at all')],
-])
-check('a config that is not JSON is not a profile',
-  (await call('fetchPresetConfig')).value?.error === 'not a profile')
-routes.set('theme-config.json', Buffer.from(JSON.stringify(['not', 'an', 'object'])))
-check('nor is a config that is a JSON array',
-  (await call('fetchPresetConfig')).value?.error === 'not a profile')
-// A config is untrusted input that decides how many times this process will go to
-// the network, so the count is capped before any of it is requested.
-routes.set('theme-config.json', Buffer.from(JSON.stringify({
-  rules: [{ id: 'r-many', images: Array.from({ length: 65 }, (_, i) => ({ slot: `s${i}` })) }],
-})))
-check('a config naming more images than the cap is refused outright',
-  (await call('fetchPresetConfig')).value?.error === 'too many images')
-// The size cap is the courtesy check: a mirror that announces more than the cap
-// never gets to send it. Claimed, not sent — an 8 MB body in a test would only
-// make the suite slow without testing anything the header does not. Back to the
-// plain stub, since the directory above would answer before these knobs apply.
-routes = null
+// The size cap is the courtesy check: an edge that announces more than the cap never
+// gets to send it. Claimed, not sent — an 8 MB body would only make the suite slow.
 claimedLength = 64 * 1024 * 1024
-jsonBody = JSON.stringify({ version: SCHEMA_VERSION })
-check('a mirror announcing an oversized body is refused before it is read',
-  (await call('fetchPresetConfig')).value?.error === 'download failed')
+check('an edge announcing an oversized body is refused before it is read',
+  (await call('fetchPresetImage', { slot: 'm1' })).value?.error === 'download failed')
 claimedLength = null
-jsonBody = null
-check('nothing about the profile is written to the store',
+check('and nothing about the profile is written to the store',
   readdirSync(DATA).filter(n => n.endsWith('.json')).length === 1
   && !existsSync(join(DATA, 'preset.json'))
   && !existsSync(join(DATA, 'recommended.json')),
@@ -1426,7 +1392,9 @@ check('and every rule image with it',
 // `holiday-cache/` is not the user's configuration: it is downloaded, it belongs
 // to no slot, and re-fetching it is a network round trip for nothing.
 check('but the downloaded festival art is left where it is',
-  cached('mid-autumn.webp')?.equals(WEBP) === true && cached('national-day.webp')?.equals(WEBP) === true)
+  cached('mid-autumn.webp')?.equals(WEBP) === true
+  && cached.nat('national-day.webp')?.equals(WEBP) === true,
+  JSON.stringify(existsSync(CACHE) ? readdirSync(CACHE) : []))
 // An emptied store is a fresh store, and a fresh store opens on the one blank
 // rule (see the top of this file) — the reset is not allowed to leave the panel
 // with no drop target either.

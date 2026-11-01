@@ -33,14 +33,17 @@ import { blankRule, defaultImage, normalizeTransition } from '../schema'
 // What a failed profile attempt keeps, and which files the next one still has to
 // ask for — the decision half of the download, shared with the node half (./preset
 // for why the retry policy and the resume live in one module).
-import { presetKey, presetMissing, presetResume } from '../preset'
+import { presetMissing, presetResume } from '../preset'
+// The recommended profile: its rule list and the constant slot → URL table its
+// pictures come from. Compiled in, so no remote document chooses what is installed.
+import { PROFILE_SLOTS, RECOMMENDED_REVISION, recommendedThemeFile } from '../profile'
 import type { PresetHeld } from '../preset'
 import { nextIndex, isRotating } from './rotation'
 import { shouldRepaint } from './repaint'
 import {
   RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
   writeImage, deleteImage, fetchImageUrl, readDefaultModel, hostIsLegacy,
-  canWriteConfig, fetchPresetConfig, fetchPresetImage,
+  canWriteConfig, fetchPresetImage,
   readStoreUsage, pruneOrphanImages,
 } from './rpc'
 import {
@@ -59,12 +62,12 @@ export const inject = ['slots', 'locale', 'theme', 'connection']
 /**
  * Ceiling on what one recommended profile may add up to, across every wallpaper.
  *
- * The node half caps each file and the number of files, but it answers one
- * independent call at a time and never sees a running total — the client is the
- * only side that does, so the total is bounded here. The real profile is 2.2 MB
- * of images across seven of them, so this is generous by design: it exists to
- * stop a config that names sixty-four eight-megabyte slots from turning one
- * button press into half a gigabyte, not to second-guess the author.
+ * The node half caps ONE file, but it answers one independent call at a time and
+ * never sees a running total — the client is the only side that does, so the total
+ * is bounded here. The real profile is 2.2 MB of images across seven of them, so
+ * this is generous by design: it exists so that a build which grew a wrong URL
+ * (or an edge that served an upload instead of the transform) cannot turn one
+ * button press into half a gigabyte.
  */
 const PRESET_TOTAL_MAX = 32 * 1024 * 1024
 
@@ -76,7 +79,8 @@ const PRESET_TOTAL_MAX = 32 * 1024 * 1024
  * CDN edge was still cold). What is being paid is per-request latency, and the
  * host speaks HTTP/2 — the bytes are identical either way and the connection is
  * reused — so overlapping them buys wall-clock time and risks nothing but a
- * little contention.
+ * little contention. The same holds for the Bilibili edges the pictures come from
+ * now (see `PROFILE_HOSTS` in ../profile).
  *
  * Four rather than all seven: a burst that wide competes for the same bandwidth
  * and makes the per-file timeout harder to reason about, and four already hides
@@ -811,32 +815,33 @@ export function apply(ctx: Ctx): void {
         }
       },
       /**
-       * Fetch the project's recommended profile. Downloads only — applying it is
-       * separate, because the page has to ask before anything is destroyed and the
-       * question should describe what is actually in hand.
+       * Fetch the recommended profile's wallpapers. Downloads only — applying them
+       * is separate, because the page has to ask before anything is destroyed and
+       * the question should describe what is actually in hand.
        *
-       * The profile is a DIRECTORY, so this is a pool rather than one call: the
-       * config names the slots and each wallpaper is one request, up to
-       * `PRESET_CONCURRENCY` at a time. Each file keeps its own mirror fallback,
-       * retry rounds (the node half's business, ./preset), validation and slot name
-       * in a failure.
+       * The RULES are not fetched at all: they are compiled into the bundle
+       * (./profile), so this is a set of picture transfers and nothing else. That
+       * is why there is no manifest round, no shape gate and no "not a profile"
+       * failure left — nothing remote can decide what this installs.
+       *
+       * Each slot is one request, up to `PRESET_CONCURRENCY` at a time, and each
+       * file keeps its own host fallback, retry rounds (the node half's business,
+       * ./preset), validation and slot name in a failure.
        *
        * STRICT: the first wallpaper that cannot be had stops the queue. What had
        * already arrived is kept for the next press (`presetHeld` below) — the
        * difference between retrying one file and retrying the lot. Nothing is
-       * touched here, so "the author renamed a file" arrives as an error naming the
-       * file rather than as a profile quietly missing a picture.
+       * touched here, so a wrong URL arrives as an error naming the slot rather
+       * than as a profile quietly missing a picture.
        */
       fetchRecommended: async (
         onProgress?: (done: number, total: number) => void,
       ): Promise<PresetResult> => {
-        const head = await fetchPresetConfig()
-        if (!head.ok) return { ok: false, error: head.error }
-        const slots = head.slots
-        // Held bytes are reused only for the SAME revision: the tag behind the
-        // version can be re-pointed, and an unpurged edge can still answer with the
-        // old bytes, so the config is compared rather than assumed (`presetKey`).
-        const key = presetKey(head.version, head.config)
+        const slots = PROFILE_SLOTS
+        // Held bytes are reused only for the SAME generation of the built-in
+        // profile: the slot list and the URLs can both change between releases, and
+        // a retry must not staple a picture from one set to the config of another.
+        const key = RECOMMENDED_REVISION
         const images: Record<string, string> = presetResume(presetHeld, key)
         let bytes = 0
         for (const url of Object.values(images)) bytes += url.length
@@ -888,10 +893,7 @@ export function apply(ctx: Ctx): void {
         presetHeld = null
         // Assembled into the shape `exportTheme` writes: everything downstream (the
         // version gate, the sanitizer, the wipe) is the hand-picked file's path.
-        return {
-          ok: true,
-          preset: { version: head.version, exportedAt: new Date().toISOString(), config: head.config, images },
-        }
+        return { ok: true, preset: recommendedThemeFile(images) }
       },
       /** Replace EVERYTHING with a downloaded profile: empty the store, then write it. */
       applyRecommended: async (preset: ThemeFile): Promise<boolean> => {

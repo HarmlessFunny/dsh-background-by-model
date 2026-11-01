@@ -36,19 +36,15 @@ const MODEL_NOTE_KEYS: Record<string, string | undefined> = {
 /**
  * The ways the recommended-profile download can fail, mapped to their copy.
  *
- * They are worth telling apart because they ask different things of the user and
- * of whoever maintains the assets repository: nothing answering is a network to
- * retry, a mirror that answered with something that is not a profile is not
- * going to start working on a retry, a profile written for a newer plugin is a
- * "update this build", and too many images is a profile nobody should install.
- * A failure that names a SLOT is a fifth case and is rendered separately — that
- * one is the author's file naming, and only the slot tells them which.
+ * Two cases, because the profile is now only PICTURES: the rules and their numbers
+ * are compiled in, so there is no manifest to be malformed, no shape to be too new
+ * and no config to name too many slots. What is left is the network ("retry") and
+ * the cap on the total ("nobody should install this"). A failure that names a SLOT
+ * is rendered separately — that one is about one BFS address, and the slot is what
+ * says which.
  */
 const REC_ERROR_KEYS: Record<string, string | undefined> = {
   'download failed': 'recFailNetwork',
-  'not a profile': 'recFailNotProfile',
-  'newer version': 'recFailNewer',
-  'too many images': 'recFailTooMany',
   'too large': 'recFailTooLarge',
 }
 
@@ -181,8 +177,8 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
     const res = await p.fetchRecommended((done, total) => { setRecDone(done); setRecTotal(total) })
     setRecBusy(false)
     if (!res.ok) {
-      // A failure that names a slot is about one file in the assets repository,
-      // not about the network or this build — so it says which one.
+      // A failure that names a slot is about one picture's address on the image
+      // host, not about the network or this build — so it says which one.
       notify(res.slot === undefined
         ? t(REC_ERROR_KEYS[res.error] ?? 'recFailNetwork')
         : `${t('recFailImage')} ${res.slot}`, false)

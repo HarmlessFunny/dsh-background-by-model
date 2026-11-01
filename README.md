@@ -107,7 +107,7 @@ One switch on the Config page and nothing else: on 中秋节 and 国庆节 the w
 
 - **中秋 is 农历八月十五**, resolved from the Chinese calendar in **Asia/Shanghai**, so it moves every year (2024-09-17, 2025-10-06, 2026-09-25 …); **国庆 is October 1–7**; when the two collide, 中秋 wins.
 - **A holiday with no image falls through** to the model rules rather than blanking the wallpaper.
-- **The art is downloaded, not shipped** — one compressed wallpaper per holiday, pinned to a release tag of the project's [assets repository](https://github.com/HarmlessFunny/assets) and cached under `holiday-cache/<tag>/` on the first read of the day. The download is gated on the calendar, so an ordinary day fetches nothing at all and every later boot is answered from disk.
+- **The art is downloaded, not shipped** — one compressed wallpaper per holiday, served by **Bilibili's image CDN** (`i0`/`i1`/`i2.hdslb.com`, three edges falling back to each other) and cached under `holiday-cache/<hash>/` on the first read of the day. The directory is named after the **content hash** in the URL: new art means a new address, therefore a new directory and a guaranteed re-download — there is no version constant to remember to bump. The download is gated on the calendar, so an ordinary day fetches nothing at all and every later boot is answered from disk.
 - **Neither the art nor its palette is swappable** — a holiday slot is read-only, the colors and the full-bleed Fill mode come from the definition, and theme exports carry your rules only.
 
 ### Per-rule and per-image settings
@@ -126,12 +126,15 @@ One switch on the Config page and nothing else: on 中秋节 and 国庆节 the w
 
 ### Recommended profile
 
-One click on the Config tab downloads the author's own configuration — rules, wallpapers and interface settings — from the project's assets repository.
+One click on the Config tab installs the author's own configuration — seven model rules and their interface numbers **ship inside the plugin**, and only the seven wallpapers are downloaded, from **Bilibili's image CDN**.
 
-- **Hosted in the store's own shape** (`preset/preset.json`, `preset/theme-config.json`, one `modelbg-<slot>` file per wallpaper), so it stays editable on GitHub and publishing it is a `cp`.
+- **The rules are no longer a remote file** — they are compiled into the bundle, at the same version as the code that reads them. So this button does not need GitHub to be reachable, and there is no "the remote profile is newer than this build" case left to refuse: what gets installed is always what this build itself writes.
+- **The wallpaper addresses are a constant table** — slot → BFS path, fixed at build time. The request set never comes off the network, so a wrong press cannot turn into "fetch 64 files because somebody else's document said so".
+- **One address, one set of bytes** — a BFS path is a hash of the upload, so a wallpaper URL is immutable in a way a git tag is not.
+- **`@3840w.webp` is load-bearing** — the uploads are 2.4–12 MB PNGs (76 MB for the set); with that suffix they are the 250–365 KB 4K WebPs an existing data directory already holds, byte for byte.
 - **Every interface number in it is what the plugin already ships with**, so on a new install the button adds rules and pictures; on a store you have already tuned it resets those too, because it is a whole configuration and not a patch.
 - **The download comes before the question**, so the confirmation can say what is actually in hand — and the wipe comes after the download, never before it. It is the only card in the panel that **asks before it deletes**.
-- **One missing wallpaper fails the whole attempt and names the slot**, and every file retries on its own, keeping what arrived for the next press.
+- **One missing wallpaper fails the whole attempt and names the slot**, and every file retries on its own (three edges × three rounds), keeping what arrived for the next press.
 
 ### Image storage cleanup
 
@@ -166,7 +169,7 @@ Data directory: `~/.dsh/.dsh-background-by-model-data/` (Windows: `C:\Users\<you
 | `theme-config.json` | The rule list (each rule with its image list, and each image with its own look and rotation settings) plus the global Interface settings, the global switch effect and the holiday overrides |
 | `theme-config.json.bak` | The previous config, as of the last **successful** save. Every save writes a temp file and renames it over the live one, rotating the current good file into `.bak` first; a live file that will not parse is restored from here instead of falling back to the factory defaults. With neither readable, the cleanup card refuses to delete images |
 | `modelbg-<slot>` | One image, stored as raw bytes without a file extension — one file per image, so a rule with three images owns three slots |
-| `holiday-cache/<tag>/<asset>` | Festival art downloaded from the CDN, one file per holiday (`mid-autumn.webp`, `national-day.webp`) inside a directory named after the assets release this build pins (`v0.1.0`). The tag is part of the path so that a build pinning a new tag starts from an empty directory instead of being answered with the previous generation's bytes; the file inside is named after the **asset**, deliberately outside the slot namespace, which is what keeps a holiday slot read-only. Superseded generations are pruned once the new art is on disk. Delete a file here and it is simply re-downloaded the next time that holiday is in force |
+| `holiday-cache/<hash>/<asset>` | Festival art downloaded from Bilibili's image CDN, one file per holiday (`mid-autumn.webp`, `national-day.webp`) inside a directory named after the **first eight characters of that picture's content hash** (`42e22801`, `30e97211` today). The hash is part of the path so that new art lands in a directory nobody has written to — it cannot be answered with the previous generation's bytes, and there is no version constant to keep in step. The file inside is named after the **asset**, deliberately outside the slot namespace, which is what keeps a holiday slot read-only. Superseded generations (including every `holiday-cache/<tag>/` from 0.10 and earlier) are pruned once the new art is on disk. Delete a file here and it is simply re-downloaded the next time that holiday is in force |
 
 ## Installation
 
@@ -228,12 +231,12 @@ After changing anything under `src/`, run `pnpm run bundle` again — the mounte
 - **`check:code-plate`** — the code block's plate: its tokens declared on both `:root` and `body`, the light branch emitting the banner, and each surface reading its own plugin variable.
 - **`check:image-mode`** — the lift onto the image for the layout mode and the three paint effects, and which image a control edits against which the render layer reads.
 - **`check:rules`** — the two decisions behind the tab strip, which live in `src/client/rules-view.ts`, plus the page structure the layout rests on.
-- **`check:preset`** — the recommended profile's retry policy and what a failed attempt holds for the next one, with both halves shown using them.
+- **`check:preset`** — the profile itself (its rules, its slot → URL table and its generation constant) alongside the retry policy and what a failed attempt holds for the next one, with both halves shown using them. The rules are compiled in now, so this is also what catches a rule pointing at a slot the table does not carry — a mistake that would otherwise only show up after a release.
 - **`check:ui`** — both dictionaries carrying the same keys, every `dab-…` class styled, no dead entry, and every `var(--dsw-…)` published by the installed theme.
 - **`check:watchdogs`** — one heartbeat, entries firing on their own due time, paused while the tab is hidden, no timer left by dispose, and no module outside the entry starting its own interval.
-- **`check:scheme`** — the `data-ds-dark-theme` hand-off: the plugin only rewrites the value it wrote, hands the flag back when it drops its tokens, and repaints when the scheme moves.
+- **`check:scheme`** — the `data-ds-dark-theme` hand-off: the plugin only rewrites the value it wrote, hands the flag back when it drops its tokens, and repaints when the scheme moves. It no longer reaches the network: the recommended profile's manifest it used to compare against is compiled in now.
 - **`check:store`** — the two decisions behind the storage cleanup, `referencedSlots` and `orphanSlots`: a picture in use is never an orphan, a stray holiday-slot file always is, and the browser half sends RULE slots rather than the whole config.
-- **`check:node`** — the built node half through its real RPC handler with `DSH_HOME` redirected and `fetch` stubbed: the holiday block, the festival art's caching and pruning, mirror fallback, the per-image color AND effect lifts, the global switch effect, the atomic config write with its backup and its recovery, the store's usage report and cleanup, and the recommended profile end to end.
+- **`check:node`** — the built node half through its real RPC handler with `DSH_HOME` redirected and `fetch` stubbed: the holiday block, the festival art's content-hash cache and its pruning, fallback across the three edges, the per-image color AND effect lifts, the global switch effect, the atomic config write with its backup and its recovery, the store's usage report and cleanup, and the recommended profile's seven pictures end to end (including the old manifest method being gone, the slot whitelist, and the retry budget).
 
 ## FAQ
 
@@ -289,6 +292,16 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
 
+### v0.11.0
+
+- **The download source moves to Bilibili's image CDN** — the recommended profile's seven wallpapers and both holiday pictures now come from `i0`/`i1`/`i2.hdslb.com`, three edges falling back to each other; the three screenshots in this README stay where they are, since they play no part at runtime.
+- **The recommended profile's rules ship inside the plugin** — seven model rules and their interface numbers are compiled into the bundle, and the button downloads only the seven pictures. It no longer needs GitHub to be reachable, and there is no "the remote profile is newer than this build" gate left, nor a `preset.json` manifest — what gets installed is always what this build itself writes.
+- **The request set is a constant table** — slot → BFS path, fixed at build time, and a BFS path is a hash of the upload. So a wallpaper URL is immutable in a way a git tag is not.
+- **The addresses carry `@3840w.webp`** — the uploads are 2.4–12 MB PNGs (76 MB for the set); with that suffix they are the 250–365 KB 4K WebPs whose sha1 matches what is already in a data directory.
+- **The festival cache is keyed by content hash** — `holiday-cache/<tag>/` became `holiday-cache/<first eight of the hash>/`. New art means a new address, therefore a new directory and a guaranteed re-download; the "remember to bump the version too" trap is gone, and the old tag directories are taken by the same sweep once the new art lands.
+- **`SCHEMA_VERSION` stays 10** — nothing entered or left the config shape: what changed is where those numbers come from, not what they look like.
+- **Checks** — `check:preset` now pins the built-in profile itself (rule order, the slot ↔ URL table, the webp transform and content hash in each address, the cache generation); `check:node` rewrites the holiday and profile sections (three-edge fallback and the retry budget, the old `fetchPresetConfig` method being gone, the slot whitelist, tag directories being swept); section 3 of `check:scheme` no longer reaches the network.
+
 ### v0.10.0
 
 - **The config is written atomically, with a `.bak` of the last good file** — a save writes a temp file and renames it over the live one, keeping the previous parseable file as the backup; a corrupt live file is restored from it instead of falling back to the factory defaults and then being overwritten by your next drag.
@@ -297,11 +310,6 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 - **A blurred wallpaper no longer paints a dark rim around the viewport** — the layer's box is grown 2σ past the screen edge and clipped, with the framing moved back by the same amount, so the blur samples off screen instead of fading into the page behind it.
 - **A switch between two different opacity, brightness or blur values animates now** — each layer keeps its own picture's filter, and the wallpaper's opacity rides the transition instead of snapping.
 - **Dragging one of the three sliders no longer repaints everything per frame** — a drag frame writes only that field's property, and one full repaint lands when the gesture ends.
-
-### v0.9.2
-
-- **The Config tab gains an "Image storage" card** — it reports how much is cleanable and how many files that is, then offers the button; only unreferenced files go, the config and the festival art stay, and any file that resists is named.
-- **`check:store`, so there are thirteen checks now** — both READMEs had been claiming ten, having missed `check:watchdogs` and `check:scheme` since v0.8.1; they are listed again alongside the new one.
 
 ## Star History
 [![Star History Chart](https://api.star-history.com/chart?repos=HarmlessFunny/dsh-background-by-model&type=timeline&legend=bottom-right)](https://www.star-history.com/?repos=HarmlessFunny%2Fdsh-background-by-model&type=timeline&legend=bottom-right)

@@ -198,25 +198,22 @@ export interface ThemeFile {
 }
 
 /**
- * The recommended profile is a DIRECTORY: a manifest, a config, and one raw file
- * per slot. It arrives as a head and then one answer per wallpaper, and both carry
- * their failure as a VALUE — an unreachable CDN is an ordinary outcome, not a
- * broken plugin.
+ * One wallpaper of the recommended profile, fetched by slot.
+ *
+ * The RULES are not fetched — they are compiled in (../profile) — so a profile is a
+ * set of pictures and nothing else. The failure still arrives as a VALUE: an
+ * unreachable CDN is an ordinary outcome, not a broken plugin.
  *
  * `error` is a small code the page turns into copy (`'download failed'`,
- * `'not a profile'`, `'newer version'`, `'too many images'`, `'not an image'`),
- * so the node half never writes user-facing text.
+ * `'not an image'`, `'too large'`, `'bad slot'`), so the node half never writes
+ * user-facing text.
  */
-export type PresetHead =
-  | { ok: true; version: number; config: unknown; slots: string[] }
-  | { ok: false; error: string }
-
 export type PresetImage = { ok: true; dataUrl: string } | { ok: false; error: string }
 
 /**
  * The assembled profile, or why there is none. `slot` is set when the failure
- * belongs to ONE wallpaper ("the host is missing `modelbg-m6`") rather than to the
- * profile as a whole ("the CDN is down").
+ * belongs to ONE wallpaper ("the profile's `m6` has no URL that answers") rather
+ * than to the set as a whole ("the CDN is down").
  */
 export type PresetResult =
   | { ok: true; preset: ThemeFile }
@@ -387,14 +384,13 @@ export interface ThemeSectionProps {
   /** Import such a JSON file: replaces the whole rule set and its images. */
   importTheme: (file: File) => Promise<boolean>
   /**
-   * Fetch the project's recommended profile: the manifest and config first, then
-   * one request per wallpaper the config names. Downloads only — nothing is
-   * touched until the user confirms and `applyRecommended` runs.
+   * Fetch the project's recommended profile: one request per wallpaper of the
+   * built-in set, and nothing else — the rules are compiled in. Downloads only, so
+   * nothing is touched until the user confirms and `applyRecommended` runs.
    *
-   * `onProgress` reports `(downloaded, total)` wallpapers, because this is now
-   * several transfers rather than one and the button has to be able to say so.
-   * The count is known before the first wallpaper is asked for, since the config
-   * is what names them.
+   * `onProgress` reports `(downloaded, total)` wallpapers, because this is several
+   * transfers rather than one and the button has to be able to say so. Both numbers
+   * are known before the first request: the set is a constant.
    */
   fetchRecommended: (onProgress?: (done: number, total: number) => void) => Promise<PresetResult>
   /**
