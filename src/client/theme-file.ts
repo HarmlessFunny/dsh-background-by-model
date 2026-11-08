@@ -47,7 +47,15 @@ export function buildThemeFile(): ThemeFile {
     // whatever a file predates, which is why this number only moves forward.
     version: SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
-    config: cfg,
+    // `agentAccess` is STRIPPED on the way out, and `rev` with it.
+    //
+    // Both are authorisations/bookkeeping rather than looks: a file handed to
+    // someone else must not be able to grant that person's agent access to their
+    // own machine (the importer's sanitizer would read a `true` in the file as a
+    // grant), and a revision from another store is meaningless here. The sanitizer
+    // puts both back at their safe defaults on import, so this is what keeps an
+    // export a description of an APPEARANCE and nothing else.
+    config: { ...cfg, agentAccess: false, rev: 0 },
     images,
   }
 }
@@ -98,7 +106,16 @@ export async function applyThemeFile(
     // disk keep painting until the next reload.
     resetConfig()
   }
-  adoptConfig(data.config)
+  // The importing machine's OWN authorisation decides, never the file's.
+  //
+  // An export already strips `agentAccess`, but a hand-edited or hand-crafted file
+  // can put `true` back in, and that must not be a way to grant an agent access to
+  // whatever machine opens it. So the value that survives an import is the one this
+  // store already had — the file describes an appearance, and access is not part of
+  // one. `rev` is reset too: the imported shape is not a revision of this store's
+  // history, and the next write mints the one it becomes.
+  const ownAccess = cfg.agentAccess
+  adoptConfig({ ...(data.config as object), agentAccess: ownAccess, rev: 0 })
   const incoming = (data.images ?? {}) as Record<string, unknown>
   const keep = new Set<string>()
   // Every slot the incoming config references — the same set the export writes.

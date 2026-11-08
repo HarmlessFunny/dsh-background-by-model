@@ -17,10 +17,12 @@
  * `scripts/preset-check.ts` reads it on plain node.
  */
 import {
+  DEFAULT_AGENT_ACCESS,
   DEFAULT_AUTO_EXTRACT,
   DEFAULT_CHAT_TEXT_OPACITY,
   DEFAULT_PAGE_OPACITY,
   DEFAULT_PART_OPACITIES,
+  DEFAULT_REV,
   DEFAULT_RIGHTBAR_OPACITY,
   DEFAULT_SETTINGS_OPACITY,
   DEFAULT_TRAJECTORY_OPACITY,
@@ -161,6 +163,11 @@ export function recommendedConfig(): ThemeConfig {
     // overrides ship on here and off in `freshThemeConfig` (see
     // DEFAULT_HOLIDAYS_ENABLED).
     holidays: { enabled: true, items: defaultHolidayRules() },
+    // ...but an AUTHORISATION is not a configuration, so this one stays off even
+    // here: pressing "use the recommended profile" asks for a look, not for an
+    // agent to be allowed to rewrite it. The user grants that on its own switch.
+    agentAccess: DEFAULT_AGENT_ACCESS,
+    rev: DEFAULT_REV,
   }
 }
 

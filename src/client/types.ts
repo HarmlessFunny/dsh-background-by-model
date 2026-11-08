@@ -379,6 +379,13 @@ export interface ThemeSectionProps {
   // swapped.
   /** Master switch of the holiday override. */
   setHolidaysEnabled: (v: boolean) => void
+  /**
+   * Grant or revoke the agent's access to this appearance.
+   *
+   * An authorisation, not a preference: while it is off the two tools are absent
+   * from the model's tool table, and the node half re-reads this on every step.
+   */
+  setAgentAccess: (v: boolean) => void
   /** Download every rule + its image as one JSON file. */
   exportTheme: () => void
   /** Import such a JSON file: replaces the whole rule set and its images. */

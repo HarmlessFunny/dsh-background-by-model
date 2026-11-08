@@ -133,14 +133,32 @@ const check = (label, ok, detail = '') => {
 let handler = null
 let registeredPath = null
 const requested = []
+// The agent tools, as this composition would register them: name plus the `when`
+// condition that is the access switch. Collected rather than executed, because
+// what has to be true here is WHICH tools exist and what gates them.
+const registeredTools = new Map()
+const toolService = {
+  register(definition, options) {
+    registeredTools.set(definition.name, { definition, options })
+    return () => { registeredTools.delete(definition.name) }
+  },
+}
 const root = {
+  // The deps decide what the scope is given: `ctx.inject(['tools'], …)` must hand
+  // its callback a context carrying the TOOL registry, while the RPC channel below
+  // asks for connection/webServer. Handing every scope the same stub put the tools
+  // registration into a context with no `tools` at all, which is the crash this
+  // shape exists to prevent in the real profile too.
   inject(deps, cb) {
     requested.push(...deps)
-    cb({
-      connection: { requestRejection: () => undefined },
-      webServer: { register: (spec) => { registeredPath = spec.path; handler = spec.handler; return () => {} } },
+    const scope = {
       effect: (fn) => fn(),
-    })
+      config: undefined,
+    }
+    if (deps.includes('tools')) scope.tools = toolService
+    if (deps.includes('webServer')) scope.webServer = { register: (spec) => { registeredPath = spec.path; handler = spec.handler; return () => {} } }
+    if (deps.includes('connection')) scope.connection = { requestRejection: () => undefined }
+    cb(scope)
   },
   // A reserved cordis field: reading it is the bug `ctx.config` caused once.
   get config() { throw new Error('cannot get property "config" without inject') },
@@ -735,7 +753,7 @@ check('a rule that names no image anywhere is still dropped',
 // its own defaults. 10 = the three paint effects (`images[].opacity`,
 // `images[].brightness`, `images[].blur`) moved from the rule onto every image.
 const announced = (await call('read')).value.schema
-check('the host announces the shape it sanitizes with', announced === 10, String(announced))
+check('the host announces the shape it sanitizes with', announced === 11, String(announced))
 // An emptied rule keeps the color it had: that color is what it paints while it
 // has no wallpaper, so it is not a field to clean up.
 await call('writeConfig', {
@@ -1237,6 +1255,99 @@ check('a corrupt live file does NOT overwrite the backup',
   readFileSync(join(DATA, 'theme-config.json.bak'), 'utf8').slice(0, 80))
 check('and the save itself still lands',
   readFileSync(join(DATA, 'theme-config.json'), 'utf8').includes('r-atomic-3'))
+
+// ── the revision: two writers, and the one that must lose ──────────────────
+// The settings panel and (with agent access on) the agent's tools both hold a whole
+// copy of this file. Each write names the revision it started from, so the LOSER is
+// told instead of silently overwriting — the failure that costs an edit nobody can
+// explain. Exercised through the real handler because the check runs there.
+console.log('\n--- a stale write is refused, and a current one is accepted ---')
+const revBase = await readConfig()
+const revSeen = revBase.rev
+check('every write stamps a revision one past the file it replaced',
+  typeof revSeen === 'number' && revSeen >= 0, String(revSeen))
+// Writer A (the panel) writes from the revision it saw.
+const ackA = (await call('writeConfig', {
+  config: { ...revBase, rules: [{ ...multiRule, id: 'r-rev-a' }] },
+  expectedRev: revSeen,
+})).value
+check('a write from the current revision is accepted', ackA?.ok === true, JSON.stringify(ackA))
+check('and it answers the revision it produced', ackA.rev === revSeen + 1, JSON.stringify(ackA))
+// Writer B held a copy read BEFORE A wrote, so it is stale by one.
+const ackB = (await call('writeConfig', {
+  config: { ...revBase, rules: [{ ...multiRule, id: 'r-rev-b' }] },
+  expectedRev: revSeen,
+})).value
+check('a write from a stale revision is REFUSED', ackB?.ok === false && ackB.conflict === true,
+  JSON.stringify(ackB))
+check('and the refusal carries the config that won',
+  ackB.config?.rules?.[0]?.id === 'r-rev-a', JSON.stringify(ackB.config?.rules?.map(r => r.id)))
+// The one thing the refusal must never do: leave B's edit on disk.
+check('the stale edit did NOT reach the file',
+  (await readConfig()).rules[0].id === 'r-rev-a', (await readConfig()).rules.map(r => r.id).join(','))
+// B can retry against what it was handed, and that write is no longer stale.
+const retry = (await call('writeConfig', {
+  config: { ...ackB.config, rules: [{ ...multiRule, id: 'r-rev-b' }] },
+  expectedRev: ackB.rev,
+})).value
+check('a retry against the handed-back revision is accepted', retry?.ok === true, JSON.stringify(retry))
+check('and lands', (await readConfig()).rules[0].id === 'r-rev-b')
+// A caller with no opinion (an older browser bundle) still writes: it cannot be
+// stale against a revision it has never heard of.
+const legacyAck = (await call('writeConfig', { config: { ...revBase, rules: [{ ...multiRule, id: 'r-rev-c' }] } })).value
+check('a write naming no revision still lands (an older bundle)',
+  legacyAck?.ok === true && (await readConfig()).rules[0].id === 'r-rev-c', JSON.stringify(legacyAck))
+
+// ── the agent-access switch reaches the file, and fails closed ─────────────
+console.log('\n--- agent access is stored, off by default, and only an explicit true ---')
+const fresh = await readConfig()
+check('a fresh store has the tools off', fresh.agentAccess === false,
+  JSON.stringify(fresh.agentAccess))
+await call('writeConfig', { config: { ...fresh, agentAccess: true } })
+check('the switch round-trips when granted', (await readConfig()).agentAccess === true)
+await call('writeConfig', { config: { ...(await readConfig()), agentAccess: false } })
+check('and when revoked', (await readConfig()).agentAccess === false)
+await call('writeConfig', { config: { ...(await readConfig()), agentAccess: 'yes' } })
+check('a truthy string in a hand-edited file does not grant it',
+  (await readConfig()).agentAccess === false)
+// `readRev` is the poll the panel runs while the switch is on. It answers ONE
+// number, because pulling the config every few seconds to learn "no" is the
+// expensive way to ask.
+const revAnswer = (await call('readRev', {})).value
+check('readRev answers just the revision',
+  typeof revAnswer?.rev === 'number' && Object.keys(revAnswer).length === 1, JSON.stringify(revAnswer))
+
+// ── the tools themselves: present, gated, and bounded ─────────────────────
+// Registered at `apply()` time, so what this asserts is the REGISTRATION: the two
+// names, and the `when` condition that decides whether the model ever sees them.
+// A tool whose `when` is missing would be visible forever — the "switched off but
+// still in the context" failure the switch exists to prevent.
+console.log('\n--- the agent tools are registered, and gated by the switch ---')
+check('two tools, and no third', registeredTools.size === 2, [...registeredTools.keys()].join(', '))
+const themeTool = registeredTools.get('background_theme')
+const editTool = registeredTools.get('background_edit')
+check('the read side is background_theme', themeTool !== undefined)
+check('the write side is background_edit', editTool !== undefined)
+// The gate is what keeps a closed switch from costing context.
+check('both carry a `when` condition', typeof themeTool?.options?.when === 'function'
+  && typeof editTool?.options?.when === 'function')
+// `when` reads the STORE, so it must answer per the config on disk, not a constant.
+const gateEditTool = editTool.options.when
+check('with access off the gate is closed', (await gateEditTool({})) === false)
+await call('writeConfig', { config: { ...(await readConfig()), agentAccess: true } })
+check('with access on the gate opens', (await gateEditTool({})) === true)
+await call('writeConfig', { config: { ...(await readConfig()), agentAccess: false } })
+check('and revoking closes it again on the very next ask', (await gateEditTool({})) === false)
+// The write tool's parameter space is what the model reads: it must not carry an
+// action this build cannot perform, or the model will ask for one.
+const actions = editTool.definition.parameters.properties.action.enum
+check('the write tool offers exactly the seven actions it implements',
+  actions.length === 7 && actions.includes('add_image') && actions.includes('set_image'),
+  actions.join(', '))
+// Nothing may offer to empty the store: that is the user's decision about their own
+// data, not an edit an agent can make.
+check('and offers no store reset',
+  !actions.some(a => a.includes('reset') || a.includes('clear') || a.includes('wipe')), actions.join(', '))
 
 // ── the recommended profile ────────────────────────────────────────────────
 // The profile is no longer a directory of files fetched from a repository: its

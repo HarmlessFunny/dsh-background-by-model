@@ -84,12 +84,83 @@ async function rpcRaw(method: string, payload: unknown): Promise<RpcResultLike |
 const SAVE_DEBOUNCE_MS = 250
 let saveTimer: number | undefined
 
+/**
+ * What the node half answered a config write with.
+ *
+ * `conflict` is the important one: another writer (the agent's tools, or a second
+ * tab) moved the file between this bundle's read and this write, so NOTHING was
+ * written and `config` is what is actually on disk. The caller adopts it rather
+ * than dropping the edit on the floor with no explanation.
+ */
+export interface WriteOutcome {
+  ok: boolean
+  conflict: boolean
+  /** The config now on disk, present on a conflict. */
+  config?: unknown
+  rev: number
+}
+
+/**
+ * Called when a write came back as a conflict, so the plugin can adopt the config
+ * that won and repaint. Set once by `apply()` in ./index.
+ *
+ * A callback rather than an import because `./rpc` owns no state: the memory copy,
+ * the repaint and the toast all live in the modules that own those, and this file
+ * would have to import half the plugin to reach them.
+ */
+let onConflict: ((config: unknown) => void) | null = null
+
+export function setConflictHandler(handler: (config: unknown) => void): void {
+  onConflict = handler
+}
+
+/**
+ * One config write, with the conflict case handled rather than logged.
+ *
+ * The generic `rpcCall` answers `undefined` for anything that is not a plain
+ * success, which is right for reads but wrong here: a REFUSED write is not "no
+ * answer", it is an answer that carries the config which won. So this one goes
+ * through `rpcRaw` and unwraps the outcome itself.
+ */
+async function writeConfigNow(config: unknown): Promise<WriteOutcome> {
+  const res = await rpcRaw('writeConfig', { config, expectedRev: cfg.rev })
+  if (res === undefined) return { ok: false, conflict: false, rev: cfg.rev }
+  if (res.ok !== true) return { ok: false, conflict: false, rev: cfg.rev }
+  const value = res.value as Partial<WriteOutcome> | undefined
+  if (value?.ok === true) return { ok: true, conflict: false, rev: typeof value.rev === 'number' ? value.rev : cfg.rev }
+  if (value?.conflict === true) {
+    return {
+      ok: false,
+      conflict: true,
+      config: value.config,
+      rev: typeof value.rev === 'number' ? value.rev : cfg.rev,
+    }
+  }
+  return { ok: false, conflict: false, rev: cfg.rev }
+}
+
+/**
+ * Persist, and adopt the winner when the write was refused as stale.
+ *
+ * Deliberately NOT retried: the edit that lost was computed from a config that is
+ * no longer there, and replaying it on the winner would apply a change the user
+ * made against a different state. Adopting is the honest answer — the user sees
+ * the new configuration and can repeat the gesture if they still want it.
+ */
+async function persistAndResolve(): Promise<void> {
+  const outcome = await writeConfigNow(cfg)
+  if (outcome.conflict && outcome.config !== undefined) {
+    onConflict?.(outcome.config)
+  }
+}
+
+/** Write the current config with the revision this bundle last saw. */
 export function saveConfig(): void {
   if (!canWriteConfig()) { holdWrite(); return }
   if (saveTimer !== undefined) window.clearTimeout(saveTimer)
   saveTimer = window.setTimeout(() => {
     saveTimer = undefined
-    void rpcCall('writeConfig', { config: cfg })
+    void persistAndResolve()
   }, SAVE_DEBOUNCE_MS)
 }
 
@@ -100,13 +171,13 @@ export function flushSave(): void {
   // Deliberately checked AFTER the timer is dropped: a held write must not stay
   // queued and fire on the next flush either.
   if (!canWriteConfig()) { holdWrite(); return }
-  void rpcCall('writeConfig', { config: cfg })
+  void persistAndResolve()
 }
 
 /** Persist the current config immediately (no debounce). */
 export function persistConfig(): void {
   if (!canWriteConfig()) { holdWrite(); return }
-  void rpcCall('writeConfig', { config: cfg })
+  void persistAndResolve()
 }
 
 export interface Persisted {
@@ -137,8 +208,21 @@ export async function loadPersisted(): Promise<Persisted | null> {
   return { config: d.config, slots, schema }
 }
 
-/** Read one rule image as a data URL (null when the slot is empty). */
-export async function readImage(slot: string): Promise<string | null> {
+/**
+ * The revision of the config on disk, or null when the host could not be asked.
+ *
+ * The whole answer is one number: this runs on a timer, and pulling the config to
+ * find out whether it changed would cost a full read every few seconds for a
+ * question that is almost always "no".
+ */
+export async function readRev(): Promise<number | null> {
+  const data = await rpcCall('readRev', {})
+  if (data === null || typeof data !== 'object') return null
+  const rev = (data as { rev?: unknown }).rev
+  return typeof rev === 'number' && isFinite(rev) ? rev : null
+}
+
+/** Read one rule image as a data URL (null when the slot is empty). */export async function readImage(slot: string): Promise<string | null> {
   const data = await rpcCall('readImage', { slot })
   if (data === null || typeof data !== 'object') return null
   const url = (data as { dataUrl?: unknown }).dataUrl

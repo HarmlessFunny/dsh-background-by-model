@@ -184,6 +184,13 @@ export const zh: Record<string, string> = {
   holidayTitle: '节日特殊背景',
   holidayEnable: '启用节日特殊背景（中秋当天、国庆 10 月 1–7 日）',
 
+  // ── AI 授权（默认关闭；配置页上一行开关）─────────────────────────────────
+  // 这不是外观偏好，而是授权：关着的时候工具根本不出现在模型的工具表里，
+  // 所以它像节日开关一样只有一行，但它的 tooltip 必须说清"关掉会发生什么"。
+  agentTitle: '允许 AI 修改背景',
+  agentEnable: '打开后，AI 可以调用工具增删改规则、切图、调透明度/颜色/模糊/布局。关闭时这些工具对 AI 完全不可见，不占用上下文。',
+  agentOn: '已开启：AI 可以修改这套外观，改动会即时生效。',
+
   // ── 切换效果（全局；配置页）───────────────────────────────────────────────
   // 效果与缓动是全局的（规则没有"效果"这个概念），时长默认仍由每条规则决定。
   trTitle: '切换效果',
@@ -380,6 +387,14 @@ export const en: Record<string, string> = {
   // ── Holiday overrides (on by default; one switch, no cards) ───────────────
   holidayTitle: 'Holiday backgrounds',
   holidayEnable: 'Enable holiday backgrounds (Mid-Autumn day, Oct 1–7)',
+
+  // ── Agent access (off by default; one switch on the Config page) ──────────
+  // An AUTHORISATION, not a preference: while it is off the tools do not exist in
+  // the model's tool table at all, so it reads like the holiday switch but its
+  // tooltip has to say what turning it OFF does.
+  agentTitle: 'Let the AI change the background',
+  agentEnable: 'When on, the AI can add, edit and remove rules, switch images, and set opacity, colour, blur and layout. When off these tools are entirely absent from the AI, costing no context.',
+  agentOn: 'On: the AI can change this appearance, and edits take effect immediately.',
 
   // ── Switch effect (global; the Config page) ───────────────────────────────
   // The effect and the easing are global — a rule has no notion of one — while

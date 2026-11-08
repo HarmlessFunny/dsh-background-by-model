@@ -23,7 +23,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 // cache is keyed by (the date maths belongs to the browser half).
 import { HOLIDAYS, holidayArtGeneration } from './holiday'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
-import { SCHEMA_VERSION, SLOT_RE, normalizeConfig } from './schema'
+import { SCHEMA_VERSION, SLOT_RE, normalizeConfig, nextRev, ruleSlots } from './schema'
 import type { BgState, ThemeConfig } from './schema'
 // Which download failures are worth another round, and how long to wait before
 // it — shared with the browser half, which owns what a failed attempt keeps (see
@@ -37,6 +37,10 @@ import { orphanSlots, referencedSlots } from './store'
 // the public `fetchPresetImage` method, so the request set is compile-time rather
 // than something a remote document chooses (see ./profile).
 import { PROFILE_HOSTS, profileImagePath } from './profile'
+// The agent-facing tools. Registered on the Host because the store is the Host's:
+// a tool that edited the files directly would fight the settings panel's own copy
+// (see the revision check in `writeConfig`).
+import { registerThemeTools } from './tools'
 
 export const name = 'dsh-background-by-model'
 export const inject = ['connection', 'webServer']
@@ -494,15 +498,50 @@ function warnUnknownConfigKeys(raw: unknown, normalized: ThemeConfig): void {
   }
 }
 
-async function writeConfig(config: unknown): Promise<boolean> {
+/**
+ * What a config write answers.
+ *
+ * `conflict` is a real outcome, not an error: two writers hold whole copies of the
+ * file (the settings panel, and — with `agentAccess` on — this plugin's tools), and
+ * the loser must be TOLD rather than silently overwritten. It carries the config
+ * that won, so the caller can adopt it and carry on instead of guessing.
+ */
+export type WriteConfigOutcome =
+  | { ok: true; rev: number }
+  | { ok: false; conflict: true; config: ThemeConfig; rev: number }
+
+/**
+ * Persist a config, but only if it is still the one the caller started from.
+ *
+ * `expectedRev` is the revision the caller's copy was read at. When the file on
+ * disk has moved past it (another writer got there first), NOTHING is written and
+ * the current config is handed back — the alternative is the failure this whole
+ * mechanism exists to prevent: the panel's 250 ms debounced save landing on top of
+ * an agent's edit, with both sides believing they succeeded.
+ *
+ * `undefined` means "write unconditionally", and only two callers may say it: a
+ * migration (writing a shape nobody else has seen), and the store reset (there is
+ * no prior config to be stale against). Every ordinary save names a revision.
+ *
+ * This is the ONLY place the revision is bumped, so a written file always has one
+ * more than the file it replaced, whoever wrote it.
+ */
+async function writeConfig(config: unknown, expectedRev?: number): Promise<WriteConfigOutcome> {
   try {
-    const normalized = normalizeConfig(config)
+    // Read-and-compare BEFORE writing: the disk copy is the one revision everyone
+    // agrees on, and `readConfig` already answers with the backup when the live
+    // file is unreadable, so a corrupt file cannot be mistaken for "same revision".
+    const current = await readConfig()
+    if (expectedRev !== undefined && current.rev !== expectedRev) {
+      return { ok: false, conflict: true, config: current, rev: current.rev }
+    }
+    const normalized = normalizeConfig({ ...(config as object), rev: nextRev(current.rev) })
     warnUnknownConfigKeys(config, normalized)
     await writeConfigFile(serializeConfig(normalized))
-    return true
+    return { ok: true, rev: normalized.rev }
   } catch (e) {
     console.error(`dsh-background-by-model: failed to write "${CONFIG_FILE}"`, e)
-    return false
+    return { ok: false, conflict: true, config: await readConfig(), rev: -1 }
   }
 }
 
@@ -1049,12 +1088,25 @@ export async function handleRpcMethod(ctx: any, endpoint: unknown, payload: unkn
     : []
   try {
     switch (method) {
+      case 'readRev':
+        // One number, for a timer. Deliberately not a config read: the panel asks
+        // this every few seconds and almost always learns nothing changed.
+        return { ok: true, value: { rev: (await readConfig()).rev } }
       case 'read':
         // `schema` is the shape this half writes, published so a newer browser
         // bundle can refuse to send a config this one would mangle (SCHEMA_VERSION).
         return { ok: true, value: { config: await readConfig(), slots: await listSlots(), schema: SCHEMA_VERSION } }
-      case 'writeConfig':
-        return { ok: true, value: await writeConfig((payload as { config?: unknown } | null)?.config ?? {}) }
+      case 'writeConfig': {
+        // `expectedRev` is the revision the caller's copy was read at. Absent means
+        // "no opinion" — an older browser bundle, which cannot be stale against a
+        // revision it has never seen — and the write proceeds unconditionally, as
+        // it did before this field existed.
+        const payloadRev = (payload as { expectedRev?: unknown } | null)?.expectedRev
+        const expected = typeof payloadRev === 'number' && isFinite(payloadRev) && payloadRev >= 0
+          ? Math.floor(payloadRev)
+          : undefined
+        return { ok: true, value: await writeConfig((payload as { config?: unknown } | null)?.config ?? {}, expected) }
+      }
       case 'readImage':
         if (slot === null) return { ok: true, value: { dataUrl: null } }
         return { ok: true, value: { dataUrl: await readImage(slot) } }
@@ -1092,6 +1144,50 @@ export async function handleRpcMethod(ctx: any, endpoint: unknown, payload: unkn
 }
 
 export function apply(ctx: any): void {
+  // ── Agent access: the two tools, and the switch that unhides them ─────────
+  // Registered through `ctx.inject` like the RPC channel below, so a profile
+  // without a tool registry simply does not get them. `permitted()` reads the
+  // store on EVERY step — never cached — because a cached `true` would keep the
+  // tools in the model's table for one more round after the user switched them
+  // off, which is the one behaviour the switch must not have.
+  ctx.inject(['tools'], (toolCtx: any) => {
+    toolCtx.effect(() => {
+      registerThemeTools(toolCtx, {
+        read: () => readConfig(),
+        async write(config, baseRev) {
+          const outcome = await writeConfig(config, baseRev)
+          return outcome.ok
+        },
+        async importUrl(url) {
+          // A tool-added picture takes the first slot nothing names yet. The
+          // download goes through the SAME `fetchImageUrl` every other path uses,
+          // so the URL rules (scheme, size, image magic bytes) are one set.
+          const config = await readConfig()
+          const taken = new Set([
+            ...config.rules.flatMap(ruleSlots),
+            ...config.holidays.items.flatMap(ruleSlots),
+          ])
+          let slot = ''
+          for (let i = 1; i < 1000; i++) {
+            if (!taken.has(`m${i}`)) { slot = `m${i}`; break }
+          }
+          if (slot === '') return { ok: false as const, error: 'no free image slot' }
+          const got = await fetchImageUrl(slot, url)
+          return got.ok ? { ok: true as const, slot } : { ok: false as const, error: got.error ?? 'download failed' }
+        },
+        async permitted() {
+          // Read on every step; a store that cannot be read fails CLOSED.
+          try {
+            return (await readConfig()).agentAccess === true
+          } catch {
+            return false
+          }
+        },
+      })
+      return () => undefined
+    }, 'dsh-background-by-model: agent tools')
+  })
+
   // A PREFIX ROUTE ON `webServer`, not `connection.rpc.handle`, and this is not a
   // preference: `rpc.handle` captures the CONNECTION SERVICE's own context and
   // registers through it (`register()` does `owner.webServer.register(...)`), while

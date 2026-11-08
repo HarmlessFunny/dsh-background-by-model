@@ -136,6 +136,18 @@ One click on the Config tab installs the author's own configuration — seven mo
 - **The download comes before the question**, so the confirmation can say what is actually in hand — and the wipe comes after the download, never before it. It is the only card in the panel that **asks before it deletes**.
 - **One missing wallpaper fails the whole attempt and names the slot**, and every file retries on its own (three edges × three rounds), keeping what arrived for the next press.
 
+### Letting the AI change the background (Config tab, off by default)
+
+The first card on the Config tab: one switch deciding whether **the AI may change this appearance through tools**.
+
+- **An authorisation, not a preference** — while it is off the two tools **do not exist in the model's tool table at all**, so a closed switch costs no context and cannot be called by mistake. It is not "the tools are there but every call fails".
+- **Off by default, and the recommended profile does not turn it on** — neither an upgrade, a fresh install nor "use the recommended profile" hands an agent the ability to rewrite your appearance. Only that switch does.
+- **What the AI can do** — add, edit and remove rules; add an image to a rule from a URL; set per-image layout, opacity, brightness, blur and theme colour; set the global interface opacities and the switch effect; adjust rotation.
+- **What it cannot do** — empty the store into the recommended profile (that is your decision about your own data), touch the holiday art (that slot is read-only), or read image bytes (the tools answer with slot names, never megabytes of base64).
+- **Edits land immediately** — the panel checks the config's revision on disk every 3 seconds, so an agent's change repaints without a reload.
+- **An export never carries the switch** — sending someone a theme file does not hand them "let the AI change my appearance", and a hand-edited file that says `true` is overruled by the **importing machine's** own value.
+- **The AI and you cannot silently overwrite each other** — every write names the revision it was computed from, a write that has fallen behind is **refused** instead of overwriting, and the panel then adopts the copy that won.
+
 ### Image storage cleanup
 
 The last card on the Config tab. Images are stored at **full fidelity**, so an interrupted upload, a failed file deletion or a wholesale config replacement can leave a file on disk that no rule references any more — and on a tidy machine that number is normally **0**. The card reads the numbers, and the button deletes **without asking**.
@@ -156,7 +168,7 @@ Settings → **Theme** now has three tabs:
 | --- | --- | --- |
 | **Interface** | Global, shared by every model | Opacity for the main background, left panel, right panel, cards & panels, input & controls, settings panel, conversation text box, trajectory page and every plugin page |
 | **Model Background** | Per rule, per image | The ordered rule list, the live match readout, and each rule's images (filmstrip), **per-image layout mode, framing and theme color**, plus the rule's opacity, brightness, blur and [rotation](#image-rotation) |
-| **Config** | — | The global [switch effect](#switch-effect-global), the whole rule set as a file — [recommended profile](#recommended-profile), import and export (`dsh-background-by-model-theme.json`) — plus the single [holiday background](#holiday-backgrounds) switch and the [image storage cleanup](#image-storage-cleanup) |
+| **Config** | — | The [let the AI change the background](#letting-the-ai-change-the-background-config-tab-off-by-default) switch, the global [switch effect](#switch-effect-global), the whole rule set as a file — [recommended profile](#recommended-profile), import and export (`dsh-background-by-model-theme.json`) — plus the single [holiday background](#holiday-backgrounds) switch and the [image storage cleanup](#image-storage-cleanup) |
 
 The old **Color** tab is gone — the theme color is now a property of each rule — and the old **Background** tab became **Model Background**.
 
@@ -200,7 +212,7 @@ npx @deepseek-ai/dsh web
 git clone https://github.com/HarmlessFunny/dsh-background-by-model.git
 cd dsh-background-by-model
 pnpm install
-pnpm test            # builds lib/, typechecks, runs the thirteen checks
+pnpm test            # builds lib/, typechecks, runs the fourteen checks
 ```
 
 `pnpm run bundle` rebuilds `lib/` on its own. Either has to run before the plugin can load: a fresh clone has no `lib/`.
@@ -222,7 +234,7 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
-`pnpm test` builds, typechecks and runs thirteen checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:node`:
+`pnpm test` builds, typechecks and runs fourteen checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:node`:
 
 - **`check:holiday`** — the two holiday windows, the Beijing day boundary, leap eighth months across 1900–2100, and the four gates `pickHoliday` applies.
 - **`check:rotation`** — `nextIndex` / `isRotating`: no walking off the end, shuffle never repeating the image on screen, and nothing called "rotating" with nothing to rotate.
@@ -236,6 +248,7 @@ After changing anything under `src/`, run `pnpm run bundle` again — the mounte
 - **`check:watchdogs`** — one heartbeat, entries firing on their own due time, paused while the tab is hidden, no timer left by dispose, and no module outside the entry starting its own interval.
 - **`check:scheme`** — the `data-ds-dark-theme` hand-off: the plugin only rewrites the value it wrote, hands the flag back when it drops its tokens, and repaints when the scheme moves. It no longer reaches the network: the recommended profile's manifest it used to compare against is compiled in now.
 - **`check:store`** — the two decisions behind the storage cleanup, `referencedSlots` and `orphanSlots`: a picture in use is never an orphan, a stray holiday-slot file always is, and the browser half sends RULE slots rather than the whole config.
+- **`check:agent`** — agent access and the config revision: off by default, only an explicit `true` granting it (`'yes'` / `1` / `null` do not), the recommended profile not turning it on, an export not carrying it, the revision only ever moving forward, and a config written before either field reading as revision 0.
 - **`check:node`** — the built node half through its real RPC handler with `DSH_HOME` redirected and `fetch` stubbed: the holiday block, the festival art's content-hash cache and its pruning, fallback across the three edges, the per-image color AND effect lifts, the global switch effect, the atomic config write with its backup and its recovery, the store's usage report and cleanup, and the recommended profile's seven pictures end to end (including the old manifest method being gone, the slot whitelist, and the retry budget).
 
 ## FAQ
@@ -291,6 +304,15 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 ## Recent Optimizations
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
+
+### v0.12.0
+
+- **The agent can change the appearance through two tools** — `background_theme` reads; `background_edit` writes (add/edit/remove rules and images, layout, opacity, brightness, blur, theme colour, the global interface opacities, the switch effect, rotation). Both call the same node-half operations the settings panel does.
+- **The switch ships off** — a new `agentAccess` in the config. While it is off the tools are **absent from the model's tool table**, costing no context and impossible to call; the recommended profile does not turn it on.
+- **An export never carries the grant** — a theme file describes an appearance; `agentAccess` and `rev` are stripped on the way out and the importing machine's own value wins on the way in.
+- **The config carries a revision, and a stale write is refused** — the panel and the tools cannot silently overwrite each other; the loser is handed the config that won and adopts it.
+- **The panel checks the revision every 3 s**, so an agent's edit repaints without a reload — a no-op while access is off.
+- **`SCHEMA_VERSION` is 11**, with a new `check:agent` and the stale-write and access round trips added to `check:node`.
 
 ### v0.11.0
 

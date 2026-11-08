@@ -380,6 +380,32 @@ export interface ThemeConfig {  /** Ordered rules: matching runs top→bottom, r
   autoExtract: boolean
   /** Built-in holiday overrides (中秋 / 国庆), switched off as a whole. */
   holidays: HolidaysConfig
+  /**
+   * Whether an Agent may change this appearance through the plugin's tools.
+   *
+   * An AUTHORISATION, not a preference, and the default is OFF: the tools do not
+   * exist for the model until the user says so, because nothing about upgrading
+   * this plugin should hand an agent the ability to rewrite what the user sees.
+   * The node half reads it on every tool registration (no cache — a cached `true`
+   * would keep the tools visible for one more round after the switch went off).
+   *
+   * Deliberately NOT carried by a theme export: a file handed to someone else
+   * must not be able to grant the agent anything (see `buildThemeFile`).
+   */
+  agentAccess: boolean
+  /**
+   * Monotonic revision of this config, bumped by whoever writes it.
+   *
+   * Two writers share this file — the panel, and (with `agentAccess` on) the
+   * plugin's tools — and both hold a whole in-memory copy that they write back
+   * wholesale. Without a revision the LAST writer wins in silence: an agent's
+   * edit lands, the user drags one slider, and the 250 ms debounced save puts the
+   * panel's stale copy back over it. Every write therefore names the revision it
+   * started from, and the node half REFUSES a stale one instead of overwriting
+   * (see `writeConfig` in ./index). A refusal costs a reload; the silent overwrite
+   * it prevents costs an edit nobody can explain.
+   */
+  rev: number
 }
 
 // The three tint alphas and the panel opacity are the profile's values as well
@@ -405,6 +431,27 @@ export const DEFAULT_AUTO_EXTRACT = true
  * chose.)
  */
 export const DEFAULT_HOLIDAYS_ENABLED = false
+/**
+ * Agent access ships OFF: the tools are absent from the model's tool table until
+ * the user turns this on, so an upgrade can never hand an agent the ability to
+ * rewrite the user's appearance. The recommended profile does NOT turn it on
+ * either — that is a configuration somebody chose, and this is an authorisation.
+ */
+export const DEFAULT_AGENT_ACCESS = false
+
+/**
+ * The revision a config that has never been written by this shape carries.
+ *
+ * 0 rather than an absent key, so `normalizeConfig` has one value to hand out and
+ * every writer can do arithmetic on it. A config written before the field existed
+ * lands here too: it is the first revision of its own history.
+ */
+export const DEFAULT_REV = 0
+
+/** The revision after one write: what a writer stamps on the config it produces. */
+export function nextRev(rev: unknown): number {
+  return (typeof rev === 'number' && isFinite(rev) && rev >= 0 ? Math.floor(rev) : DEFAULT_REV) + 1
+}
 
 /**
  * `#RRGGBB` → the `[h, s, l]` triple every rule stores (`s` and `l` in 0..1), or
@@ -505,6 +552,8 @@ export function freshThemeConfig(): ThemeConfig {
     pageOpacity: DEFAULT_PAGE_OPACITY,
     autoExtract: DEFAULT_AUTO_EXTRACT,
     holidays: { enabled: DEFAULT_HOLIDAYS_ENABLED, items: defaultHolidayRules() },
+    agentAccess: DEFAULT_AGENT_ACCESS,
+    rev: DEFAULT_REV,
   }
 }
 
@@ -542,8 +591,14 @@ export const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/
  *                                    it would drop all three in silence AND keep
  *                                    reading the rule-level values that no longer
  *                                    exist — a wallpaper silently back at 100%.
+ *   11 `agentAccess` and `rev`      — new fields. BOTH are load-bearing on their
+ *                                    own: a schema-10 host's sanitizer would drop
+ *                                    `agentAccess` (silently revoking or, worse,
+ *                                    re-defaulting it) and drop `rev`, which would
+ *                                    make every tool edit indistinguishable from a
+ *                                    stale one and refuse every write.
  */
-export const SCHEMA_VERSION = 10
+export const SCHEMA_VERSION = 11
 
 export function clamp(n: unknown, lo: number, hi: number, def: number): number {
   return typeof n === 'number' && isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def
@@ -923,5 +978,13 @@ export function normalizeConfig(raw: unknown): ThemeConfig {
     // option existed starts with the helpful default.
     autoExtract: r.autoExtract !== false,
     holidays: normalizeHolidays(r.holidays),
+    // An authorisation: ONLY an explicit `true` grants it. A config written
+    // before this field existed (and a hand-edited one with anything else in it)
+    // lands on OFF, so access can never appear on its own.
+    agentAccess: r.agentAccess === true,
+    // A config written before this field existed is at revision 0 — the first
+    // revision of its own history, which is what makes "no revision yet" and
+    // "revision zero" the same safe starting point for the stale-write check.
+    rev: typeof r.rev === 'number' && isFinite(r.rev) && r.rev >= 0 ? Math.floor(r.rev) : DEFAULT_REV,
   }
 }

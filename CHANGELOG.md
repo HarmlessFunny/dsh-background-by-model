@@ -1,6 +1,17 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.11.0 / v0.10.0).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.0 / v0.11.0).
+
+## v0.12.0
+
+- **Two tools the agent can use to change the appearance** — `background_theme` reads the rules, the images (by slot, never as bytes) and the interface numbers; `background_edit` adds, edits and removes rules and images, and sets layout, opacity, brightness, blur, theme colour, the global interface opacities and the switch effect. Both call the same node-half operations the settings panel does, so there is one sanitizer and one write path, not a second opinion about them.
+- **The switch is a privilege, not a preference** — a new `agentAccess` in the config, `false` by default. While it is off the two tools are absent from the model's tool table entirely (`tools.register`'s `when`), so a closed switch costs no context and cannot be called. The recommended profile does NOT turn it on either: pressing "use the recommended profile" asks for a look, not for an agent to be allowed to rewrite it.
+- **One switch on the Config page**, above the holiday switch, because it is the heavier of the two. Turning it on confirms what was granted; turning it off needs no confirmation, since the capability simply stops existing.
+- **An export never carries the grant** — `buildThemeFile` strips `agentAccess` (and `rev`), and `applyThemeFile` keeps the importing machine's own value regardless of what the file says. A theme file describes an appearance; access is not part of one.
+- **The config carries a revision, and a stale write is refused** — two writers hold whole copies of `theme-config.json` (the panel, and now the tools), and both write them back wholesale. Every write names the revision it was computed from; a write that has fallen behind is refused with the config that won, which the loser then adopts and repaints. This is what stops the panel's 250 ms debounced save from landing on top of an agent's edit with both sides believing they succeeded.
+- **The panel notices an agent's edit without a reload** — a 3 s `readRev` poll, registered on the existing watchdog schedule, a no-op while access is off.
+- **`SCHEMA_VERSION` is 11** — two new fields, and both are load-bearing on their own: a schema-10 sanitizer would drop `agentAccess` (silently re-defaulting an authorisation) and `rev` (making every tool edit indistinguishable from a stale one).
+- **`check:agent`** — the switch's defaults and its exact-true rule, the recommended profile not granting it, the revision arithmetic, and both fields being declared in the published shape. `check:node` gains the stale-write round trip through the real RPC handler, the access round trip and its fail-closed read, `readRev`, and the tool registrations with their gates.
 
 ## v0.11.0
 

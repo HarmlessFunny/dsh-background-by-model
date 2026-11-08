@@ -58,6 +58,7 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
   // switch and the switch-effect card would not repaint themselves.
   p.useStore((s: ThemeStoreState) => s.rev + s.rulesRev)
   const holidays = cfg.holidays
+  const agentAccess = cfg.agentAccess
   const tr = cfg.transition
 
   // ── match tester ──────────────────────────────────────────────────────────
@@ -261,6 +262,27 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
         <h2 className="dab-h1">{t('pageProfile')}</h2>
         <p className="dab-desc">{t('descProfile')}</p>
       </header>
+
+      {/* Agent access: one switch, and it is an AUTHORISATION rather than a look.
+          It sits above the holiday switch because it is the heavier of the two —
+          turning it on lets another actor rewrite everything on this page. While
+          it is off the two tools do not exist in the model's tool table at all, so
+          the tooltip has to say that: "off" here means "the capability is absent",
+          which is not what the holiday switch's "off" means. */}
+      <section className="dab-card dab-rise" style={{ '--d': 1 } as CSSProperties}>
+        <div className="dab-chip-row" style={{ alignItems: 'center' }}>
+          <button type="button" className={`dab-toggle${agentAccess ? ' is-on' : ''}`}
+            role="switch" aria-checked={agentAccess} title={t('agentEnable')}
+            onClick={() => {
+              const next = !agentAccess
+              p.setAgentAccess(next)
+              if (next) notify(t('agentOn'))
+            }}>
+            <span className="dab-toggle-knob" />
+          </button>
+          <span className="dab-holiday-label">{t('agentTitle')}</span>
+        </div>
+      </section>
 
       {/* The whole holiday override is one switch. There is deliberately no card
           per holiday, no thumbnail and no image picker: the feature is a small

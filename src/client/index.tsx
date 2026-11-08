@@ -17,6 +17,7 @@ import { createRotation } from './rotation-timer'
 import { watchNavIcon } from './nav-icon'
 import { applyThemeFile, buildThemeFile, saveThemeFile } from './theme-file'
 import { createSchedule } from './watchdogs'
+import { REV_POLL_MS } from './cadence'
 import type {
   Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, BgImage, BgMode, BgRule, BgState, HolidayRule,
   FetchResult, ModelFacts, TransitionConfig, ThemeFile, PresetResult, PruneResult, StoreUsage,
@@ -42,6 +43,7 @@ import { nextIndex, isRotating } from './rotation'
 import { shouldRepaint } from './repaint'
 import {
   RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
+  setConflictHandler, readRev,
   writeImage, deleteImage, fetchImageUrl, readDefaultModel, hostIsLegacy,
   canWriteConfig, fetchPresetImage,
   readStoreUsage, pruneOrphanImages,
@@ -355,6 +357,29 @@ export function apply(ctx: Ctx): void {
   }
   schedule.add(themeWatchdog(checkHost))
   schedule.add(holidayRollover(checkHost))
+  // The revision watch. A no-op while agent access is off — that is the only
+  // state in which nothing but this panel writes the file — and a cheap one number
+  // ask otherwise. It exists because the panel's copy is authoritative for PAINTING
+  // and must not stay stale until the next reload after an agent edit.
+  schedule.add({
+    name: 'rev',
+    everyMs: REV_POLL_MS,
+    run(): void {
+      if (!cfg.agentAccess) return
+      void (async () => {
+        const rev = await readRev()
+        if (rev === null || rev === cfg.rev) return
+        // Same path a refused write takes: the disk copy wins, the panel follows.
+        const persisted = await loadPersisted()
+        if (persisted === null) return
+        adoptConfig(persisted.config)
+        for (const slot of cfg.rules.flatMap(ruleSlots)) {
+          if (displayImageOf(slot) === null) await loadSlot(slot)
+        }
+        applyActive()
+      })()
+    },
+  })
 
   void (async () => {
     const persisted = await loadPersisted()
@@ -366,6 +391,20 @@ export function apply(ctx: Ctx): void {
     }
     applyActive()
   })()
+
+  // A write refused as stale means another writer (the agent's tools) owns a
+  // newer config. Adopt it and repaint: dropping the edit silently is the exact
+  // failure the revision check exists to prevent, and re-applying the lost edit
+  // would write a change the user made against a state that is gone.
+  setConflictHandler((config: unknown) => {
+    adoptConfig(config)
+    void (async () => {
+      for (const slot of cfg.rules.flatMap(ruleSlots)) {
+        if (displayImageOf(slot) === null) await loadSlot(slot)
+      }
+      applyActive()
+    })()
+  })
 
   ctx.effect(() => () => { teardownWp() }, 'dsh-background-by-model: wp cleanup')
 
@@ -789,6 +828,17 @@ export function apply(ctx: Ctx): void {
         cfg.transition = normalizeTransition({ ...cfg.transition, ...patch })
         sync()
         saveConfig()
+      },
+
+      // ── Agent access ──────────────────────────────────────────────────────
+      // Written through `persistConfig` rather than `saveConfig`: this is a grant,
+      // and a grant that sits in a 250 ms debounce can be missed by a tool call
+      // that arrives in between — the model would ask for a tool the store still
+      // says is off, or keep one it says is on.
+      setAgentAccess: (v: boolean): void => {
+        cfg.agentAccess = v
+        sync()
+        persistConfig()
       },
 
       // ── Holiday overrides ─────────────────────────────────────────────────
