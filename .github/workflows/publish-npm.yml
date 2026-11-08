@@ -239,12 +239,22 @@ jobs:
             const pkg = require("./package.json")
             const promised = [...pkg.files, "package.json", "README.md", "README.zh.md", "LICENSE"]
             const packed = fs.readFileSync(process.env.RUNNER_TEMP + "/tarball.txt", "utf8").trim().split("\n")
-            const missing = promised.filter((f) => !packed.includes(f))
+            // `files` entries may be globs (npm expands them itself): a literal
+            // path must be present by name, while a glob must match at least one
+            // packed file. Comparing a glob as a literal filename rejects a good
+            // tarball — `locale/*.json` when it really holds locale/en.json etc.
+            const globToRe = (g) => new RegExp("^" + g.replace(/[.+^${}()|[\]\\]/g, "\\$&")
+              .replace(/\*\*/g, "\u0000").replace(/\*/g, "[^/]*").replace(/\u0000/g, ".*") + "$")
+            const missing = promised.filter((f) => {
+              if (!f.includes("*")) return !packed.includes(f)
+              const re = globToRe(f)
+              return !packed.some((p) => re.test(p))
+            })
             if (missing.length) {
               console.error("promised by package.json but missing from the tarball: " + missing.join(", "))
               process.exit(1)
             }
-            console.log("all " + promised.length + " files package.json promises are in the tarball")
+            console.log("all " + promised.length + " entries package.json promises are in the tarball")
           '
           echo "shasum=${shasum}" >> "${GITHUB_OUTPUT}"
           echo "fileCount=${files}" >> "${GITHUB_OUTPUT}"

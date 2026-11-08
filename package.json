@@ -1,6 +1,6 @@
 {
   "name": "dsh-background-by-model",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "Appearance plugin for DeepSeek Harness: an ordered list of model rules, each carrying its own wallpapers — every image with its own framing and theme color — plus layout mode, opacity, brightness and blur; the background follows the model you switch to, a rule can rotate through several images on its own rhythm, and an off-by-default switch lets the agent change any of it through two tools.",
   "keywords": [
     "deepseek-harness",
@@ -21,6 +21,7 @@
   },
   "license": "MIT",
   "author": "Tkingxiao",
+  "icon": "./icon.svg",
   "type": "module",
   "engines": {
     "dsh": ">=0.2.1-alpha.2"
@@ -35,13 +36,16 @@
     "./client": {
       "default": "./lib/client.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "main": "lib/index.js",
   "directories": {
     "lib": "lib"
   },
   "files": [
+    "icon.svg",
+    "locale/*.json",
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
@@ -67,8 +71,9 @@
     "check:scheme": "node scripts/scheme-check.ts",
     "check:store": "node scripts/store-check.ts",
     "check:node": "node scripts/node-half-check.mjs",
-    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/code-plate-check.ts && node scripts/image-mode-check.ts && node scripts/rules-view-check.ts && node scripts/preset-check.ts && node scripts/ui-strings-check.ts && node scripts/watchdogs-check.ts && node scripts/scheme-check.ts && node scripts/store-check.ts && node scripts/agent-access-check.ts && node scripts/rev-check.ts && node scripts/node-half-check.mjs",
+    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/code-plate-check.ts && node scripts/image-mode-check.ts && node scripts/rules-view-check.ts && node scripts/preset-check.ts && node scripts/ui-strings-check.ts && node scripts/watchdogs-check.ts && node scripts/scheme-check.ts && node scripts/store-check.ts && node scripts/agent-access-check.ts && node scripts/rev-check.ts && node scripts/plugin-meta-check.ts && node scripts/node-half-check.mjs",
     "check:agent": "node scripts/agent-access-check.ts",
+    "check:meta": "node scripts/plugin-meta-check.ts",
     "check:rev": "node scripts/rev-check.ts"
   },
   "devDependencies": {

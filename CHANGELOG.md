@@ -1,6 +1,14 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.0 / v0.11.0).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.2 / v0.12.1).
+
+## v0.12.2
+
+- **The plugin manager no longer shows a package name and a generic icon** — `locale/en.json` and `locale/zh.json` supply the title and description the manager displays, and `icon.svg` replaces the default artwork.
+- **Both files are EXPORTED, and that is what makes them readable** — the reader resolves them through Node's ESM resolver, so `exports` must name `./locale/*.json`; a file on disk without that entry resolves to nothing and is treated as absent, with no error anywhere.
+- **And they are in `files`** — everything above can be right in the repository and still be missing from the tarball, which looks exactly the same in the UI.
+- **`check:meta`** — asserts all of it, then asks `readPluginMeta` itself for the answer the card would show. Verified to fail when the `exports` entry, the `files` entry or the `icon` key is removed.
+- **The publish gate accepts globs in `files`** — it compared every `files` entry with `packed.includes()`, so `locale/*.json` looked like a missing literal filename and the pack step refused a perfectly good tarball. A literal path is still matched by name; a glob now has to match at least one packed file.
 
 ## v0.12.1
 

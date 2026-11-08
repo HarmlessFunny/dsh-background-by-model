@@ -237,7 +237,7 @@ pnpm test            # 构建 lib/、类型检查、跑十三道检查
 
 改完 `src/` 必须重新执行 `pnpm run bundle` 才会生效 —— 挂载的 profile 加载的是 `lib/`。
 
-`pnpm test` 会构建、类型检查并跑十五道校验，十五道都不需要依赖、不需要转译器、也不需要浏览器。也可以单独跑：`pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:rev` / `pnpm check:node`：
+`pnpm test` 会构建、类型检查并跑十六道校验，十六道都不需要依赖、不需要转译器、也不需要浏览器。也可以单独跑：`pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:rev` / `pnpm check:meta` / `pnpm check:node`：
 
 - **`check:holiday`** —— 两个节日窗口、北京时间的跨日边界、1900–2100 年间的闰八月，以及 `pickHoliday` 的四道闸门。
 - **`check:rotation`** —— `nextIndex` / `isRotating`：不走越界、随机不重复当前这张、没有可轮换的东西时绝不报「正在轮换」。
@@ -253,6 +253,7 @@ pnpm test            # 构建 lib/、类型检查、跑十三道检查
 - **`check:store`** —— 存储清理的两个判定：`referencedSlots` 与 `orphanSlots`。钉住「正在用的图不会被当成孤儿」与「节日槽位的文件必须可清」，外加浏览器半边传的是**规则槽位**而不是整份配置。
 - **`check:agent`** —— AI 授权与配置版本号：默认关闭、只有显式 `true` 才授予（`'yes'` / `1` / `null` 都不行）、推荐配置不替你打开、导出不带授权、版本号只增不减、以及旧配置读成 0。
 - **`check:rev`** —— 面板的版本号链：写入必须带 `expectedRev`、成功后必须记下宿主的回答、`setRev` 改写活对象、导入不得把版本号清零且要在清空之前读，推荐配置必须走一次 `adoptRecommended` 而不是自己 `resetStore` 再写，且配置写入必须串成一条链、图片字节要等配置落盘之后再删（导入主题也一样）、AI 加的图片用时钟派生的槽位名、两条路径不能同时采用推荐配置。少了任何一环，下一次保存就会判自己陈旧，改动在画面上自己撤销（"点一次 + 卡片闪一下后消失"）。
+- **`check:meta`** —— 插件在插件管理器和设置页里如何描述**它自己**：`locale/<语言>.json` 每种语言各带标题与描述、两份文件都在 `exports` 里（读取方走 Node 的 ESM 解析器，磁盘上有但 `exports` 没写等于解析不到，而且会被**静默当成不存在**）、都在 `files` 里（否则发布的包里根本没有，症状和上一句一模一样），以及一个相对路径、留在包内、SVG/PNG/JPEG/WebP、256 KiB 以内、带 36×36 viewBox 且不引用外部资源的图标。dsh 就装在旁边时，最后会直接问 `readPluginMeta` 本人——因为它给出的兜底答案正是包名，而那恰是卡片上原来显示的东西。
 - **`check:node`** —— 把构建好的 node 半边通过真实的 RPC 处理器跑一遍（`DSH_HOME` 指向临时目录、`fetch` 换成桩）：节日配置块、节日画按内容哈希的缓存与清理、三个边缘的回落、逐图颜色与逐图效果的抬升、全局切换效果、配置的原子写与备份/恢复、图片存储的用量报告与清理，以及推荐配置的七张图（含旧清单方法的消失、槽位白名单、超时与重试预算）。
 
 ## 常见问题
@@ -309,19 +310,13 @@ pnpm test            # 构建 lib/、类型检查、跑十三道检查
 
 > 这里只列最近两个版本；更早的版本见 [CHANGELOG.zh.md](./CHANGELOG.zh.md)。
 
+### v0.12.2
+
+- **插件管理器和设置页里能正确描述这个插件了** —— `locale/en.json` 与 `locale/zh.json` 分语言给出标题与描述，`icon.svg`（36×36，和内置图标同一个 viewBox）顶掉那个通用方块。两样都写进了 `exports` 和 `files`：读取方走 Node 的 ESM 解析器，磁盘上有但 `exports` 没声明的 locale 文件解析不到，没写进 `files` 的文件发布的包里根本没有——这两种情况在界面上都长得像"根本没有 locale"，且不报任何错。`check:meta` 把这些全钉住，最后直接问 `readPluginMeta` 卡片上会显示什么。发布闸门也改成支持 `files` 里的通配符了，`locale/*.json` 不会再被当成一个不存在的字面文件名。
+
 ### v0.12.1
 
 - **修掉"AI 加的图片没有主题色"** —— 自动取色原来只挂在面板自己的上传路径上，而 AI 的 `add_image` 一条都不走：node 半边下载并写配置，浏览器半边只能接盘一个新版本号。现在两处接盘都会给"接盘前不存在的槽位"取色，AI 加的图和手动加的一样有主题色，工具描述里那句话才算数。
-
-### v0.12.0
-
-- **AI 可以通过两个工具改这套外观** —— `background_theme` 读，`background_edit` 写（增删改规则与图片、布局、透明度、亮度、模糊、主题色、全局界面透明度、切换效果、轮换，以及带 `confirm` 才执行的「换上推荐配置」）。它们调的是面板用的同一批 node 半边操作。
-- **工具描述写清了主题替它决定的事** —— 不必为适配当前深浅模式挑图（深浅跟着壁纸走，深色浅色都能用）、用户没点名就不传颜色、找图优先选中国大陆能访问的站点、AI 加的图片落在「填充」。
-- **授权开关默认关** —— 配置里新增 `agentAccess`。关着时工具**根本不在模型的工具表里**，不占上下文也不会被误调；推荐配置也不替你打开。
-- **导出不带授权** —— 主题文件只描述外观，`agentAccess` 与 `rev` 在导出时被剥掉，导入时以本机的值为准。
-- **配置带版本号，落后写入被拒绝** —— 面板与工具不能互相静默覆盖；被拒的一方拿到赢家的配置并接盘重绘。写入成功后必须记下新版本号，否则下一次保存会判自己陈旧、改动在画面上自己撤销（"点一次 + 卡片闪一下后消失"）。推荐配置是一个操作的往返，不是"清空再写"两步。
-- **面板 3 秒核对一次版本号**，AI 改完不用刷新；授权关闭时是空操作。
-- **`SCHEMA_VERSION` 升到 11**，新增 `check:agent`，`check:node` 补上陈旧写入与授权往返。
 
 ## Star History
 

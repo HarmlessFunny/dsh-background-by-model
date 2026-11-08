@@ -237,7 +237,7 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
-`pnpm test` builds, typechecks and runs fifteen checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:rev` / `pnpm check:node`:
+`pnpm test` builds, typechecks and runs sixteen checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:rev` / `pnpm check:meta` / `pnpm check:node`:
 
 - **`check:holiday`** — the two holiday windows, the Beijing day boundary, leap eighth months across 1900–2100, and the four gates `pickHoliday` applies.
 - **`check:rotation`** — `nextIndex` / `isRotating`: no walking off the end, shuffle never repeating the image on screen, and nothing called "rotating" with nothing to rotate.
@@ -253,6 +253,7 @@ After changing anything under `src/`, run `pnpm run bundle` again — the mounte
 - **`check:store`** — the two decisions behind the storage cleanup, `referencedSlots` and `orphanSlots`: a picture in use is never an orphan, a stray holiday-slot file always is, and the browser half sends RULE slots rather than the whole config.
 - **`check:agent`** — agent access and the config revision: off by default, only an explicit `true` granting it (`'yes'` / `1` / `null` do not), the recommended profile not turning it on, an export not carrying it, the revision only ever moving forward, and a config written before either field reading as revision 0.
 - **`check:rev`** — the panel's revision chain: a write carries `expectedRev`, a successful one records the host's answer, `setRev` mutates the live object, an import neither zeroes the revision nor reads it after the wipe, installing the recommended profile goes through one `adoptRecommended` call rather than a `resetStore` plus a write, config writes are chained while picture bytes are released only after the config lands (imports included), a tool-added picture derives a slot name from the clock, and two callers cannot adopt at once. Miss any link and the next save refuses itself, so an edit visibly undoes itself ("click + once, the card flashes and disappears").
+- **`check:meta`** — how the plugin describes ITSELF in the plugin manager and the settings pages: `locale/<language>.json` carrying a title and a description per language, both files EXPORTED (the reader resolves them through Node's ESM resolver, so a file on disk that `exports` does not name resolves to nothing and is silently treated as absent), both listed in `files` (or the published tarball is missing them and looks identical), and an icon that is a relative path, inside the package, SVG/PNG/JPEG/WebP under 256 KiB, with a 36×36 viewBox and nothing referenced externally. When the harness is installed next door it ends by asking `readPluginMeta` itself, because the fallback it otherwise answers with — the bare package name — is exactly what a reader sees on the card.
 - **`check:node`** — the built node half through its real RPC handler with `DSH_HOME` redirected and `fetch` stubbed: the holiday block, the festival art's content-hash cache and its pruning, fallback across the three edges, the per-image color AND effect lifts, the global switch effect, the atomic config write with its backup and its recovery, the store's usage report and cleanup, and the recommended profile's seven pictures end to end (including the old manifest method being gone, the slot whitelist, and the retry budget).
 
 ## FAQ
@@ -309,19 +310,13 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
 
+### v0.12.2
+
+- **The plugin manager and the settings pages describe this plugin properly** — `locale/en.json` and `locale/zh.json` carry its title and description in each language, and `icon.svg` (36×36, the same viewBox the built-in artwork uses) replaces the generic package glyph. Both are listed in `exports` and in `files`: the reader resolves them through Node's ESM resolver, so a locale file on disk that `exports` does not name resolves to nothing, and a file outside `files` is missing from the published tarball — both look exactly like "no locale at all" in the UI, with no error anywhere. `check:meta` pins the lot and ends by asking `readPluginMeta` itself what the card would show. The publish gate now accepts globs in `files`, so a `locale/*.json` entry no longer reads as a missing literal filename.
+
 ### v0.12.1
 
 - **Fix: a picture the agent added had no theme colour** — the automatic extraction was hooked to the panel's own upload paths, and the agent's `add_image` reaches this half by none of them: the node half downloads and writes the config, and the browser half only adopts a newer revision. Both adoption sites now theme the slots that were not there before, so a picture added by the agent is themed like one added by hand, and the tools' own descriptions are finally true.
-
-### v0.12.0
-
-- **The agent can change the appearance through two tools** — `background_theme` reads; `background_edit` writes (add/edit/remove rules and images, layout, opacity, brightness, blur, theme colour, the global interface opacities, the switch effect, rotation, and installing the recommended profile behind a `confirm`). Both call the same node-half operations the settings panel does.
-- **Their descriptions say what the theme decides for them** — a picture is not picked to suit the current light/dark interface (the scheme follows the wallpaper, so either works), no colour is passed unless the user named one, URLs come from hosts reachable in mainland China, and a picture the agent adds lands in `fill`.
-- **The switch ships off** — a new `agentAccess` in the config. While it is off the tools are **absent from the model's tool table**, costing no context and impossible to call; the recommended profile does not turn it on — and installing it does not turn one OFF either.
-- **An export never carries the grant** — a theme file describes an appearance; `agentAccess` and `rev` are stripped on the way out and the importing machine's own value wins on the way in.
-- **The config carries a revision, and a stale write is refused** — the panel and the tools cannot silently overwrite each other; the loser is handed the config that won and adopts it. A successful write must record the new revision, or the next save refuses itself and the edit visibly undoes itself ("click + once, the card flashes and disappears"). Installing the recommended profile is one round trip, not "wipe then write".
-- **The panel checks the revision every 3 s**, so an agent's edit repaints without a reload — a no-op while access is off.
-- **`SCHEMA_VERSION` is 11**, with a new `check:agent` and the stale-write and access round trips added to `check:node`.
 
 ## Star History
 [![Star History Chart](https://api.star-history.com/chart?repos=HarmlessFunny/dsh-background-by-model&type=timeline&legend=bottom-right)](https://www.star-history.com/?repos=HarmlessFunny%2Fdsh-background-by-model&type=timeline&legend=bottom-right)
