@@ -160,6 +160,12 @@ export const zh: Record<string, string> = {
   recFailTooLarge: '这份推荐配置体积过大，未做任何改动',
   recFailImage: '这张壁纸没拿到（图床上这个地址没有回应）：',
   recFailApply: '未能写入推荐配置，你原来的配置没有被改动',
+  // The honest counterpart: the wipe is irreversible, so a failure after it must
+  // not repeat the line above. Says what happened, what is still there, and what to
+  // do next — in that order.
+  recFailAfterWipe: '推荐配置写了一半就失败了，你原来的规则已经被清空（图片也一起没了）。再点一次「使用推荐配置」可以重来，图片是重新下载的',
+  // A failure that never touched the store: the download is the safe half.
+  recFailNoStore: '壁纸没能下载，推荐配置尚未开始，你原来的配置没有被改动',
 
   // ── 图片存储（配置页）─────────────────────────────────────────────────────
   // 图片按原图保存，只有意外中断的上传、失败的删除或整批替换才会留下不再被任何
@@ -362,6 +368,12 @@ export const en: Record<string, string> = {
   recFailTooLarge: 'The recommended profile is too large. Nothing was changed.',
   recFailImage: 'Could not fetch this wallpaper — the image host does not answer for that address:',
   recFailApply: 'Could not write the recommended profile — your own is untouched',
+  // The honest counterpart: the wipe is irreversible, so a failure after it must
+  // not repeat the line above. Says what happened, what is still there, and what to
+  // do next — in that order.
+  recFailAfterWipe: 'The recommended profile failed halfway, after your own rules had already been cleared (their pictures too). Pressing it again starts over, and the wallpapers are re-downloaded',
+  // A failure that never touched the store: the download is the safe half.
+  recFailNoStore: 'The wallpapers could not be downloaded, so nothing was installed — your own config is untouched',
 
   // ── Image store (Config page) ─────────────────────────────────────────────
   // Images are kept at full fidelity, so only an interrupted upload, a failed

@@ -20,7 +20,7 @@ import { createSchedule } from './watchdogs'
 import { REV_POLL_MS } from './cadence'
 import type {
   Ctx, RpcResultLike, ThemeSectionProps, PartOpacities, BgImage, BgMode, BgRule, BgState, HolidayRule,
-  FetchResult, ModelFacts, TransitionConfig, ThemeFile, PresetResult, PruneResult, StoreUsage,
+  FetchResult, ModelFacts, TransitionConfig, ThemeFile, PresetResult, PruneResult, StoreUsage, ApplyResult,
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
@@ -946,10 +946,10 @@ export function apply(ctx: Ctx): void {
         return { ok: true, preset: recommendedThemeFile(images) }
       },
       /** Replace EVERYTHING with a downloaded profile: empty the store, then write it. */
-      applyRecommended: async (_preset: ThemeFile): Promise<boolean> => {
+      applyRecommended: async (_preset: ThemeFile): Promise<ApplyResult> => {
         // Never delete a store this build cannot write back into: the reset would
         // go through while every config write is held (`canWriteConfig`).
-        if (!canWriteConfig()) return false
+        if (!canWriteConfig()) return { ok: false, wiped: false }
         // ONE round trip. The node half downloads, wipes and installs, and answers
         // the revision it landed on — this half must not sequence the wipe itself,
         // because the wipe is what makes the revision ambiguous: doing it here
@@ -957,11 +957,22 @@ export function apply(ctx: Ctx): void {
         // heard of, was refused as stale, and adopted the config it had just
         // replaced. That is the "press it twice" report.
         const res = await adoptRecommended()
-        if (!res.ok) return false
+        // The failure is passed through WHOLE, `wiped` included: the page has to be
+        // able to tell "nothing was touched" from "your rules are already gone",
+        // and only the node half knows which of those actually happened.
+        if (!res.ok) {
+          // A failed adopt may still have changed the store, and this half's copy
+          // would otherwise keep painting rules that no longer exist.
+          if (res.wiped === true) {
+            const after = await loadPersisted()
+            if (after !== null) { adoptConfig(after.config); clearImages(); applyActive() }
+          }
+          return { ok: false, error: res.error, slot: res.slot, wiped: res.wiped === true }
+        }
         // Re-read rather than reconstruct: the rules, the slots and the revision are
         // the node half's, and guessing any of them here is how the two would drift.
         const persisted = await loadPersisted()
-        if (persisted === null) return false
+        if (persisted === null) return { ok: false, error: 'the profile was installed but could not be read back', wiped: true }
         adoptConfig(persisted.config)
         // The store was emptied server-side, so every cached picture belongs to a
         // slot that no longer exists — dropping them keeps the display URLs from
@@ -969,7 +980,7 @@ export function apply(ctx: Ctx): void {
         clearImages()
         for (const slot of cfg.rules.flatMap(ruleSlots)) await loadSlot(slot)
         applyActive()
-        return true
+        return { ok: true, wiped: false }
       },
 
       // ── The image store ──────────────────────────────────────────────────

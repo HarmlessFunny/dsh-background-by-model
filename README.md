@@ -134,6 +134,7 @@ One click on the Config tab installs the author's own configuration — seven mo
 - **`@3840w.webp` is load-bearing** — the uploads are 2.4–12 MB PNGs (76 MB for the set); with that suffix they are the 250–365 KB 4K WebPs an existing data directory already holds, byte for byte.
 - **Every interface number in it is what the plugin already ships with**, so on a new install the button adds rules and pictures; on a store you have already tuned it resets those too, because it is a whole configuration and not a patch.
 - **The download comes before the question**, so the confirmation can say what is actually in hand — and the wipe comes after the download, never before it. It is the only card in the panel that **asks before it deletes**.
+- **A failure says which step it reached** — a download failure reports that nothing was touched; a failure AFTER the wipe says the old rules are already gone and that pressing again starts over. The wipe is irreversible, so those two situations must not share one comforting sentence.
 - **One missing wallpaper fails the whole attempt and names the slot**, and every file retries on its own (three edges × three rounds), keeping what arrived for the next press.
 
 ### Letting the AI change the background (Config tab, off by default)

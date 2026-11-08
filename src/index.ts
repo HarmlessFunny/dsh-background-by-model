@@ -929,7 +929,8 @@ async function resetStore(): Promise<boolean> {
  * slot, and costs a round trip to get back.
  */
 async function adoptRecommendedProfile(): Promise<
-  { ok: true; rules: number; images: number; rev: number } | { ok: false; error: string; slot?: string }
+  | { ok: true; rules: number; images: number; rev: number }
+  | { ok: false; error: string; slot?: string; wiped: boolean }
 > {
   const config = recommendedConfig()
   // READ THE REVISION FIRST, while the old config is still on disk. `resetStore`
@@ -941,13 +942,16 @@ async function adoptRecommendedProfile(): Promise<
   const images: Record<string, string> = {}
   for (const slot of PROFILE_SLOTS) {
     const got = await fetchPresetImage(slot)
-    if (!got.ok) return { ok: false, error: got.error, slot }
+    // Nothing has been touched yet — this is the one failure the caller may
+    // honestly describe as "your own config is untouched".
+    if (!got.ok) return { ok: false, error: got.error, slot, wiped: false }
     images[slot] = got.dataUrl
   }
   if (!(await resetStore())) {
-    // A partial wipe has already happened, which is worse than a clean refusal —
-    // say so rather than reporting a generic failure.
-    return { ok: false, error: 'the store could not be emptied completely; read the configuration before retrying' }
+    // A PARTIAL wipe: some files may be gone, so this must never be reported as a
+    // clean refusal — the caller has to say the old configuration may have been
+    // disturbed rather than hand back a comforting lie.
+    return { ok: false, error: 'the store could not be emptied completely', wiped: true }
   }
   // Pictures first, config LAST: the config is what makes those slots referenced,
   // and a slot whose bytes landed but whose rule entry has not is the one state the
@@ -956,7 +960,9 @@ async function adoptRecommendedProfile(): Promise<
     const dataUrl = images[slot]
     if (dataUrl === undefined) continue
     if (!(await writeImage(slot, dataUrl))) {
-      return { ok: false, error: `the picture for slot "${slot}" could not be written` }
+      // The wipe is behind us: the user's rules are already gone, so `wiped` is
+      // what keeps the caller from claiming otherwise.
+      return { ok: false, error: `the picture for slot "${slot}" could not be written`, slot, wiped: true }
     }
   }
   // Unconditional on `expectedRev` (the store was emptied, so there is nothing to
@@ -965,7 +971,7 @@ async function adoptRecommendedProfile(): Promise<
   // profile is installed" and "the profile is installed until somebody drags a
   // slider".
   const written = await writeConfig(config, undefined, replacedRev)
-  if (!written.ok) return { ok: false, error: 'the profile could not be written' }
+  if (!written.ok) return { ok: false, error: 'the profile could not be written', wiped: true }
   // The revision it landed on, so the panel can record it instead of guessing —
   // the floor above is the only place that number is decided.
   return { ok: true, rules: config.rules.length, images: PROFILE_SLOTS.length, rev: written.rev }

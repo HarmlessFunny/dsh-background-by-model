@@ -4,6 +4,11 @@
 
 ## v0.12.0
 
+- **Fix: "could not write the recommended profile — your own is untouched" was a lie** — that line is only true when the DOWNLOAD fails. It was also shown for failures after the wipe (a picture that would not write, the config that would not write, a wipe that only half succeeded), and by then the user's rules and pictures were already gone. A message saying "nothing was touched" stops them from retrying and sends them looking for data that is not there.
+- **Three outcomes now, each with its own message** — a download failure (the store is untouched, and it says so), a failure after the wipe (says the old rules are gone and that pressing again starts over), and success. The node half reports `wiped` itself rather than the browser guessing from an error string.
+- **`applyRecommended` returns a result object instead of a boolean** — one boolean cannot hold the difference between "it failed and your data is still there" and "it failed and your data is gone".
+- **The panel re-reads after a failed adopt** — when the wipe had already happened, this half's copy names rules that no longer exist, and painting from it is showing a ghost.
+
 - **Fix: "installing the recommended profile also needs two presses"** — the same defect as the line above, but I had only fixed the ordinary-save path. The profile used to be two steps: `resetStore`, then the panel's own write. The wipe deletes the config ON DISK, which takes the revision back to 0 while the panel still holds the pre-wipe number — so its write was refused as stale and adopted **the config it had just replaced**. The button looked pressed and did nothing.
 - **Installing the profile is one operation now** — the host's `adoptRecommended` (download, wipe, install, answer the revision it landed on) is the only implementation, and the panel makes one round trip instead of sequencing a wipe. The tools already called that function; both callers are finally the same path.
 - **`applyThemeFile` loses its `wipeFirst` variant** — that was the doorway to the two-step path, and leaving it open leaves a way for the bug to come back. An import now only means "overlay this file on a live store".

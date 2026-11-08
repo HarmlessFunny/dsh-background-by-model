@@ -33,6 +33,7 @@ const STATE = readFileSync(resolve(HERE, '../src/client/state.ts'), 'utf8')
 const SCHEMA = readFileSync(resolve(HERE, '../src/schema.ts'), 'utf8')
 const THEME_FILE = readFileSync(resolve(HERE, '../src/client/theme-file.ts'), 'utf8')
 const ENTRY = readFileSync(resolve(HERE, '../src/client/index.tsx'), 'utf8')
+const PAGE = readFileSync(resolve(HERE, '../src/client/components/pages/ProfilePage.tsx'), 'utf8')
 
 let failures = 0
 function check(label: string, ok: boolean, detail = ''): void {
@@ -121,6 +122,23 @@ check('the host reads the replaced revision before it wipes',
 check('and floors the profile\'s write on it',
   /writeConfig\(config, undefined, replacedRev\)/.test(INDEX),
   'the profile write no longer floors on the replaced revision')
+
+console.log('\n--- a failed adopt tells the truth about what it deleted ---')
+// The wipe is irreversible, so the failure message is load-bearing: telling someone
+// their config is untouched when it is already gone stops them from retrying a
+// store that is empty. The node half reports `wiped`; the page must honour it.
+check('the host reports whether the store was already emptied',
+  /wiped: false/.test(INDEX) && /wiped: true/.test(INDEX),
+  'adoptRecommendedProfile no longer distinguishes a pre-wipe failure from a post-wipe one')
+check('a download failure is reported BEFORE the wipe',
+  INDEX.indexOf("wiped: false") < INDEX.indexOf("await resetStore()"),
+  'the pre-wipe failure is not reported before the wipe')
+check('the panel passes the whole outcome through',
+  /res\.wiped === true/.test(ENTRY),
+  'applyRecommended drops the node half\'s `wiped` report')
+check('and the page branches on it rather than on a boolean',
+  /res\.wiped \? t\('recFailAfterWipe'\)/.test(PAGE),
+  'the page still renders one message for both failure kinds')
 
 console.log('\n--- both documents still describe the same field ---')
 check('the shape declares rev', /rev: number/.test(SCHEMA), 'schema.ts lost the rev field')

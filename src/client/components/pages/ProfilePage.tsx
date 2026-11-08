@@ -180,9 +180,11 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
     if (!res.ok) {
       // A failure that names a slot is about one picture's address on the image
       // host, not about the network or this build — so it says which one.
+      // The download happens BEFORE the wipe, so this failure is the safe kind and
+      // the message is allowed to say so outright.
       notify(res.slot === undefined
-        ? t(REC_ERROR_KEYS[res.error] ?? 'recFailNetwork')
-        : `${t('recFailImage')} ${res.slot}`, false)
+        ? `${t(REC_ERROR_KEYS[res.error] ?? 'recFailNetwork')} ${t('recFailNoStore')}`
+        : `${t('recFailImage')} ${res.slot} ${t('recFailNoStore')}`, false)
       return
     }
     setPending(res.preset)
@@ -192,10 +194,15 @@ export function ProfilePage({ p, notify }: { p: ThemeSectionProps; notify: (msg:
     const preset = pending
     if (preset === null) return
     setRecBusy(true)
-    const ok = await p.applyRecommended(preset)
+    const res = await p.applyRecommended(preset)
     setRecBusy(false)
     setPending(null)
-    notify(ok ? t('recDone') : t('recFailApply'), ok)
+    if (res.ok) { notify(t('recDone')); return }
+    // Three outcomes, not two, and the middle one is the reason this is not a
+    // boolean: the wipe is irreversible, so a failure AFTER it must not tell the
+    // user their own config is untouched — that message would stop them retrying a
+    // store that is already empty. `wiped` is the node half's own report.
+    notify(res.wiped ? t('recFailAfterWipe') : t('recFailApply'), false)
   }
 
   // ── image storage ─────────────────────────────────────────────────────────

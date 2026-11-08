@@ -266,6 +266,24 @@ export interface PruneResult {
   refused: boolean
 }
 
+/**
+ * What installing the recommended profile answered.
+ *
+ * More than a boolean because the wipe is irreversible: `wiped` says whether the
+ * user's own rules were already gone when the attempt failed, and a caller that
+ * only knew `false` would have to guess which of two very different messages to
+ * show — one of them a lie.
+ */
+export interface ApplyResult {
+  ok: boolean
+  /** The failure's own words, when the node half named one. */
+  error?: string
+  /** The picture that could not be fetched. */
+  slot?: string
+  /** The store had already been emptied when the attempt failed. */
+  wiped: boolean
+}
+
 /** Props the slots host injects into the theme section (built once). */
 export interface ThemeSectionProps {
   t: (key: string) => string
@@ -405,7 +423,7 @@ export interface ThemeSectionProps {
    * the profile's rules and wallpapers into it. Irreversible by design, which is
    * why the page asks first.
    */
-  applyRecommended: (preset: ThemeFile) => Promise<boolean>
+  applyRecommended: (preset: ThemeFile) => Promise<ApplyResult>
 
   // ── The image store ────────────────────────────────────────────────────────
   // Two halves of one question, and the split matters: the card must be able to

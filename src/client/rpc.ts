@@ -317,12 +317,40 @@ export async function resetStore(): Promise<boolean> {
  * refused as stale, and adopted the config it had just replaced. One round trip,
  * one place that knows.
  */
-export async function adoptRecommended(): Promise<{ ok: boolean; rev: number }> {
+export interface AdoptOutcome {
+  ok: boolean
+  /** The revision the profile landed on (absent when nothing was written). */
+  rev: number
+  /** Why it failed, in the node half's own words. */
+  error?: string
+  /** The picture that could not be fetched, when the failure was one file. */
+  slot?: string
+  /**
+   * Whether the store was already emptied when the attempt failed.
+   *
+   * The whole reason this bit exists: the wipe is irreversible, so a failure AFTER
+   * it means the user's rules are gone, and a message claiming "your own config is
+   * untouched" would be a lie that stops them from retrying. The node half reports
+   * this rather than the browser guessing from the error string.
+   */
+  wiped?: boolean
+}
+
+export async function adoptRecommended(): Promise<AdoptOutcome> {
   const res = await rpcRaw('adoptRecommended', {})
   if (res === undefined || res.ok !== true) return { ok: false, rev: cfg.rev }
-  const value = res.value as { ok?: boolean; rev?: unknown } | undefined
-  if (value?.ok !== true) return { ok: false, rev: cfg.rev }
-  return { ok: true, rev: typeof value.rev === 'number' ? value.rev : cfg.rev }
+  const value = res.value as Partial<AdoptOutcome> | undefined
+  const base: AdoptOutcome = {
+    ok: value?.ok === true,
+    rev: typeof value?.rev === 'number' ? value.rev : cfg.rev,
+  }
+  if (base.ok) return base
+  return {
+    ...base,
+    error: typeof value?.error === 'string' ? value.error : undefined,
+    slot: typeof value?.slot === 'string' ? value.slot : undefined,
+    wiped: value?.wiped === true,
+  }
 }
 
 /** Host default model — used only when the per-session services are absent. */
