@@ -4,6 +4,11 @@
 
 ## v0.12.0
 
+- **Fix: "这张图片还没有取到内容" after deleting quickly** — slot names are RECYCLED: deleting a rule frees its `mN` immediately and the next upload takes the same number. Delete and write are independent requests on one connection, so which reaches the host first is whatever the transport decides that moment — the delete can land AFTER the write, leaving the config naming a slot whose bytes were just removed. The card is there, the slot name is there, the picture is not, and nothing reports an error because nothing failed.
+- **Byte operations on one slot now run in the order they were asked for** — read, write, delete and fetch-by-URL share a queue **keyed by slot**. Per slot rather than global: adding seven pictures at once must not serialise into seven round trips.
+- **A failure does not wedge the slot** — a rejected operation does not block the ones behind it.
+- **`check:rev` pins the chain** — all four operations must go through the queue, the queue must be keyed by slot, and `nextSlot` must really recycle (or the check is describing something that cannot happen).
+
 - **Fix: "could not write the recommended profile — your own is untouched" was a lie** — that line is only true when the DOWNLOAD fails. It was also shown for failures after the wipe (a picture that would not write, the config that would not write, a wipe that only half succeeded), and by then the user's rules and pictures were already gone. A message saying "nothing was touched" stops them from retrying and sends them looking for data that is not there.
 - **Three outcomes now, each with its own message** — a download failure (the store is untouched, and it says so), a failure after the wipe (says the old rules are gone and that pressing again starts over), and success. The node half reports `wiped` itself rather than the browser guessing from an error string.
 - **`applyRecommended` returns a result object instead of a boolean** — one boolean cannot hold the difference between "it failed and your data is still there" and "it failed and your data is gone".

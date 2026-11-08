@@ -34,6 +34,7 @@ const SCHEMA = readFileSync(resolve(HERE, '../src/schema.ts'), 'utf8')
 const THEME_FILE = readFileSync(resolve(HERE, '../src/client/theme-file.ts'), 'utf8')
 const ENTRY = readFileSync(resolve(HERE, '../src/client/index.tsx'), 'utf8')
 const PAGE = readFileSync(resolve(HERE, '../src/client/components/pages/ProfilePage.tsx'), 'utf8')
+const BOOT = readFileSync(resolve(HERE, '../src/client/boot.ts'), 'utf8')
 
 let failures = 0
 function check(label: string, ok: boolean, detail = ''): void {
@@ -139,6 +140,33 @@ check('the panel passes the whole outcome through',
 check('and the page branches on it rather than on a boolean',
   /res\.wiped \? t\('recFailAfterWipe'\)/.test(PAGE),
   'the page still renders one message for both failure kinds')
+
+console.log('\n--- byte operations on ONE slot are ordered ---')
+// Slots are RECYCLED: deleting a rule frees its `mN`, and the next upload takes it
+// straight back. Those are independent requests on one connection, so a fast
+// delete-then-add can reach the host in the wrong order — the delete lands after the
+// write, and the config names a slot whose bytes were just removed. On screen that
+// is a card reading "这张图片还没有取到内容" with the rule sitting right there, and
+// nothing reports an error because nothing failed.
+check('the byte operations share a per-slot queue',
+  /slotQueues/.test(RPC) && /enqueueForSlot/.test(RPC),
+  'rpc.ts no longer serialises per-slot byte operations')
+check('a write goes through it', /enqueueForSlot\(slot, \(\) => rpcCall\('writeImage'/.test(RPC))
+check('a delete goes through it', /enqueueForSlot\(slot, \(\) => rpcCall\('deleteImage'/.test(RPC))
+check('a read goes through it too, so a null answer is not read as final',
+  /enqueueForSlot\(slot, \(\) => rpcCall\('readImage'/.test(RPC))
+check('and so does a download, which also writes the slot',
+  /enqueueForSlot\(slot, \(\) => rpcRaw\('fetchImageUrl'/.test(RPC))
+// One queue PER SLOT, not one for the plugin: seven uploads at once must not
+// serialise into seven sequential round trips.
+check('the queue is keyed by slot rather than global',
+  /Map<string, Promise/.test(RPC),
+  'the queue is not per-slot, so unrelated pictures now wait for each other')
+// The allocation is what recycles a freed number, so this is where the collision
+// comes from — it is correct behaviour, and the ordering above is what makes it safe.
+check('slots are handed out by first-free, which is why recycling is real',
+  /for \(let i = 1; i < 1000/.test(STATE) && /if \(!taken\.has\(slot\)\) return slot/.test(STATE),
+  'nextSlot no longer recycles, so this check is describing something that cannot happen')
 
 console.log('\n--- both documents still describe the same field ---')
 check('the shape declares rev', /rev: number/.test(SCHEMA), 'schema.ts lost the rev field')

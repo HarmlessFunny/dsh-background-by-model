@@ -231,8 +231,44 @@ export async function readRev(): Promise<number | null> {
   return typeof rev === 'number' && isFinite(rev) ? rev : null
 }
 
-/** Read one rule image as a data URL (null when the slot is empty). */export async function readImage(slot: string): Promise<string | null> {
-  const data = await rpcCall('readImage', { slot })
+/**
+ * Per-slot queue for the byte operations.
+ *
+ * Slots are RECYCLED — `nextSlot` hands out the first free `mN`, and deleting a
+ * rule frees its numbers immediately — so a fast delete-then-add can name the same
+ * slot twice within one round trip. Those two calls are independent requests on one
+ * connection, which means their order at the host is whatever the transport decides
+ * that moment: the delete can land AFTER the write, leaving the config naming a slot
+ * whose bytes were just removed. The panel then paints a card that reads "这张图片还没有
+ * 取到内容" — the rule is right there, the picture is not, and nothing reports an
+ * error because nothing failed.
+ *
+ * So the operations on ONE slot run in the order they were asked for. Different
+ * slots never wait for each other: a queue per slot, not one global one, because
+ * adding seven pictures at once must not serialise into seven round trips.
+ */
+const slotQueues = new Map<string, Promise<unknown>>()
+
+function enqueueForSlot<T>(slot: string, run: () => Promise<T>): Promise<T> {
+  const previous = slotQueues.get(slot) ?? Promise.resolve()
+  // The chain continues whether the previous one resolved or rejected: one failed
+  // delete must not wedge every later operation on that slot.
+  const next = previous.then(run, run)
+  slotQueues.set(slot, next)
+  // Drop the entry once this is the tail, so the map does not grow with every slot
+  // the session has ever touched.
+  void next.finally(() => {
+    if (slotQueues.get(slot) === next) slotQueues.delete(slot)
+  })
+  return next
+}
+
+/** Read one rule image as a data URL (null when the slot is empty). */
+export async function readImage(slot: string): Promise<string | null> {
+  // Queued too: a read landing between a delete and the write that reuses the slot
+  // would answer "empty" for a picture that is about to be there, and the cache
+  // below treats a null as final.
+  const data = await enqueueForSlot(slot, () => rpcCall('readImage', { slot }))
   if (data === null || typeof data !== 'object') return null
   const url = (data as { dataUrl?: unknown }).dataUrl
   return typeof url === 'string' ? url : null
@@ -240,19 +276,21 @@ export async function readRev(): Promise<number | null> {
 
 /** Persist (or clear) one rule image; one-shot, no debounce. */
 export async function writeImage(slot: string, dataUrl: string | null): Promise<boolean> {
-  const res = await rpcCall('writeImage', { slot, dataUrl })
+  const res = await enqueueForSlot(slot, () => rpcCall('writeImage', { slot, dataUrl }))
   return res === true
 }
 
 /** Remove one rule image from disk. */
 export async function deleteImage(slot: string): Promise<boolean> {
-  const res = await rpcCall('deleteImage', { slot })
+  const res = await enqueueForSlot(slot, () => rpcCall('deleteImage', { slot }))
   return res === true
 }
 
 /** Download an image from a network URL into one slot, replacing its bytes. */
 export async function fetchImageUrl(slot: string, url: string): Promise<FetchResult> {
-  const res = await rpcRaw('fetchImageUrl', { slot, url })
+  // Queued like the other two: it WRITES a slot, so a delete queued behind it must
+  // not overtake it, and it must not overtake a delete of the slot it is reusing.
+  const res = await enqueueForSlot(slot, () => rpcRaw('fetchImageUrl', { slot, url }))
   if (!res) return { ok: false, error: 'no response' }
   if (res.ok !== true) {
     const err = (res as { error?: { message?: string } }).error
