@@ -168,6 +168,34 @@ check('slots are handed out by first-free, which is why recycling is real',
   /for \(let i = 1; i < 1000/.test(STATE) && /if \(!taken\.has\(slot\)\) return slot/.test(STATE),
   'nextSlot no longer recycles, so this check is describing something that cannot happen')
 
+console.log('\n--- config writes are serialised, and bytes follow the config ---')
+// Two saves fired back to back both name the SAME revision, because a successful
+// one is what advances it. The first is accepted, the second is refused as stale and
+// handed the config from before the second edit — so the second edit leaves the
+// screen. Its side effect (a picture's bytes, already deleted) would not.
+check('config writes run one at a time',
+  /let writeChain: Promise<void>/.test(RPC) && /writeChain = writeChain\.then/.test(RPC),
+  'persistAndResolve no longer serialises, so two rapid saves race on one revision')
+// The ordering rule the invariant rests on: the bytes are what the config points AT,
+// so they may only go once the config that stopped pointing at them is on disk.
+check('a slot\'s bytes are queued, not deleted inline',
+  /export function deleteImageAfterSave/.test(RPC),
+  'rpc.ts lost the deferred-delete queue')
+check('a landed write releases them', /for \(const slot of releasing\) void deleteImage\(slot\)/.test(RPC))
+check('a refused write drops them, so the picture survives',
+  /deferredDeletes = \[\]\s*\n?\s*onConflict\?\.\(outcome\.config\)/.test(RPC.replace(/\r/g, '')),
+  'a refused write still releases the queued deletes, which removes pictures of rules that are still live')
+// Both removal paths must use it. A call site left on the immediate delete is the bug
+// coming back through the door beside the one that was closed.
+check('removing a rule defers the release',
+  /deleteImageAfterSave\(slot\)/.test(ENTRY), 'removeRule deletes bytes before its config lands')
+check('and so does removing one image',
+  (ENTRY.match(/deleteImageAfterSave\(slot\)/g) ?? []).length >= 2,
+  'only one of the two removal paths defers')
+check('the immediate delete is no longer used for a removed rule',
+  !/void deleteImage\(slot\)/.test(ENTRY),
+  'a removal path still deletes inline')
+
 console.log('\n--- both documents still describe the same field ---')
 check('the shape declares rev', /rev: number/.test(SCHEMA), 'schema.ts lost the rev field')
 check('and it is not optional',

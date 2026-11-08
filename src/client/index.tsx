@@ -42,7 +42,8 @@ import type { PresetHeld } from '../preset'
 import { nextIndex, isRotating } from './rotation'
 import { shouldRepaint } from './repaint'
 import {
-  RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
+  RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted, deleteImageAfterSave,
+  drainDeferredDeletes,
   setConflictHandler, readRev, adoptRecommended,
   writeImage, deleteImage, fetchImageUrl, readDefaultModel, hostIsLegacy,
   canWriteConfig, fetchPresetImage,
@@ -525,7 +526,10 @@ export function apply(ctx: Ctx): void {
           for (const slot of ruleSlots(rule)) {
             if (stillUsed.has(slot)) continue
             setImage(slot, null)
-            void deleteImage(slot)
+            // NOT `deleteImage`: the bytes go only once the config that dropped this
+            // rule is on disk. Deleting first and then losing the write left the rule
+            // on screen with its picture already gone.
+            deleteImageAfterSave(slot)
           }
         }
         rulesRev++
@@ -606,7 +610,9 @@ export function apply(ctx: Ctx): void {
         persistConfig()
         if (!takenSlots().has(slot)) {
           setImage(slot, null)
-          void deleteImage(slot)
+          // Deferred for the same reason as `removeRule`: the entry is gone from this
+          // copy, but it is not gone from the disk until the write lands.
+          deleteImageAfterSave(slot)
         }
         repaintIfMoved(id, winner)
       },
@@ -1018,7 +1024,7 @@ export function apply(ctx: Ctx): void {
   ctx.effect(() => () => { disposeThemeResets() }, 'dsh-background-by-model: theme resets watch')
 
   // ── 11. Flush pending writes on page hide ─────────────────────────────────
-  const onPageHide = (): void => flushSave()
+  const onPageHide = (): void => { flushSave(); drainDeferredDeletes() }
   window.addEventListener('pagehide', onPageHide)
   ctx.effect(() => () => window.removeEventListener('pagehide', onPageHide), 'dsh-background-by-model: pagehide flush')
 }

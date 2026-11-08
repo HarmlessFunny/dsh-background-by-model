@@ -152,15 +152,65 @@ async function writeConfigNow(config: unknown): Promise<WriteOutcome> {
  * save names a revision that is already gone, gets refused, and adopts the config
  * from BEFORE that save — which is the edit visibly undoing itself.
  */
-async function persistAndResolve(): Promise<void> {
-  const outcome = await writeConfigNow(cfg)
-  if (outcome.ok) {
-    setRev(outcome.rev)
-    return
-  }
-  if (outcome.conflict && outcome.config !== undefined) {
-    onConflict?.(outcome.config)
-  }
+/**
+ * ONE writer at a time, and this is load-bearing rather than tidy.
+ *
+ * Every save names the revision it started from, and a successful one ADVANCES that
+ * revision. Two saves fired back to back (a fast double delete, a drag followed by a
+ * click) therefore both name the SAME revision — the first is accepted, the second is
+ * refused as stale, and the refusal hands back the config from before the second
+ * edit. The panel adopts it, so the second edit disappears from the screen while its
+ * side effects (a picture's bytes, already deleted) do not: that is the card reading
+ * "这张图片还没有取到内容" next to a rule the user just deleted.
+ *
+ * Chaining the writes means the second one starts after the first has recorded its
+ * revision, which is the only state it can be correct against. It is a single chain
+ * for the whole config rather than one per key because the config IS one document —
+ * two concurrent writes to it can never both be right.
+ */
+let writeChain: Promise<void> = Promise.resolve()
+
+/**
+ * Work that must only happen once the config naming it has actually landed.
+ *
+ * Releasing a picture's bytes is the case: the bytes are what the config points AT,
+ * so deleting them first and then losing the config write leaves the rule on screen
+ * with nothing behind it. Queued here instead, a failed or superseded write simply
+ * never runs the delete — the file stays, which is wrong only in that it is
+ * unreferenced, and the cleanup card exists for exactly that.
+ */
+let deferredDeletes: string[] = []
+
+/**
+ * Delete one slot's bytes, but only after the config that stopped referencing it is
+ * on disk.
+ */
+export function deleteImageAfterSave(slot: string): void {
+  deferredDeletes.push(slot)
+}
+
+function persistAndResolve(): Promise<void> {
+  writeChain = writeChain.then(async () => {
+    const outcome = await writeConfigNow(cfg)
+    if (outcome.ok) {
+      setRev(outcome.rev)
+      // The config that dropped these slots is now on disk, so the bytes are
+      // unreferenced and safe to remove. Taken before the awaits so a delete queued
+      // during them belongs to the NEXT write, not this one.
+      const releasing = deferredDeletes
+      deferredDeletes = []
+      for (const slot of releasing) void deleteImage(slot)
+      return
+    }
+    if (outcome.conflict && outcome.config !== undefined) {
+      // The write was refused, so the config that dropped these slots never landed
+      // and those rules are still live on screen. Dropping the queued deletes is
+      // what keeps their pictures alive — the alternative is a rule with no image.
+      deferredDeletes = []
+      onConflict?.(outcome.config)
+    }
+  })
+  return writeChain
 }
 
 /** Write the current config with the revision this bundle last saw. */
@@ -187,6 +237,19 @@ export function flushSave(): void {
 export function persistConfig(): void {
   if (!canWriteConfig()) { holdWrite(); return }
   void persistAndResolve()
+}
+
+/**
+ * Run the queued byte deletions without writing anything.
+ *
+ * The queue is normally drained by the next successful write, and every path that
+ * queues one writes immediately afterwards — so this exists only for the page-hide
+ * flush, where a delete could otherwise outlive the tab that asked for it.
+ */
+export function drainDeferredDeletes(): void {
+  const releasing = deferredDeletes
+  deferredDeletes = []
+  for (const slot of releasing) void deleteImage(slot)
 }
 
 export interface Persisted {

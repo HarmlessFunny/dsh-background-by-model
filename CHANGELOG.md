@@ -4,6 +4,12 @@
 
 ## v0.12.0
 
+- **Fix: "delete quickly and the rule stays but its picture is gone"** — two saves fired back to back carry the SAME revision (a revision only advances when a save SUCCEEDS), so the first is accepted and the second is refused as stale and rolled back to the config from before the second edit. The second rule therefore leaves the screen — but the picture bytes it already deleted do not come back, which is a card reading "这张图片还没有取到内容" with the rule still there.
+- **Config writes are chained** — each save waits for the previous one to finish and record its revision before starting, because two concurrent writes to one document can never both be right. A single chain for the whole config rather than per key: the config IS one document.
+- **Picture bytes are released only after the config lands** — the bytes are what the config points AT, so the config that stops pointing at them has to be on disk first. When a write is refused, the queued deletes are dropped: those rules are still on screen and their pictures must not vanish. Genuinely unreferenced files are what the cleanup card is for.
+- **Both removal paths changed** — deleting a rule and deleting one image. Leaving one on the immediate delete puts the bug back through the door next to the one that was closed.
+- **The queue drains on page hide** — otherwise a delete can outlive the tab that asked for it.
+
 - **Fix: "这张图片还没有取到内容" after deleting quickly** — slot names are RECYCLED: deleting a rule frees its `mN` immediately and the next upload takes the same number. Delete and write are independent requests on one connection, so which reaches the host first is whatever the transport decides that moment — the delete can land AFTER the write, leaving the config naming a slot whose bytes were just removed. The card is there, the slot name is there, the picture is not, and nothing reports an error because nothing failed.
 - **Byte operations on one slot now run in the order they were asked for** — read, write, delete and fetch-by-URL share a queue **keyed by slot**. Per slot rather than global: adding seven pictures at once must not serialise into seven round trips.
 - **A failure does not wedge the slot** — a rejected operation does not block the ones behind it.
