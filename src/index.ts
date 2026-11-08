@@ -928,7 +928,37 @@ async function resetStore(): Promise<boolean> {
  * deliberately leaves `holiday-cache/` alone: that art is downloaded, belongs to no
  * slot, and costs a round trip to get back.
  */
+/**
+ * The adopt that is already running, if any.
+ *
+ * Adopting empties the store, so two of them at once is the one collision the
+ * revision check cannot resolve: the loser's config write is refused, which is
+ * correct, but the WIPE it already performed is not undoable. The panel's button and
+ * the agent's `adopt_recommended` reach this function from different callers and
+ * neither can see the other, so the exclusion lives here, where both arrive. A second
+ * caller is refused rather than queued: it would re-fetch every picture anyway, and
+ * the profile it was about to install is the same one.
+ */
+let adoptInFlight = false
+
 async function adoptRecommendedProfile(): Promise<
+  | { ok: true; rules: number; images: number; rev: number }
+  | { ok: false; error: string; slot?: string; wiped: boolean }
+> {
+  if (adoptInFlight) {
+    return { ok: false, error: 'the recommended profile is already being installed; wait for it to finish', wiped: false }
+  }
+  adoptInFlight = true
+  try {
+    return await adoptRecommendedProfileOnce()
+  } finally {
+    // Released even when the attempt throws: a flag left set would make adopting
+    // impossible for the rest of the process.
+    adoptInFlight = false
+  }
+}
+
+async function adoptRecommendedProfileOnce(): Promise<
   | { ok: true; rules: number; images: number; rev: number }
   | { ok: false; error: string; slot?: string; wiped: boolean }
 > {
@@ -1250,16 +1280,28 @@ export function apply(ctx: any): void {
           // A tool-added picture takes the first slot nothing names yet. The
           // download goes through the SAME `fetchImageUrl` every other path uses,
           // so the URL rules (scheme, size, image magic bytes) are one set.
-          const config = await readConfig()
-          const taken = new Set([
-            ...config.rules.flatMap(ruleSlots),
-            ...config.holidays.items.flatMap(ruleSlots),
-          ])
+          //
+          // A first-free sweep was correct against the config it read and wrong
+          // against the world: the panel allocates from ITS in-memory copy, which
+          // knows nothing about what this side just picked, and the download takes
+          // seconds — long enough for the user to add a picture and be handed the
+          // same `mN`. Two writers, one slot, and the second upload silently replaced
+          // the first picture. So this does not ask "what is free" any more: it takes
+          // a name derived from the clock, which nothing else will choose, and the
+          // config is what records it. `SLOT_RE` allows 32 characters of
+          // `[A-Za-z0-9_-]`, so `t` + a base-36 millisecond stamp fits, and the retry
+          // loop covers a same-millisecond clash with an earlier slot.
           let slot = ''
-          for (let i = 1; i < 1000; i++) {
-            if (!taken.has(`m${i}`)) { slot = `m${i}`; break }
+          for (let attempt = 0; attempt < 50 && slot === ''; attempt++) {
+            const candidate = `t${(Date.now() + attempt).toString(36)}`
+            const used = await readConfig()
+            const taken = new Set([
+              ...used.rules.flatMap(ruleSlots),
+              ...used.holidays.items.flatMap(ruleSlots),
+            ])
+            if (!taken.has(candidate)) slot = candidate
           }
-          if (slot === '') return { ok: false as const, error: 'no free image slot' }
+          if (slot === '') return { ok: false as const, error: 'could not allocate an image slot' }
           const got = await fetchImageUrl(slot, url)
           return got.ok ? { ok: true as const, slot } : { ok: false as const, error: got.error ?? 'download failed' }
         },

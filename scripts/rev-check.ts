@@ -31,10 +31,25 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const RPC = readFileSync(resolve(HERE, '../src/client/rpc.ts'), 'utf8')
 const STATE = readFileSync(resolve(HERE, '../src/client/state.ts'), 'utf8')
 const SCHEMA = readFileSync(resolve(HERE, '../src/schema.ts'), 'utf8')
+
+/**
+ * The character bound `SLOT_RE` declares, as a number, or 0 when it cannot be read.
+ *
+ * Read from the source rather than duplicated here: the two must agree, and a copy
+ * of the number in a test is a second place to forget.
+ */
 const THEME_FILE = readFileSync(resolve(HERE, '../src/client/theme-file.ts'), 'utf8')
 const ENTRY = readFileSync(resolve(HERE, '../src/client/index.tsx'), 'utf8')
 const PAGE = readFileSync(resolve(HERE, '../src/client/components/pages/ProfilePage.tsx'), 'utf8')
 const BOOT = readFileSync(resolve(HERE, '../src/client/boot.ts'), 'utf8')
+
+function slotReMaxLength(): number {
+  // The `N` of `{1,N}` in schema.ts, or 0 when the pattern cannot be read. Read from
+  // the source rather than duplicated here: a copy of the number is a second place to
+  // forget, and this check exists precisely because the two must agree.
+  const m = /SLOT_RE = .*?\{1,(\d+)\}/.exec(SCHEMA)
+  return m === null ? 0 : Number(m[1])
+}
 
 let failures = 0
 function check(label: string, ok: boolean, detail = ''): void {
@@ -195,6 +210,48 @@ check('and so does removing one image',
 check('the immediate delete is no longer used for a removed rule',
   !/void deleteImage\(slot\)/.test(ENTRY),
   'a removal path still deletes inline')
+
+console.log('\n--- the third writer: the import path obeys the same rules ---')
+// The import was the last path still deleting bytes BEFORE naming them, so a refused
+// save rolled the rules back on screen while their pictures were already gone.
+check('an import defers its deletes rather than issuing them inline',
+  /deleteImageAfterSave\(slot\)/.test(THEME_FILE),
+  'theme-file.ts deletes import slots inline again')
+check('and never reaches for the immediate delete',
+  !/void deleteImage\(slot\)/.test(THEME_FILE),
+  'theme-file.ts still deletes a slot immediately during an import')
+// The pictures an incoming file CARRIES may be written at once — bytes before the
+// name is the safe direction — but the ones it drops must wait for the write.
+check('a picture the file carries is still written immediately',
+  /void writeImage\(slot, raw\)/.test(THEME_FILE))
+
+console.log('\n--- a tool-added slot cannot collide with the panel\'s ---')
+// The panel allocates from its in-memory copy; this side allocates from disk. Both
+// used first-free, so a download (seconds long) let the user add a picture and be
+// handed the same `mN`. The tool now derives a name nothing else will choose.
+check('the tool derives its slot instead of sweeping for a free one',
+  /`t\$\{\(Date\.now\(\) \+ attempt\)\.toString\(36\)\}`/.test(INDEX),
+  'importUrl went back to first-free allocation, which the panel cannot see')
+check('and the derived name fits SLOT_RE',
+  /t[^`]*toString\(36\)/.test(INDEX), 'the slot no longer has the expected shape')
+// `Date.now()` in base 36 is ~8 characters; `SLOT_RE` allows 32. This pins the
+// relationship rather than the current length.
+check('SLOT_RE is wide enough for the derived name',
+  slotReMaxLength() > 0 && (`t${Date.now().toString(36)}`).length <= slotReMaxLength(),
+  `a derived slot name could exceed SLOT_RE (max ${slotReMaxLength()})`)
+
+console.log('\n--- two adopts cannot overlap ---')
+// The one collision the revision check cannot resolve: the loser's config write is
+// refused, which is correct, but its WIPE is not undoable.
+check('adopting is exclusive', /let adoptInFlight = false/.test(INDEX),
+  'adoptRecommendedProfile has no exclusion, so the panel and the tool can wipe together')
+check('a second caller is refused rather than queued',
+  /if \(adoptInFlight\)/.test(INDEX) && /already being installed/.test(INDEX))
+check('and the flag is released even when the attempt throws',
+  // The assignment must live inside a `finally`, whatever comments sit between the two
+  // — a comment is not a reason to weaken this into "the string appears somewhere".
+  /finally \{[\s\S]{0,300}?adoptInFlight = false[\s\S]{0,40}?\}/.test(INDEX),
+  'adoptInFlight is not cleared in a finally, so one failure would block adopting for good')
 
 console.log('\n--- both documents still describe the same field ---')
 check('the shape declares rev', /rev: number/.test(SCHEMA), 'schema.ts lost the rev field')

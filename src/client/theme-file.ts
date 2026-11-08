@@ -18,7 +18,7 @@ import { SCHEMA_VERSION } from '../schema'
 import {
   cfg, imageOf, ruleSlots, setImage, adoptConfig,
 } from './state'
-import { persistConfig, writeImage, deleteImage } from './rpc'
+import { persistConfig, writeImage, deleteImageAfterSave } from './rpc'
 
 /** What the import path needs from the rest of the plugin. */
 export interface LibraryHost {
@@ -129,12 +129,17 @@ export async function applyThemeFile(
       void writeImage(slot, raw)
     } else {
       setImage(slot, null)
-      void deleteImage(slot)
+      // DEFERRED, for the reason `deleteImageAfterSave` exists: the entry is gone from
+      // this copy, but it is not gone from disk until the write below lands. An import
+      // that loses the write is rolled back on screen, and deleting the bytes first
+      // would leave the rules it rolled back to pointing at nothing.
+      deleteImageAfterSave(slot)
     }
   }
-  // Slots the incoming config no longer references are released.
+  // Slots the incoming config no longer references are released — also after the
+  // write, because those slots are still the ones the config ON DISK names.
   for (const slot of Object.keys(incoming)) {
-    if (!keep.has(slot) && SLOT_RE.test(slot)) void deleteImage(slot)
+    if (!keep.has(slot) && SLOT_RE.test(slot)) deleteImageAfterSave(slot)
   }
   persistConfig()
   host.applyActive()
