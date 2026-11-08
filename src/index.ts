@@ -967,7 +967,16 @@ async function adoptRecommendedProfileOnce(): Promise<
   // is about to delete it, and with it the only record of how far this history had
   // got — which is what a panel still holding those rules would otherwise re-use to
   // pass the stale-write check (see `writeConfig`'s `floorRev`).
-  const replacedRev = (await readConfig()).rev
+  const replaced = await readConfig()
+  const replacedRev = replaced.rev
+  // KEEP THE USER'S AUTHORISATION. The profile is a SHAPE — rules, wallpapers,
+  // interface numbers — and `agentAccess` is not part of a shape: it is the answer to
+  // "may an agent change this", which the user gave by hand and no button may take
+  // back. `recommendedConfig()` ships it off so that INSTALLING the profile cannot
+  // grant it; the same reasoning requires that installing the profile cannot revoke
+  // it either. The import path keeps the importing machine's value for this exact
+  // reason (see `applyThemeFile`), and this is the same rule one layer down.
+  const ownAccess = replaced.agentAccess === true
   // Fetch everything BEFORE touching the store.
   const images: Record<string, string> = {}
   for (const slot of PROFILE_SLOTS) {
@@ -1000,7 +1009,7 @@ async function adoptRecommendedProfileOnce(): Promise<
   // lands AHEAD of any copy still open in a panel — the difference between "the
   // profile is installed" and "the profile is installed until somebody drags a
   // slider".
-  const written = await writeConfig(config, undefined, replacedRev)
+  const written = await writeConfig({ ...config, agentAccess: ownAccess }, undefined, replacedRev)
   if (!written.ok) return { ok: false, error: 'the profile could not be written', wiped: true }
   // The revision it landed on, so the panel can record it instead of guessing —
   // the floor above is the only place that number is decided.

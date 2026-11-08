@@ -136,7 +136,7 @@ check('the host reads the replaced revision before it wipes',
   INDEX.indexOf('const replacedRev = (await readConfig()).rev') < INDEX.indexOf('await resetStore()'),
   'replacedRev is read after the wipe, so it is always 0')
 check('and floors the profile\'s write on it',
-  /writeConfig\(config, undefined, replacedRev\)/.test(INDEX),
+  /writeConfig\(\{ \.\.\.config, agentAccess: ownAccess \}, undefined, replacedRev\)/.test(INDEX),
   'the profile write no longer floors on the replaced revision')
 
 console.log('\n--- a failed adopt tells the truth about what it deleted ---')
@@ -252,6 +252,26 @@ check('and the flag is released even when the attempt throws',
   // — a comment is not a reason to weaken this into "the string appears somewhere".
   /finally \{[\s\S]{0,300}?adoptInFlight = false[\s\S]{0,40}?\}/.test(INDEX),
   'adoptInFlight is not cleared in a finally, so one failure would block adopting for good')
+
+console.log('\n--- an appearance operation cannot revoke a grant ---')
+// The complement of the rule the profile already follows: it ships `agentAccess` off
+// so that INSTALLING it cannot GRANT access. The same reasoning requires that it
+// cannot REVOKE it either — a switch the user turned on by hand is not part of the
+// look being installed, and pressing "use the recommended profile" must not quietly
+// take the agent's access away.
+check('adopting the profile carries the user\'s own grant across',
+  /ownAccess = replaced\.agentAccess === true/.test(INDEX),
+  'adoptRecommendedProfile no longer reads the replaced authorisation')
+check('and writes it back with the profile',
+  /agentAccess: ownAccess/.test(INDEX),
+  'the profile write does not restore the user\'s authorisation')
+check('the grant is read BEFORE the wipe, like the revision',
+  INDEX.indexOf('replaced.agentAccess') < INDEX.indexOf('await resetStore()'),
+  'the authorisation is read after resetStore, so it is always the shipped default')
+// The other half, unchanged: shipping it OFF is what stops an install from granting.
+check('and the profile itself still ships it off',
+  /agentAccess: DEFAULT_AGENT_ACCESS/.test(readFileSync(resolve(HERE, '../src/profile.ts'), 'utf8')),
+  'recommendedConfig no longer ships agentAccess off, so installing it would grant access')
 
 console.log('\n--- both documents still describe the same field ---')
 check('the shape declares rev', /rev: number/.test(SCHEMA), 'schema.ts lost the rev field')

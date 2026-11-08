@@ -4,6 +4,10 @@
 
 ## v0.12.0
 
+- **Fix: "installing the profile turned my AI access back off"** — the profile is a LOOK (rules, wallpapers, interface numbers), and authorisation is not part of a look: it answers "may an agent change this", was given by hand, and no button may take it back. `recommendedConfig()` carried the shipped default of `false`, so installing a look silently revoked it.
+- **The other half of the same rule** — the profile still ships `agentAccess: false`, so that installing it cannot GRANT access; what is added here is the symmetric half, that installing it cannot REVOKE it either. It is the same sentence the import path already follows, which keeps the importing machine's own value rather than the file's.
+- **The grant is read before the wipe** — the same reason as the revision: after `resetStore` that config is gone, and reading late would always find the shipped default.
+
 - **Importing a theme obeys the same "bytes follow the config" rule** — the third path that rule had missed. An import deleted the pictures its old rules pointed at immediately, so a save that was then refused and rolled back brought the rules back on screen with their pictures really gone. Its deletes now queue behind the write, like every other removal.
 - **A tool-added picture can no longer collide with yours** — the tool looked for the first free slot in the config ON DISK while the panel looked in its IN-MEMORY copy, with a download of several seconds in between: add a picture at that moment and both got the same `mN`, silently overwriting each other. It no longer asks "which number is free" but derives a name from the clock, which nothing else will choose.
 - **Two callers cannot adopt at once** — the panel's button and the agent's `adopt_recommended` reach one function but cannot see each other. The wipe is irreversible, so the exclusion lives where both arrive: the second caller is told the profile is already being installed rather than wiping alongside.
