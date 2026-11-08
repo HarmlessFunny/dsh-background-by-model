@@ -32,6 +32,7 @@ const RPC = readFileSync(resolve(HERE, '../src/client/rpc.ts'), 'utf8')
 const STATE = readFileSync(resolve(HERE, '../src/client/state.ts'), 'utf8')
 const SCHEMA = readFileSync(resolve(HERE, '../src/schema.ts'), 'utf8')
 const THEME_FILE = readFileSync(resolve(HERE, '../src/client/theme-file.ts'), 'utf8')
+const ENTRY = readFileSync(resolve(HERE, '../src/client/index.tsx'), 'utf8')
 
 let failures = 0
 function check(label: string, ok: boolean, detail = ''): void {
@@ -87,10 +88,39 @@ check('an import does not zero the revision',
 check('it carries the store\'s revision into the adopted config',
   /agentAccess: ownAccess, rev: ownRev\s*\}/.test(THEME_FILE),
   'theme-file.ts no longer passes the store revision through')
-// And it has to be read BEFORE the wipe: `resetConfig()` swaps the object out.
-check('that revision is captured before the wipe replaces the config',
-  THEME_FILE.indexOf('const ownRev = cfg.rev') < THEME_FILE.indexOf('resetConfig()'),
-  'ownRev is read after resetConfig, so it is always 0 on the profile path')
+// The revision is captured before anything replaces the config object. That used to
+// be `resetConfig()` on the profile path; the profile is a single host operation now
+// and that path is gone, so what this still asserts is that the capture exists at
+// all AND precedes the adopt that consumes it.
+check('that revision is captured before it is used',
+  THEME_FILE.indexOf('const ownRev = cfg.rev') > -1
+  && THEME_FILE.indexOf('const ownRev = cfg.rev') < THEME_FILE.indexOf('rev: ownRev'),
+  'ownRev is not read from cfg before the adopt that consumes it')
+
+console.log('\n--- the recommended profile is ONE round trip ---')
+// The same bug again, and the one that survived the first fix: the profile used to
+// be `resetStore` followed by the panel's own write. The wipe empties the config ON
+// DISK, so the revision falls to 0 while the panel still holds the pre-wipe number —
+// the write is refused as stale and adopts the config it just replaced. Pressing the
+// button twice only worked once the numbers happened to line up again.
+check('the profile is installed through one host operation',
+  /adoptRecommended\(\)/.test(ENTRY),
+  'applyRecommended no longer calls the single adoptRecommended operation')
+check('and the panel no longer sequences a wipe of its own',
+  !/resetStore\(\)/.test(ENTRY),
+  'applyRecommended still calls resetStore itself, which re-creates the stale write')
+check('the import path has no wipe variant left to reach for',
+  !/wipeFirst:\s*boolean/.test(THEME_FILE),
+  'applyThemeFile still takes wipeFirst, so the two-step path can come back')
+// The host side of that one operation must floor the revision across the wipe, or
+// it reproduces the same refusal from the other end.
+const INDEX = readFileSync(resolve(HERE, '../src/index.ts'), 'utf8')
+check('the host reads the replaced revision before it wipes',
+  INDEX.indexOf('const replacedRev = (await readConfig()).rev') < INDEX.indexOf('await resetStore()'),
+  'replacedRev is read after the wipe, so it is always 0')
+check('and floors the profile\'s write on it',
+  /writeConfig\(config, undefined, replacedRev\)/.test(INDEX),
+  'the profile write no longer floors on the replaced revision')
 
 console.log('\n--- both documents still describe the same field ---')
 check('the shape declares rev', /rev: number/.test(SCHEMA), 'schema.ts lost the rev field')

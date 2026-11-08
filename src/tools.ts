@@ -57,7 +57,7 @@ export interface ThemeToolsHost {
    * button and the agent should be able to do what the panel can.
    */
   adoptRecommended(): Promise<
-    { ok: true; rules: number; images: number } | { ok: false; error: string; slot?: string }
+    { ok: true; rules: number; images: number; rev: number } | { ok: false; error: string; slot?: string }
   >
   /** Whether agent access is on, read fresh on every registration. */
   permitted(): Promise<boolean>

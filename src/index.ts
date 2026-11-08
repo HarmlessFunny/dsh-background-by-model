@@ -875,7 +875,7 @@ async function listSlots(): Promise<string[]> {
  *
  * The backup goes WITH the live file: a `.bak` left behind would be restored by the
  * next read, which would quietly undo the very replacement this call exists to
- * perform (`applyThemeFile`'s `wipeFirst`).
+ * perform (`adoptRecommendedProfile`).
  *
  * `holiday-cache/` is deliberately untouched: downloaded art that belongs to no
  * slot and costs a round trip to get back. Pruning generations is
@@ -929,7 +929,7 @@ async function resetStore(): Promise<boolean> {
  * slot, and costs a round trip to get back.
  */
 async function adoptRecommendedProfile(): Promise<
-  { ok: true; rules: number; images: number } | { ok: false; error: string; slot?: string }
+  { ok: true; rules: number; images: number; rev: number } | { ok: false; error: string; slot?: string }
 > {
   const config = recommendedConfig()
   // READ THE REVISION FIRST, while the old config is still on disk. `resetStore`
@@ -966,7 +966,9 @@ async function adoptRecommendedProfile(): Promise<
   // slider".
   const written = await writeConfig(config, undefined, replacedRev)
   if (!written.ok) return { ok: false, error: 'the profile could not be written' }
-  return { ok: true, rules: config.rules.length, images: PROFILE_SLOTS.length }
+  // The revision it landed on, so the panel can record it instead of guessing —
+  // the floor above is the only place that number is decided.
+  return { ok: true, rules: config.rules.length, images: PROFILE_SLOTS.length, rev: written.rev }
 }
 
 /**
@@ -1197,6 +1199,15 @@ export async function handleRpcMethod(ctx: any, endpoint: unknown, payload: unkn
         return { ok: true, value: await fetchPresetImage(slot) }
       case 'resetStore':
         return { ok: true, value: await resetStore() }
+      case 'adoptRecommended':
+        // The recommended profile, as ONE operation. The panel used to run it as
+        // `resetStore` followed by its own write, which is two round trips with the
+        // revision falling to 0 in between — so the panel's write named a revision
+        // the emptied store had never heard of, was refused as stale, and adopted
+        // the config it had just replaced. Doing the whole thing here means there is
+        // one implementation (the tools already call it) and one place that knows
+        // the revision has to be floored across the wipe.
+        return { ok: true, value: await adoptRecommendedProfile() }
       // The two store-reporting methods. `storeUsage` is read-only and answers the
       // panel's card; `pruneOrphans` is the only one that deletes, and only what
       // that same report called an orphan.

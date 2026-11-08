@@ -9,17 +9,16 @@
  *
  * The rules an import has to keep are stated where they are enforced:
  *   - a file written for a NEWER shape is refused before anything is touched;
- *   - `wipeFirst` belongs to the recommended profile alone (a download and a
- *     hand-picked file must not arrive by different routes);
- *   - the wipe happens only after the bytes are in hand, so an unreachable CDN
- *     never costs the user their configuration.
+ *   - the importer's own authorisation survives the file, and the store's own
+ *     revision is carried through rather than reset;
+ *   - a picture the file does not carry is released, not left behind.
  */
 import type { ThemeFile } from './types'
 import { SCHEMA_VERSION } from '../schema'
 import {
-  cfg, imageOf, ruleSlots, setImage, resetConfig, adoptConfig,
+  cfg, imageOf, ruleSlots, setImage, adoptConfig,
 } from './state'
-import { persistConfig, writeImage, deleteImage, resetStore } from './rpc'
+import { persistConfig, writeImage, deleteImage } from './rpc'
 
 /** What the import path needs from the rest of the plugin. */
 export interface LibraryHost {
@@ -84,32 +83,24 @@ export function saveThemeFile(file: ThemeFile): void {
  * Write a whole theme file into the store: its rules, its wallpapers, nothing
  * else.
  *
- * `wipeFirst` is the entire difference between the two imports, and it belongs to
- * the recommended profile alone: `nextSlot` hands slots out as `m1`, `m2`, … — a
- * counter, not a random token — so a downloaded profile and the store it lands in
- * collide on those names as a matter of course. Emptying first is what makes
- * "replace everything with this" literally true.
+ * The recommended profile no longer comes through here. It used to, as a
+ * `wipeFirst` variant of this function, and that was the shape of a real bug: the
+ * wipe is a separate round trip that empties the config ON DISK, so the write this
+ * function then made named a revision the emptied store had never heard of, was
+ * refused as stale, and adopted the config it had just replaced — the button had to
+ * be pressed twice. Installing the profile is now one node-half operation
+ * (`adoptRecommended`), and this path only ever imports a file over a live store.
  */
 export async function applyThemeFile(
   host: LibraryHost,
   data: ThemeFile,
-  wipeFirst: boolean,
 ): Promise<boolean> {
   // Refused before ANYTHING is touched, on both paths: a file written for a shape
   // this build does not know would otherwise be half-understood by an older
   // sanitizer, and importing it would produce a config neither side wrote.
   if (typeof data.version === 'number' && data.version > SCHEMA_VERSION) return false
   if (typeof data.config !== 'object' || data.config === null) return false
-  // Captured BEFORE the wipe below, which replaces the config object entirely and
-  // would take the revision with it — the store being emptied server-side does not
-  // roll the revision back.
   const ownRev = cfg.rev
-  if (wipeFirst) {
-    await resetStore()
-    // The in-memory mirror has to go with it, or slots that no longer exist on
-    // disk keep painting until the next reload.
-    resetConfig()
-  }
   // The importing machine's OWN authorisation decides, never the file's.
   //
   // An export already strips `agentAccess`, but a hand-edited or hand-crafted file

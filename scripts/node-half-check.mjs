@@ -1439,6 +1439,26 @@ check('and the profile survives that refusal',
 check('the downloaded festival art is not taken with it',
   existsSync(CACHE) && readdirSync(CACHE).length > 0, readdirSync(CACHE).join(', '))
 
+// The RPC path the panel now takes. Same operation as the tool, reached without a
+// model in the loop — and the reason it exists is the revision: the wipe empties the
+// config on disk, so a panel that sequenced the wipe itself would then write with a
+// revision the emptied store has never heard of. One call answers that revision.
+console.log('\n--- the panel installs the profile in one call, and gets the revision back ---')
+const beforePanelAdopt = await readConfig()
+const panelAdopt = (await call('adoptRecommended', {})).value
+check('one call installs it', panelAdopt?.ok === true, JSON.stringify(panelAdopt?.ok))
+check('and answers the revision it landed on',
+  typeof panelAdopt?.rev === 'number', JSON.stringify(panelAdopt?.rev))
+check('which is AHEAD of the one it replaced, so a stale panel write is refused',
+  panelAdopt.rev > beforePanelAdopt.rev, `${beforePanelAdopt.rev} -> ${panelAdopt?.rev}`)
+// What the caller does with the answer: adopt it, then save again. Both work.
+const afterPanel = await readConfig()
+check('the store holds the profile', afterPanel.rules.length === 7,
+  String(afterPanel.rules.length))
+check('and the revision it answered is the one on disk',
+  afterPanel.rev === panelAdopt.rev, `${afterPanel.rev} vs ${panelAdopt.rev}`)
+
+
 // ── the recommended profile ────────────────────────────────────────────────
 // The profile is no longer a directory of files fetched from a repository: its
 // RULES are compiled into the bundle (src/profile.ts) and only the pictures come

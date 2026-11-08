@@ -296,13 +296,33 @@ function unwrapPreset<T>(res: RpcResultLike | undefined): T {
 /**
  * Empty the store: the config and every rule image.
  *
- * Only the recommended profile uses this, and only after its download has
- * already succeeded — see `applyRecommended`. Nothing else in the plugin deletes
- * the user's configuration wholesale.
+ * Nothing in the plugin calls this on its own any more — the recommended profile
+ * used to run it followed by its own config write, which is two round trips with
+ * the revision falling to 0 in between; see `adoptRecommended`. Kept because it is
+ * a complete, independently meaningful operation and the node half still serves it.
  */
 export async function resetStore(): Promise<boolean> {
   const res = await rpcCall('resetStore', {})
   return res === true
+}
+
+/**
+ * Install the built-in recommended profile as ONE operation, and answer the
+ * revision it landed on.
+ *
+ * The node half does the whole thing: download every picture, empty the store, put
+ * the profile in. That is deliberately not something this half sequences, because
+ * the wipe is exactly what makes the revision ambiguous — doing it here meant the
+ * follow-up write named a revision the emptied store had never heard of, was
+ * refused as stale, and adopted the config it had just replaced. One round trip,
+ * one place that knows.
+ */
+export async function adoptRecommended(): Promise<{ ok: boolean; rev: number }> {
+  const res = await rpcRaw('adoptRecommended', {})
+  if (res === undefined || res.ok !== true) return { ok: false, rev: cfg.rev }
+  const value = res.value as { ok?: boolean; rev?: unknown } | undefined
+  if (value?.ok !== true) return { ok: false, rev: cfg.rev }
+  return { ok: true, rev: typeof value.rev === 'number' ? value.rev : cfg.rev }
 }
 
 /** Host default model — used only when the per-session services are absent. */

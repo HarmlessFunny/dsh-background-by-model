@@ -24,7 +24,7 @@ import type {
 } from './types'
 import { NS, zh, en } from './i18n'
 import {
-  cfg, adoptConfig, imageOf, displayImageOf, setImage, nextSlot, nextRuleId, ruleById,
+  cfg, adoptConfig, clearImages, imageOf, displayImageOf, setImage, nextSlot, nextRuleId, ruleById,
   holidayById, normalizeRuleInPlace, patchRotation, ruleSlots, setActive,
   activeRule, activeColor, activeRuleId, activeMatched, imageIndexOf, setRotIndex, takenSlots,
   rWp, rRightbarOpacity,
@@ -43,7 +43,7 @@ import { nextIndex, isRotating } from './rotation'
 import { shouldRepaint } from './repaint'
 import {
   RPC_CHANNEL, initRpc, saveConfig, flushSave, persistConfig, loadPersisted,
-  setConflictHandler, readRev,
+  setConflictHandler, readRev, adoptRecommended,
   writeImage, deleteImage, fetchImageUrl, readDefaultModel, hostIsLegacy,
   canWriteConfig, fetchPresetImage,
   readStoreUsage, pruneOrphanImages,
@@ -859,7 +859,7 @@ export function apply(ctx: Ctx): void {
         try {
           const data: unknown = JSON.parse(await file.text())
           if (!data || typeof data !== 'object') return false
-          return await applyThemeFile({ applyActive }, data as ThemeFile, false)
+          return await applyThemeFile({ applyActive }, data as ThemeFile)
         } catch {
           return false
         }
@@ -946,11 +946,30 @@ export function apply(ctx: Ctx): void {
         return { ok: true, preset: recommendedThemeFile(images) }
       },
       /** Replace EVERYTHING with a downloaded profile: empty the store, then write it. */
-      applyRecommended: async (preset: ThemeFile): Promise<boolean> => {
+      applyRecommended: async (_preset: ThemeFile): Promise<boolean> => {
         // Never delete a store this build cannot write back into: the reset would
         // go through while every config write is held (`canWriteConfig`).
         if (!canWriteConfig()) return false
-        return await applyThemeFile({ applyActive }, preset, true)
+        // ONE round trip. The node half downloads, wipes and installs, and answers
+        // the revision it landed on — this half must not sequence the wipe itself,
+        // because the wipe is what makes the revision ambiguous: doing it here
+        // meant the follow-up write named a revision the emptied store had never
+        // heard of, was refused as stale, and adopted the config it had just
+        // replaced. That is the "press it twice" report.
+        const res = await adoptRecommended()
+        if (!res.ok) return false
+        // Re-read rather than reconstruct: the rules, the slots and the revision are
+        // the node half's, and guessing any of them here is how the two would drift.
+        const persisted = await loadPersisted()
+        if (persisted === null) return false
+        adoptConfig(persisted.config)
+        // The store was emptied server-side, so every cached picture belongs to a
+        // slot that no longer exists — dropping them keeps the display URLs from
+        // outliving the bytes.
+        clearImages()
+        for (const slot of cfg.rules.flatMap(ruleSlots)) await loadSlot(slot)
+        applyActive()
+        return true
       },
 
       // ── The image store ──────────────────────────────────────────────────
