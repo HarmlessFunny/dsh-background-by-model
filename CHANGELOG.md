@@ -4,6 +4,9 @@
 
 ## v0.12.0
 
+- **The two tools now say what the theme already decides for them** — a picture is not chosen to match the current light or dark interface (the scheme follows the wallpaper's own luminance, so both work), a colour is not supplied unless the user named one (a picture themes the interface from its own bytes), and the URL is picked from a host reachable in mainland China rather than `raw.githubusercontent.com` or Google. Guidance on the parameter it applies to, so it costs nothing on a call that does not use it.
+- **A picture the agent adds lands in `fill`** — the same mode the recommended profile's seven use; `fit` letterboxed every wallpaper that was not already the window's shape, and this is the one path with no panel to correct it afterwards.
+
 - **Fix: "installing the profile turned my AI access back off"** — the profile is a LOOK (rules, wallpapers, interface numbers), and authorisation is not part of a look: it answers "may an agent change this", was given by hand, and no button may take it back. `recommendedConfig()` carried the shipped default of `false`, so installing a look silently revoked it.
 - **The other half of the same rule** — the profile still ships `agentAccess: false`, so that installing it cannot GRANT access; what is added here is the symmetric half, that installing it cannot REVOKE it either. It is the same sentence the import path already follows, which keeps the importing machine's own value rather than the file's.
 - **The grant is read before the wipe** — the same reason as the revision: after `resetStore` that config is gone, and reading late would always find the shipped default.

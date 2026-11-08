@@ -234,7 +234,7 @@ export function registerThemeTools(ctx: any, host: ThemeToolsHost): void {
     description:
       'Change the user\'s wallpaper configuration. One action per call. Rules are matched against the model '
       + 'name top-down (first hit wins, rule 1 is the fallback) and an edit takes effect on the next repaint. '
-      + 'Image bytes are addressed by slot; add_image downloads a URL into a new slot.',
+      + 'Image bytes are addressed by slot; add_image downloads a URL into a new slot and lands it in fill.',
     parameters: {
       action: {
         type: 'string',
@@ -263,7 +263,7 @@ export function registerThemeTools(ctx: any, host: ThemeToolsHost): void {
       },
       matchColor: {
         type: 'string',
-        description: 'set_rule: the RULE\'s own color as "#rrggbb", or "system" to follow the system theme. Only paints when the rule has no image.',
+        description: 'set_rule: the RULE\'s own color as "#rrggbb", or "system" to follow the system theme. Only paints when the rule has no image. Leave it out unless the user asked for a specific color.',
       },
       slot: {
         type: 'string',
@@ -272,7 +272,7 @@ export function registerThemeTools(ctx: any, host: ThemeToolsHost): void {
       layout: {
         type: 'string',
         enum: BG_MODES as unknown as string[],
-        description: 'set_image: how the picture meets the viewport. fit letterboxes, fill crops, stretch distorts, tile repeats, center is unscaled.',
+        description: 'set_image: how the picture meets the viewport. fit letterboxes, fill crops, stretch distorts, tile repeats, center is unscaled. fill is the one to choose unless the user asks for another.',
       },
       opacity: {
         type: 'number',
@@ -288,11 +288,11 @@ export function registerThemeTools(ctx: any, host: ThemeToolsHost): void {
       },
       imageColor: {
         type: 'string',
-        description: 'set_image: this image\'s theme color as "#rrggbb", or "system".',
+        description: 'set_image: overrides this image\'s theme color, as "#rrggbb" or "system". Omit it unless the user named a color: an image is themed from its own bytes when it arrives, and needs nothing supplied.',
       },
       url: {
         type: 'string',
-        description: 'add_image: an http(s) URL to download the picture from.',
+        description: 'add_image: an http(s) URL to download the picture from. Choose by subject, never by brightness: a dark picture and a light one both work, because the light/dark scheme follows the wallpaper rather than the other way round. Prefer a host reachable from mainland China — raw.githubusercontent.com and Google usually are not.',
       },
       intervalSeconds: {
         type: 'number',
@@ -360,7 +360,7 @@ export function registerThemeTools(ctx: any, host: ThemeToolsHost): void {
           if (rule !== undefined && 'error' in rule) return rule
           const target = rule ?? config.rules[0]
           if (target === undefined) return { error: 'there is no rule to add an image to; create one with set_rule first' }
-          target.images.push(defaultImage(got.slot))
+          target.images.push(defaultImage(got.slot, null, 'fill'))
           return `added image ${got.slot} to rule ${target.id}`
         })
         return result

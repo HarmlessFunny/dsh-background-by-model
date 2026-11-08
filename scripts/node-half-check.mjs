@@ -1408,6 +1408,28 @@ check('and the refusal says why, and what it would do',
 const refusedFalse = await editExecute({ action: 'adopt_recommended', confirm: false }, {})
 check('confirm: false is refused as well', refusedFalse?.ok === false, JSON.stringify(refusedFalse?.ok))
 
+// A tool-added picture lands in `fill`, like the recommended profile's do: the
+// default was `fit`, which letterboxes every wallpaper that is not already the
+// window's aspect ratio — and the tool is the path with no panel to fix it after.
+console.log('\n--- a tool-added picture lands in fill ---')
+const beforeAdd = await readConfig()
+check('there is a rule to add it to', beforeAdd.rules.length > 0, String(beforeAdd.rules.length))
+const added = await editExecute({ action: 'add_image', url: 'https://example.invalid/a.png' }, {})
+check('add_image succeeds', added?.ok === true, JSON.stringify(added))
+const addedImage = (await readConfig()).rules[0].images.at(-1)
+check('and the picture it added is filled, not letterboxed',
+  addedImage?.bgMode === 'fill', JSON.stringify(addedImage?.bgMode))
+check('and it carries no colour of its own, so the extractor may theme it',
+  addedImage?.color === null, JSON.stringify(addedImage?.color))
+// The other half of "no colour is needed": a rule created with no colour is
+// paintable as soon as it has a picture, because the picture's own palette is what
+// themes the interface. `matchColor` is for the picture-less rule, and nothing else.
+const madeRule = await editExecute({ action: 'set_rule', match: 'made-without-a-colour' }, {})
+check('a rule can be created without naming a colour', madeRule?.ok === true, JSON.stringify(madeRule))
+const madeBack = (await readConfig()).rules.find(r => r.match === 'made-without-a-colour')
+check('and it follows the system theme until a picture is added',
+  madeBack !== undefined && madeBack.color === null, JSON.stringify(madeBack?.color))
+
 // Now the real thing, through the host the plugin wired: fetch every wallpaper,
 // wipe, write. `fetch` is stubbed in this harness, so the seven pictures arrive.
 const beforeAdopt = await readConfig()
