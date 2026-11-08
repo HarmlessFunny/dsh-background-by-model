@@ -142,8 +142,9 @@ The first card on the Config tab: one switch deciding whether **the AI may chang
 
 - **An authorisation, not a preference** — while it is off the two tools **do not exist in the model's tool table at all**, so a closed switch costs no context and cannot be called by mistake. It is not "the tools are there but every call fails".
 - **Off by default, and the recommended profile does not turn it on** — neither an upgrade, a fresh install nor "use the recommended profile" hands an agent the ability to rewrite your appearance. Only that switch does.
-- **What the AI can do** — add, edit and remove rules; add an image to a rule from a URL; set per-image layout, opacity, brightness, blur and theme colour; set the global interface opacities and the switch effect; adjust rotation.
-- **What it cannot do** — empty the store into the recommended profile (that is your decision about your own data), touch the holiday art (that slot is read-only), or read image bytes (the tools answer with slot names, never megabytes of base64).
+- **What the AI can do** — add, edit and remove rules; add an image to a rule from a URL; set per-image layout, opacity, brightness, blur and theme colour; set the global interface opacities and the switch effect; adjust rotation; and **install the recommended profile**.
+- **Installing the recommended profile asks separately** — it does exactly what the panel's button does (download seven pictures, empty the store, install seven rules), so the tool requires an explicit `confirm: true` and otherwise refuses **before touching anything**. Download first, wipe second: if any picture cannot be fetched, your rules are not touched at all.
+- **What it cannot do** — touch the holiday art (that slot is read-only), or read image bytes (the tools answer with slot names, never megabytes of base64).
 - **Edits land immediately** — the panel checks the config's revision on disk every 3 seconds, so an agent's change repaints without a reload.
 - **An export never carries the switch** — sending someone a theme file does not hand them "let the AI change my appearance", and a hand-edited file that says `true` is overruled by the **importing machine's** own value.
 - **The AI and you cannot silently overwrite each other** — every write names the revision it was computed from, a write that has fallen behind is **refused** instead of overwriting, and the panel then adopts the copy that won.
@@ -307,7 +308,7 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 ### v0.12.0
 
-- **The agent can change the appearance through two tools** — `background_theme` reads; `background_edit` writes (add/edit/remove rules and images, layout, opacity, brightness, blur, theme colour, the global interface opacities, the switch effect, rotation). Both call the same node-half operations the settings panel does.
+- **The agent can change the appearance through two tools** — `background_theme` reads; `background_edit` writes (add/edit/remove rules and images, layout, opacity, brightness, blur, theme colour, the global interface opacities, the switch effect, rotation, and installing the recommended profile behind a `confirm`). Both call the same node-half operations the settings panel does.
 - **The switch ships off** — a new `agentAccess` in the config. While it is off the tools are **absent from the model's tool table**, costing no context and impossible to call; the recommended profile does not turn it on.
 - **An export never carries the grant** — a theme file describes an appearance; `agentAccess` and `rev` are stripped on the way out and the importing machine's own value wins on the way in.
 - **The config carries a revision, and a stale write is refused** — the panel and the tools cannot silently overwrite each other; the loser is handed the config that won and adopts it.

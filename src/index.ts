@@ -36,7 +36,7 @@ import { orphanSlots, referencedSlots } from './store'
 // The recommended profile's pictures: a constant slot → URL table published for
 // the public `fetchPresetImage` method, so the request set is compile-time rather
 // than something a remote document chooses (see ./profile).
-import { PROFILE_HOSTS, profileImagePath } from './profile'
+import { PROFILE_HOSTS, PROFILE_SLOTS, profileImagePath, recommendedConfig } from './profile'
 // The agent-facing tools. Registered on the Host because the store is the Host's:
 // a tool that edited the files directly would fight the settings panel's own copy
 // (see the revision check in `writeConfig`).
@@ -526,7 +526,7 @@ export type WriteConfigOutcome =
  * This is the ONLY place the revision is bumped, so a written file always has one
  * more than the file it replaced, whoever wrote it.
  */
-async function writeConfig(config: unknown, expectedRev?: number): Promise<WriteConfigOutcome> {
+async function writeConfig(config: unknown, expectedRev?: number, floorRev?: number): Promise<WriteConfigOutcome> {
   try {
     // Read-and-compare BEFORE writing: the disk copy is the one revision everyone
     // agrees on, and `readConfig` already answers with the backup when the live
@@ -535,7 +535,15 @@ async function writeConfig(config: unknown, expectedRev?: number): Promise<Write
     if (expectedRev !== undefined && current.rev !== expectedRev) {
       return { ok: false, conflict: true, config: current, rev: current.rev }
     }
-    const normalized = normalizeConfig({ ...(config as object), rev: nextRev(current.rev) })
+    // `floorRev` exists for the one write that starts a NEW history: adopting the
+    // recommended profile empties the store, so the revision on disk falls back to
+    // 0 — and a panel still holding the config from before the replacement could
+    // then be at 1, which is "the same revision" as the profile's own first write,
+    // and would silently put the replaced rules back. Adopting therefore stamps a
+    // revision strictly above whatever was there before, and the panel's next save
+    // is refused (and answered with the profile) instead of winning.
+    const base = floorRev !== undefined && floorRev > current.rev ? floorRev : current.rev
+    const normalized = normalizeConfig({ ...(config as object), rev: nextRev(base) })
     warnUnknownConfigKeys(config, normalized)
     await writeConfigFile(serializeConfig(normalized))
     return { ok: true, rev: normalized.rev }
@@ -899,6 +907,69 @@ async function resetStore(): Promise<boolean> {
 }
 
 /**
+ * Replace the WHOLE configuration with the built-in recommended profile.
+ *
+ * The one destructive operation the agent's tools expose, and it is destructive in
+ * exactly the way the panel's button is: the store is emptied and the profile's
+ * rules take over. That makes the ORDER load-bearing, and it is the order the panel
+ * already uses — **download first, wipe second**:
+ *
+ *   a failure while fetching leaves the user's rules exactly as they were, because
+ *   nothing has been touched yet. Wiping first would turn one unreachable CDN into
+ *   the loss of a configuration nobody asked to lose.
+ *
+ * Every picture has to arrive before anything is written. The panel may keep a
+ * partial download for a retry press, because a human is there to press again; a
+ * tool call has nobody watching it, so a half-profile would be a state the user
+ * neither chose nor can see. `fetchPresetImage` already carries the per-file retry
+ * budget and the slot whitelist, so this only has to sequence them.
+ *
+ * The wipe itself is `resetStore` — the same call the panel's button makes — which
+ * deliberately leaves `holiday-cache/` alone: that art is downloaded, belongs to no
+ * slot, and costs a round trip to get back.
+ */
+async function adoptRecommendedProfile(): Promise<
+  { ok: true; rules: number; images: number } | { ok: false; error: string; slot?: string }
+> {
+  const config = recommendedConfig()
+  // READ THE REVISION FIRST, while the old config is still on disk. `resetStore`
+  // is about to delete it, and with it the only record of how far this history had
+  // got — which is what a panel still holding those rules would otherwise re-use to
+  // pass the stale-write check (see `writeConfig`'s `floorRev`).
+  const replacedRev = (await readConfig()).rev
+  // Fetch everything BEFORE touching the store.
+  const images: Record<string, string> = {}
+  for (const slot of PROFILE_SLOTS) {
+    const got = await fetchPresetImage(slot)
+    if (!got.ok) return { ok: false, error: got.error, slot }
+    images[slot] = got.dataUrl
+  }
+  if (!(await resetStore())) {
+    // A partial wipe has already happened, which is worse than a clean refusal —
+    // say so rather than reporting a generic failure.
+    return { ok: false, error: 'the store could not be emptied completely; read the configuration before retrying' }
+  }
+  // Pictures first, config LAST: the config is what makes those slots referenced,
+  // and a slot whose bytes landed but whose rule entry has not is the one state the
+  // cleanup sweep spares (see `storeUsage`).
+  for (const slot of PROFILE_SLOTS) {
+    const dataUrl = images[slot]
+    if (dataUrl === undefined) continue
+    if (!(await writeImage(slot, dataUrl))) {
+      return { ok: false, error: `the picture for slot "${slot}" could not be written` }
+    }
+  }
+  // Unconditional on `expectedRev` (the store was emptied, so there is nothing to
+  // be stale against) but floored on the revision that was replaced, so the profile
+  // lands AHEAD of any copy still open in a panel — the difference between "the
+  // profile is installed" and "the profile is installed until somebody drags a
+  // slider".
+  const written = await writeConfig(config, undefined, replacedRev)
+  if (!written.ok) return { ok: false, error: 'the profile could not be written' }
+  return { ok: true, rules: config.rules.length, images: PROFILE_SLOTS.length }
+}
+
+/**
  * What the image store occupies, and which of it nothing points at any more.
  *
  * Read-only: it reports, it never deletes. Splitting the two is what lets the panel
@@ -1183,6 +1254,10 @@ export function apply(ctx: any): void {
             return false
           }
         },
+        // The panel's own destructive button, reached from the tools. It bumps the
+        // revision like any other write, so a panel holding an older copy is told
+        // rather than allowed to write its replaced rules back over the profile.
+        adoptRecommended: () => adoptRecommendedProfile(),
       })
       return () => undefined
     }, 'dsh-background-by-model: agent tools')

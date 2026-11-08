@@ -49,6 +49,16 @@ export interface ThemeToolsHost {
   write(config: ThemeConfig, baseRev: number): Promise<boolean>
   /** Download one URL into a free slot and answer where it landed. */
   importUrl(url: string): Promise<{ ok: true; slot: string } | { ok: false; error: string }>
+  /**
+   * Replace the whole configuration with the built-in recommended profile.
+   *
+   * Destructive, and the only operation here that is: the store is emptied and the
+   * profile's rules take over. It exists because the panel has always had this
+   * button and the agent should be able to do what the panel can.
+   */
+  adoptRecommended(): Promise<
+    { ok: true; rules: number; images: number } | { ok: false; error: string; slot?: string }
+  >
   /** Whether agent access is on, read fresh on every registration. */
   permitted(): Promise<boolean>
 }
@@ -231,9 +241,13 @@ export function registerThemeTools(ctx: any, host: ThemeToolsHost): void {
         required: true,
         enum: [
           'set_rule', 'remove_rule', 'set_image', 'remove_image',
-          'set_interface', 'set_rotation', 'add_image',
+          'set_interface', 'set_rotation', 'add_image', 'adopt_recommended',
         ],
         description: 'The operation to perform.',
+      },
+      confirm: {
+        type: 'boolean',
+        description: 'adopt_recommended: must be true. This action DELETES every rule and every stored wallpaper before installing the profile, and cannot be undone, so it is refused without an explicit true.',
       },
       ruleId: {
         type: 'string',
@@ -316,7 +330,24 @@ export function registerThemeTools(ctx: any, host: ThemeToolsHost): void {
       const a = args as Record<string, unknown>
       const action = a.action as string
 
-      // `add_image` is the one action that touches the filesystem BEFORE the
+      // `adopt_recommended` runs OUTSIDE `edit()` because it does not modify the
+      // config — it replaces it wholesale, along with every stored picture. It is
+      // also the only destructive action here, so it is the only one that demands
+      // an explicit confirmation: a model that inferred "reset my background" from
+      // an ambiguous sentence must not be able to delete a wallpaper collection on
+      // that inference alone.
+      if (action === 'adopt_recommended') {
+        if (a.confirm !== true) {
+          return {
+            ok: false,
+            error: 'adopt_recommended deletes every rule and every stored wallpaper and cannot be undone; '
+              + 'call it again with confirm: true only if the user actually asked for the recommended profile',
+          }
+        }
+        return await host.adoptRecommended()
+      }
+
+      // `add_image` is the one other action that touches the filesystem BEFORE the
       // config: the bytes have to land somewhere before a rule can name them.
       if (action === 'add_image') {
         const url = a.url

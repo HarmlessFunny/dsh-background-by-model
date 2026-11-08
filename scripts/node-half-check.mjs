@@ -1341,13 +1341,67 @@ check('and revoking closes it again on the very next ask', (await gateEditTool({
 // The write tool's parameter space is what the model reads: it must not carry an
 // action this build cannot perform, or the model will ask for one.
 const actions = editTool.definition.parameters.properties.action.enum
-check('the write tool offers exactly the seven actions it implements',
-  actions.length === 7 && actions.includes('add_image') && actions.includes('set_image'),
+check('the write tool offers exactly the eight actions it implements',
+  actions.length === 8 && actions.includes('add_image') && actions.includes('set_image')
+  && actions.includes('adopt_recommended'),
   actions.join(', '))
 // Nothing may offer to empty the store: that is the user's decision about their own
 // data, not an edit an agent can make.
 check('and offers no store reset',
   !actions.some(a => a.includes('reset') || a.includes('clear') || a.includes('wipe')), actions.join(', '))
+// The one destructive action is named for what it INSTALLS, not for what it
+// deletes, and it is the only one that demands confirmation.
+check('the destructive action is adopt_recommended', actions.includes('adopt_recommended'))
+check('and it is gated on an explicit confirm',
+  editTool.definition.parameters.properties.confirm !== undefined)
+
+console.log('\n--- adopt_recommended: confirm first, and nothing deleted when it cannot run ---')
+// The handler needs a context; the tool's own `execute` is what carries the gate,
+// so it is called directly with a host that would blow up on use — proving the
+// refusal happens BEFORE anything is touched, not after.
+const editExecute = editTool.definition.execute
+const explodingHost = new Proxy({}, {
+  get() { throw new Error('the host must not be reached without confirm: true') },
+})
+const refused = await editExecute({ action: 'adopt_recommended' }, { agent: undefined, signal: undefined })
+check('without confirm it is refused', refused?.ok === false, JSON.stringify(refused?.ok))
+check('and the refusal says why, and what it would do',
+  typeof refused?.error === 'string' && refused.error.includes('confirm'), JSON.stringify(refused?.error))
+// Explicit false is refused too: a caller that reasoned itself into "false" must
+// not be read as "absent, therefore yes".
+const refusedFalse = await editExecute({ action: 'adopt_recommended', confirm: false }, {})
+check('confirm: false is refused as well', refusedFalse?.ok === false, JSON.stringify(refusedFalse?.ok))
+
+// Now the real thing, through the host the plugin wired: fetch every wallpaper,
+// wipe, write. `fetch` is stubbed in this harness, so the seven pictures arrive.
+const beforeAdopt = await readConfig()
+const beforeRules = beforeAdopt.rules.map(r => r.match).join(',')
+const adoptResult = await editExecute({ action: 'adopt_recommended', confirm: true }, {})
+check('with confirm: true the profile is installed', adoptResult?.ok === true, JSON.stringify(adoptResult))
+const afterAdopt = await readConfig()
+check('and the rules are the built-in profile\'s, not the previous ones',
+  afterAdopt.rules.map(r => r.match).join(',') !== beforeRules
+  && afterAdopt.rules.length === 7, afterAdopt.rules.map(r => r.match).join(','))
+check('every picture the profile names is on disk',
+  afterAdopt.rules.every(r => r.images.length === 1)
+  && (await dataUrl(afterAdopt.rules[0].images[0].slot))?.startsWith('data:image/') === true)
+// The load-bearing one: a panel still holding the pre-adoption config must NOT be
+// able to write it back. `resetStore` zeroed the history, so without the floor the
+// panel's saved revision could match the profile's first one and win.
+check('the adopted profile lands AHEAD of the revision it replaced',
+  afterAdopt.rev > beforeAdopt.rev, `${beforeAdopt.rev} -> ${afterAdopt.rev}`)
+const staleSave = (await call('writeConfig', {
+  config: { ...beforeAdopt, rules: beforeAdopt.rules },
+  expectedRev: beforeAdopt.rev,
+})).value
+check('so a panel still holding the replaced rules is refused', staleSave?.ok === false
+  && staleSave.conflict === true, JSON.stringify(staleSave?.ok))
+check('and the profile survives that refusal',
+  (await readConfig()).rules.length === 7, String((await readConfig()).rules.length))
+// The user's own wallpapers are the thing this deletes, so the holiday art — which
+// belongs to no slot and costs a round trip — is spared, exactly as `resetStore` does.
+check('the downloaded festival art is not taken with it',
+  existsSync(CACHE) && readdirSync(CACHE).length > 0, readdirSync(CACHE).join(', '))
 
 // ── the recommended profile ────────────────────────────────────────────────
 // The profile is no longer a directory of files fetched from a repository: its

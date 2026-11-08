@@ -4,6 +4,13 @@
 
 ## v0.12.0
 
+- **`background_edit` gains `adopt_recommended`** — the same operation as the Config tab's button: download the built-in profile's seven pictures, empty the store, install its seven rules. It is the only action in the tools that deletes data, so it requires an explicit `confirm: true` and otherwise refuses **before touching anything** (an explicit `false` is a refusal too; absence is not read as consent).
+- **Download first, wipe second** — the panel's own order. One unreachable picture fails the whole attempt and names the slot, and the user's rules are untouched at that point; wiping first would turn "the CDN is down" into "the configuration is gone".
+- **The adopted revision lands strictly above the one it replaced** — `resetStore` zeroes the history, so a panel still holding the pre-adoption config could sit at 1, match the profile's own first write, and overwrite it. Adopting now floors on the replaced revision, so that save is refused and the panel adopts the profile instead.
+- **The festival art is not taken with it** — `resetStore` never touched `holiday-cache/`: that art is downloaded, belongs to no slot, and costs a round trip to get back.
+- **`check:node`** — a new adopt section: refused with no `confirm` and with `confirm: false` before the host is reached, the rules becoming the built-in seven, all seven pictures on disk, the adopted revision ahead of the replaced one, a stale panel write refused with the profile still in place, and the festival art spared.
+
+
 - **Two tools the agent can use to change the appearance** — `background_theme` reads the rules, the images (by slot, never as bytes) and the interface numbers; `background_edit` adds, edits and removes rules and images, and sets layout, opacity, brightness, blur, theme colour, the global interface opacities and the switch effect. Both call the same node-half operations the settings panel does, so there is one sanitizer and one write path, not a second opinion about them.
 - **The switch is a privilege, not a preference** — a new `agentAccess` in the config, `false` by default. While it is off the two tools are absent from the model's tool table entirely (`tools.register`'s `when`), so a closed switch costs no context and cannot be called. The recommended profile does NOT turn it on either: pressing "use the recommended profile" asks for a look, not for an agent to be allowed to rewrite it.
 - **One switch on the Config page**, above the holiday switch, because it is the heavier of the two. Turning it on confirms what was granted; turning it off needs no confirmation, since the capability simply stops existing.
