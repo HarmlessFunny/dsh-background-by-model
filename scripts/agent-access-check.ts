@@ -92,5 +92,6 @@ assert('the shape declares agentAccess', 'agentAccess' in shape, Object.keys(sha
 assert('the shape declares rev', 'rev' in shape)
 check('and this build publishes schema 11', SCHEMA_VERSION, 11)
 
-console.log(failures === 0 ? '\nall agent-access checks passed' : `\n${failures} check(s) FAILED`)
+// Same marker as every other check — see the note in rev-check.ts.
+console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

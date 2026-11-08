@@ -36,9 +36,10 @@ export interface StoreFile {
  *
  * Rules only. A holiday's slot is deliberately NOT included: its art lives in
  * `holiday-cache/`, it is never written to the slot namespace, and a
- * `modelbg-h-*` file therefore cannot belong to anything (see the read-only
- * invariant in MAINTAINING §7.1). Counting the slot as referenced would make such
- * a file permanently unprunable — the one residue this cleanup could never clear.
+ * `modelbg-h-*` file therefore cannot belong to anything (see the read-only gate in
+ * `holidayAssetFor`, ./index — the single funnel every write, delete and URL fetch
+ * goes through). Counting the slot as referenced would make such a file permanently
+ * unprunable — the one residue this cleanup could never clear.
  */
 export function referencedSlots(rules: readonly SlotOwnerLike[]): string[] {
   const seen = new Set<string>()

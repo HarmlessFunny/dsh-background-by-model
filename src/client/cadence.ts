@@ -3,8 +3,9 @@
  *
  * Every interval the plugin owns is declared HERE rather than at its call site, so
  * "what does this plugin poll, and how often" has one answer. The scheduler itself
- * lives in ./watchdogs; the questions live in their own modules (boot restore and
- * the theme watchdog in ./appearance, the holiday rollover in ./holiday-status).
+ * lives in ./watchdogs; the questions live in their own modules — the theme
+ * watchdog and the holiday rollover in ./appearance-checks, the delayed boot
+ * restores in ./appearance.
  */
 
 /** The theme skin / host palette re-assert, once a second while a colour is live. */

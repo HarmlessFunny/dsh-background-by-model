@@ -278,5 +278,9 @@ check('the shape declares rev', /rev: number/.test(SCHEMA), 'schema.ts lost the 
 check('and it is not optional',
   !/rev\?:/.test(SCHEMA), 'rev became optional, so a writer could omit it')
 
-console.log(failures === 0 ? '\nall revision checks passed' : `\n${failures} check(s) FAILED`)
+// The marker is the CI contract: `publish-npm.yml` counts these lines against the
+// number of `check:*` scripts in package.json, so a check that reports in its own
+// words silently fails the release step. Fully uppercase and unqualified, like the
+// other fourteen.
+console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

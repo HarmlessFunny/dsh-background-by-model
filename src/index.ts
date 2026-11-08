@@ -23,7 +23,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 // cache is keyed by (the date maths belongs to the browser half).
 import { HOLIDAYS, holidayArtGeneration } from './holiday'
 // The persisted shape lives in ./schema, shared verbatim with the browser half.
-import { SCHEMA_VERSION, SLOT_RE, normalizeConfig, nextRev, ruleSlots } from './schema'
+import { DEFAULT_REV, SCHEMA_VERSION, SLOT_RE, normalizeConfig, nextRev, ruleSlots } from './schema'
 import type { BgState, ThemeConfig } from './schema'
 // Which download failures are worth another round, and how long to wait before
 // it — shared with the browser half, which owns what a failed attempt keeps (see
@@ -362,6 +362,45 @@ async function readConfig(): Promise<ThemeConfig> {
     }
   }
   return normalizeConfig(await migrateLegacy(raw))
+}
+
+/**
+ * The revision of the config on disk, and nothing else.
+ *
+ * This is the panel's poll (`REV_POLL_MS`), and it is the hottest handler this
+ * plugin serves: one call every three seconds, per open page, for the whole life of
+ * the process. It used to be `(await readConfig()).rev`, which is the expensive way
+ * to ask a question with a one-number answer — a full read, `ensureDir`, and
+ * `migrateLegacy`, which on a pre-0.3 store REWRITES the config as a side effect of
+ * being read. A poll must not be able to repair anything.
+ *
+ * `rev` is answered with the same rule `normalizeConfig` applies — a missing,
+ * negative or non-numeric value is `DEFAULT_REV` — so the number this returns and
+ * the number a reader would find in the parsed config cannot disagree. Deliberately
+ * NOT clamped against the backup the way `readConfig` is: a revision is not a
+ * setting to restore, it is what the live file currently says, and a poll that
+ * quietly resurrected a `.bak` would be doing the writer's job.
+ */
+async function readRevision(): Promise<number> {
+  let text: string
+  try {
+    text = await readFile(configPath(), 'utf8')
+  } catch {
+    // No live file: a fresh install, or `resetStore` just emptied the store. Either
+    // way there is no history to have a revision in.
+    return DEFAULT_REV
+  }
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return DEFAULT_REV
+    const raw = (parsed as { rev?: unknown }).rev
+    return typeof raw === 'number' && isFinite(raw) && raw >= 0 ? Math.floor(raw) : DEFAULT_REV
+  } catch {
+    // A half-written document: the write that was interrupted has not landed, so
+    // the revision on disk is still the previous one as far as any writer is
+    // concerned. `readConfig` repairs this path; a poll must not.
+    return DEFAULT_REV
+  }
 }
 
 /**
@@ -907,6 +946,19 @@ async function resetStore(): Promise<boolean> {
 }
 
 /**
+ * The adopt that is already running, if any.
+ *
+ * Adopting empties the store, so two of them at once is the one collision the
+ * revision check cannot resolve: the loser's config write is refused, which is
+ * correct, but the WIPE it already performed is not undoable. The panel's button and
+ * the agent's `adopt_recommended` reach this function from different callers and
+ * neither can see the other, so the exclusion lives here, where both arrive. A second
+ * caller is refused rather than queued: it would re-fetch every picture anyway, and
+ * the profile it was about to install is the same one.
+ */
+let adoptInFlight = false
+
+/**
  * Replace the WHOLE configuration with the built-in recommended profile.
  *
  * The one destructive operation the agent's tools expose, and it is destructive in
@@ -928,19 +980,6 @@ async function resetStore(): Promise<boolean> {
  * deliberately leaves `holiday-cache/` alone: that art is downloaded, belongs to no
  * slot, and costs a round trip to get back.
  */
-/**
- * The adopt that is already running, if any.
- *
- * Adopting empties the store, so two of them at once is the one collision the
- * revision check cannot resolve: the loser's config write is refused, which is
- * correct, but the WIPE it already performed is not undoable. The panel's button and
- * the agent's `adopt_recommended` reach this function from different callers and
- * neither can see the other, so the exclusion lives here, where both arrive. A second
- * caller is refused rather than queued: it would re-fetch every picture anyway, and
- * the profile it was about to install is the same one.
- */
-let adoptInFlight = false
-
 async function adoptRecommendedProfile(): Promise<
   | { ok: true; rules: number; images: number; rev: number }
   | { ok: false; error: string; slot?: string; wiped: boolean }
@@ -1208,8 +1247,9 @@ export async function handleRpcMethod(ctx: any, endpoint: unknown, payload: unkn
     switch (method) {
       case 'readRev':
         // One number, for a timer. Deliberately not a config read: the panel asks
-        // this every few seconds and almost always learns nothing changed.
-        return { ok: true, value: { rev: (await readConfig()).rev } }
+        // this every few seconds and almost always learns nothing changed — see
+        // `readRevision` for what reading only the number buys.
+        return { ok: true, value: { rev: await readRevision() } }
       case 'read':
         // `schema` is the shape this half writes, published so a newer browser
         // bundle can refuse to send a config this one would mangle (SCHEMA_VERSION).

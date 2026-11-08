@@ -1,5 +1,5 @@
 /**
- * Standalone tsdown config for the Deep Midnight theme plugin.
+ * Standalone tsdown config for dsh-background-by-model.
  * Emits both the node-half lib and the browser client bundle.
  * Uses a self-contained config (no shared preset import) so the plugin
  * directory is fully copy-pasteable out of the monorepo.
