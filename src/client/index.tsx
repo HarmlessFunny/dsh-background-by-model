@@ -373,11 +373,16 @@ export function apply(ctx: Ctx): void {
         // Same path a refused write takes: the disk copy wins, the panel follows.
         const persisted = await loadPersisted()
         if (persisted === null) return
+        // The slots this half held BEFORE adopting: what appears after the adopt
+        // and was not in here is what an external writer added, which is the only
+        // way the tools' pictures are distinguishable from the panel's own.
+        const before = new Set(cfg.rules.flatMap(ruleSlots))
         adoptConfig(persisted.config)
         for (const slot of cfg.rules.flatMap(ruleSlots)) {
           if (displayImageOf(slot) === null) await loadSlot(slot)
         }
         applyActive()
+        themeArrivedPictures(before)
       })()
     },
   })
@@ -398,12 +403,16 @@ export function apply(ctx: Ctx): void {
   // failure the revision check exists to prevent, and re-applying the lost edit
   // would write a change the user made against a state that is gone.
   setConflictHandler((config: unknown) => {
+    // Sampled before the adopt, for the same reason as the poll above: the diff
+    // against this set is what says "an external writer added these pictures".
+    const before = new Set(cfg.rules.flatMap(ruleSlots))
     adoptConfig(config)
     void (async () => {
       for (const slot of cfg.rules.flatMap(ruleSlots)) {
         if (displayImageOf(slot) === null) await loadSlot(slot)
       }
       applyActive()
+      themeArrivedPictures(before)
     })()
   })
 
@@ -471,6 +480,35 @@ export function apply(ctx: Ctx): void {
   })
   const maybeAutoExtract = (id: string, slot?: string): Promise<void> => extract.one(id, slot)
   const maybeAutoExtractEach = (id: string, slots: readonly string[]): Promise<void> => extract.each(id, slots)
+
+  /**
+   * Theme the pictures an EXTERNAL writer added.
+   *
+   * The panel's own uploads call `maybeAutoExtract` themselves, because they know
+   * which slots they just appended. The agent's `add_image` does not come through
+   * any of them: it downloads inside the node half, writes the config, and this
+   * half learns about the picture only by adopting a newer revision — the poll
+   * above, or the stale-write handler below. Nothing on that road asked for a
+   * colour, which is why a tool-added picture stayed on the system theme while the
+   * same picture added by hand was themed.
+   *
+   * `before` is the slot set this half held BEFORE adopting, so "new" means a slot
+   * that was not there a moment ago. That comparison is the whole point:
+   * `color === null` cannot be the test, because null is ALSO what the clear
+   * button stores, and re-theming a picture whose colour the user deliberately
+   * removed would be this feature fighting that choice.
+   *
+   * Holiday art is excluded by construction — this walks `rules`, and a festival
+   * slot is read-only.
+   */
+  const themeArrivedPictures = (before: ReadonlySet<string>): void => {
+    for (const rule of cfg.rules) {
+      const fresh = rule.images.filter(i => !before.has(i.slot)).map(i => i.slot)
+      // `extract.each` asks the auto-extract switch itself, so a user who turned it
+      // off gets nothing here either — the agent is under the same preference.
+      if (fresh.length > 0) void maybeAutoExtractEach(rule.id, fresh)
+    }
+  }
 
   // ── 8. Section injection ──────────────────────────────────────────────────
   // The section's props are built ONCE by the slot host, so anything that changes

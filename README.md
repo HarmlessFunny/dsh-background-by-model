@@ -309,6 +309,10 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
 
+### v0.12.1
+
+- **Fix: a picture the agent added had no theme colour** — the automatic extraction was hooked to the panel's own upload paths, and the agent's `add_image` reaches this half by none of them: the node half downloads and writes the config, and the browser half only adopts a newer revision. Both adoption sites now theme the slots that were not there before, so a picture added by the agent is themed like one added by hand, and the tools' own descriptions are finally true.
+
 ### v0.12.0
 
 - **The agent can change the appearance through two tools** — `background_theme` reads; `background_edit` writes (add/edit/remove rules and images, layout, opacity, brightness, blur, theme colour, the global interface opacities, the switch effect, rotation, and installing the recommended profile behind a `confirm`). Both call the same node-half operations the settings panel does.
@@ -318,25 +322,6 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 - **The config carries a revision, and a stale write is refused** — the panel and the tools cannot silently overwrite each other; the loser is handed the config that won and adopts it. A successful write must record the new revision, or the next save refuses itself and the edit visibly undoes itself ("click + once, the card flashes and disappears"). Installing the recommended profile is one round trip, not "wipe then write".
 - **The panel checks the revision every 3 s**, so an agent's edit repaints without a reload — a no-op while access is off.
 - **`SCHEMA_VERSION` is 11**, with a new `check:agent` and the stale-write and access round trips added to `check:node`.
-
-### v0.11.0
-
-- **The download source moves to Bilibili's image CDN** — the recommended profile's seven wallpapers and both holiday pictures now come from `i0`/`i1`/`i2.hdslb.com`, three edges falling back to each other; the three screenshots in this README stay where they are, since they play no part at runtime.
-- **The recommended profile's rules ship inside the plugin** — seven model rules and their interface numbers are compiled into the bundle, and the button downloads only the seven pictures. It no longer needs GitHub to be reachable, and there is no "the remote profile is newer than this build" gate left, nor a `preset.json` manifest — what gets installed is always what this build itself writes.
-- **The request set is a constant table** — slot → BFS path, fixed at build time, and a BFS path is a hash of the upload. So a wallpaper URL is immutable in a way a git tag is not.
-- **The addresses carry `@3840w.webp`** — the uploads are 2.4–12 MB PNGs (76 MB for the set); with that suffix they are the 250–365 KB 4K WebPs whose sha1 matches what is already in a data directory.
-- **The festival cache is keyed by content hash** — `holiday-cache/<tag>/` became `holiday-cache/<first eight of the hash>/`. New art means a new address, therefore a new directory and a guaranteed re-download; the "remember to bump the version too" trap is gone, and the old tag directories are taken by the same sweep once the new art lands.
-- **`SCHEMA_VERSION` stays 10** — nothing entered or left the config shape: what changed is where those numbers come from, not what they look like.
-- **Checks** — `check:preset` now pins the built-in profile itself (rule order, the slot ↔ URL table, the webp transform and content hash in each address, the cache generation); `check:node` rewrites the holiday and profile sections (three-edge fallback and the retry budget, the old `fetchPresetConfig` method being gone, the slot whitelist, tag directories being swept); section 3 of `check:scheme` no longer reaches the network.
-
-### v0.10.0
-
-- **The config is written atomically, with a `.bak` of the last good file** — a save writes a temp file and renames it over the live one, keeping the previous parseable file as the backup; a corrupt live file is restored from it instead of falling back to the factory defaults and then being overwritten by your next drag.
-- **Opacity, brightness and blur are saved per image** — the same layer as the layout mode, framing and theme color; a schema-9 config's rule-level values are lifted onto every image on read, so nothing changes on screen.
-- **`SCHEMA_VERSION` is 10** — the fields moved, and an older host would drop them in silence, so the browser half has to know.
-- **A blurred wallpaper no longer paints a dark rim around the viewport** — the layer's box is grown 2σ past the screen edge and clipped, with the framing moved back by the same amount, so the blur samples off screen instead of fading into the page behind it.
-- **A switch between two different opacity, brightness or blur values animates now** — each layer keeps its own picture's filter, and the wallpaper's opacity rides the transition instead of snapping.
-- **Dragging one of the three sliders no longer repaints everything per frame** — a drag frame writes only that field's property, and one full repaint lands when the gesture ends.
 
 ## Star History
 [![Star History Chart](https://api.star-history.com/chart?repos=HarmlessFunny/dsh-background-by-model&type=timeline&legend=bottom-right)](https://www.star-history.com/?repos=HarmlessFunny%2Fdsh-background-by-model&type=timeline&legend=bottom-right)

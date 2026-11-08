@@ -299,5 +299,57 @@ check('what was registered is what the next call compares against',
 check('and handing the palette back forgets it',
   /const drop = \(\): void => \{[\s\S]{0,200}?skinScheme = null/.test(PALETTE), true)
 
+/**
+ * The second writer's pictures are themed too — the road that had none.
+ *
+ * The panel's uploads hand their own slots to the extractor, so they never needed
+ * to be recognised on arrival. The agent's `add_image` is different: the download
+ * happens in the node half, and the ONLY thing this half ever sees is a newer
+ * revision to adopt. Neither adoption site asked for a colour, so a tool-added
+ * picture sat on the system theme while the same file added by hand was themed.
+ *
+ * Two things have to stay true, and neither fails loudly on its own:
+ *
+ *   1. BOTH adoption sites call it. They are separate code paths — the poll and
+ *      the refused-write handler — and leaving one out puts the bug back through
+ *      the door beside the one that was closed. (Same shape as the two removal
+ *      paths in `check:rev`.)
+ *   2. `before` is sampled BEFORE `adoptConfig`. Sampled after, the two sets are
+ *      equal by construction, nothing ever looks new, and the extraction silently
+ *      never runs — a bug with no error message anywhere.
+ */
+console.log('\n--- a picture the AGENT added is themed on arrival ---')
+const adoptSites = [...source.matchAll(/const before = new Set\(cfg\.rules\.flatMap\(ruleSlots\)\)/g)]
+check('both adoption sites sample the slot set before adopting', adoptSites.length, 2)
+// Per site: the sample must come before the adopt it feeds, and the call must
+// follow it. Ordered by position, because the file is read as text.
+const adopts = [...source.matchAll(/adoptConfig\(/g)].map(m => m.index ?? 0)
+for (const site of adoptSites) {
+  const at = site.index ?? 0
+  const nextAdopt = adopts.find(i => i > at)
+  const called = source.indexOf('themeArrivedPictures(before)', at)
+  if (nextAdopt === undefined || called < 0) {
+    check('an adoption site samples, adopts, then themes', false, true)
+    continue
+  }
+  check('the sample is taken before the adopt it feeds', at < nextAdopt, true)
+  check('and the pictures are themed after it', nextAdopt < called, true)
+  // The call must be THIS site's, not the next one's. A distance budget cannot
+  // answer that — with two sites ~1.2k apart, a 2k window happily matched the
+  // second site's call for the first site's sample, which is exactly how removing
+  // one site's call went unnoticed. So the window is bounded by the NEXT sample:
+  // past that, the match belongs to a different adoption.
+  const nextSite = adoptSites.find(o => (o.index ?? 0) > at)?.index ?? source.length
+  check('the sample and its call belong to the same site', called < nextSite, true)
+}
+check('the helper themes only slots that were not there before',
+  /rule\.images\.filter\(i => !before\.has\(i\.slot\)\)/.test(source), true)
+// The trap: `color === null` is ALSO the clear button's value, so using it as the
+// "never themed" test would refill a colour the user deliberately removed.
+check('an existing null colour is not the trigger',
+  !/themeArrivedPictures[\s\S]{0,400}?color === null/.test(source), true)
+check('and the extraction itself is still the per-slot one',
+  /void maybeAutoExtractEach\(rule\.id, fresh\)/.test(source), true)
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

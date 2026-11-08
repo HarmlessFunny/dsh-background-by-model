@@ -2,6 +2,12 @@
 
 > The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.0 / v0.11.0).
 
+## v0.12.1
+
+- **Fix: "a picture the agent added has no theme colour"** — the auto-extract was hooked to the panel's own three upload paths, and the agent's `add_image` reaches this half by none of them: the node half downloads and writes the config, and the browser half only ever adopts a newer revision. Both adoption sites (the 3 s poll and the refused-write handler) now theme the slots that were not there before the adopt.
+- **The trigger is the slot set, not `color === null`** — null is also what the clear button stores, so re-theming on it would refill a colour the user deliberately removed.
+- **`check:repaint` pins both adoption sites** — each must sample the slot set BEFORE `adoptConfig`, and the call is matched to its own site, so dropping one of the two puts the bug back through the adjacent door.
+
 ## v0.12.0
 
 - **The two tools now say what the theme already decides for them** — a picture is not chosen to match the current light or dark interface (the scheme follows the wallpaper's own luminance, so both work), a colour is not supplied unless the user named one (a picture themes the interface from its own bytes), and the URL is picked from a host reachable in mainland China rather than `raw.githubusercontent.com` or Google. Guidance on the parameter it applies to, so it costs nothing on a call that does not use it.
