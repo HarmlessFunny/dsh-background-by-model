@@ -100,6 +100,10 @@ export async function applyThemeFile(
   // sanitizer, and importing it would produce a config neither side wrote.
   if (typeof data.version === 'number' && data.version > SCHEMA_VERSION) return false
   if (typeof data.config !== 'object' || data.config === null) return false
+  // Captured BEFORE the wipe below, which replaces the config object entirely and
+  // would take the revision with it — the store being emptied server-side does not
+  // roll the revision back.
+  const ownRev = cfg.rev
   if (wipeFirst) {
     await resetStore()
     // The in-memory mirror has to go with it, or slots that no longer exist on
@@ -112,10 +116,15 @@ export async function applyThemeFile(
   // can put `true` back in, and that must not be a way to grant an agent access to
   // whatever machine opens it. So the value that survives an import is the one this
   // store already had — the file describes an appearance, and access is not part of
-  // one. `rev` is reset too: the imported shape is not a revision of this store's
-  // history, and the next write mints the one it becomes.
+  // one.
+  //
+  // The revision is NOT reset, and that is not an oversight: the write below names
+  // the revision this store is on, so zeroing it here would make the import's own
+  // save read as stale — refused, handed back the pre-import config, and rolled
+  // back on screen. The import is a NEW revision of this store's history, which is
+  // exactly what the write that follows produces.
   const ownAccess = cfg.agentAccess
-  adoptConfig({ ...(data.config as object), agentAccess: ownAccess, rev: 0 })
+  adoptConfig({ ...(data.config as object), agentAccess: ownAccess, rev: ownRev })
   const incoming = (data.images ?? {}) as Record<string, unknown>
   const keep = new Set<string>()
   // Every slot the incoming config references — the same set the export writes.

@@ -67,8 +67,9 @@
     "check:scheme": "node scripts/scheme-check.ts",
     "check:store": "node scripts/store-check.ts",
     "check:node": "node scripts/node-half-check.mjs",
-    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/code-plate-check.ts && node scripts/image-mode-check.ts && node scripts/rules-view-check.ts && node scripts/preset-check.ts && node scripts/ui-strings-check.ts && node scripts/watchdogs-check.ts && node scripts/scheme-check.ts && node scripts/store-check.ts && node scripts/agent-access-check.ts && node scripts/node-half-check.mjs",
-    "check:agent": "node scripts/agent-access-check.ts"
+    "test": "tsdown && tsc -p tsconfig.json && node scripts/holiday-check.ts && node scripts/rotation-check.ts && node scripts/transition-check.ts && node scripts/repaint-check.ts && node scripts/code-plate-check.ts && node scripts/image-mode-check.ts && node scripts/rules-view-check.ts && node scripts/preset-check.ts && node scripts/ui-strings-check.ts && node scripts/watchdogs-check.ts && node scripts/scheme-check.ts && node scripts/store-check.ts && node scripts/agent-access-check.ts && node scripts/rev-check.ts && node scripts/node-half-check.mjs",
+    "check:agent": "node scripts/agent-access-check.ts",
+    "check:rev": "node scripts/rev-check.ts"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-home-paths": ">=0.2.1-alpha.2",

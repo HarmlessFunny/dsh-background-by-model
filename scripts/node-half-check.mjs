@@ -1355,6 +1355,42 @@ check('the destructive action is adopt_recommended', actions.includes('adopt_rec
 check('and it is gated on an explicit confirm',
   editTool.definition.parameters.properties.confirm !== undefined)
 
+// The panel's own loop, simulated exactly: write, record what the host answered,
+// write again with THAT number. This is the "click + twice" bug in protocol terms —
+// with the revision not recorded, the second write names a number the disk has
+// already passed, is refused, and hands back a config without the first edit.
+console.log('\n--- a panel that records the answer can write twice in a row ---')
+const loopBase = await readConfig()
+let panelSeen = loopBase.rev
+const firstClick = (await call('writeConfig', {
+  config: { ...loopBase, rules: [...loopBase.rules, { id: 'r-click-1', images: [], match: '', enabled: true, color: null, rotate: { enabled: false, intervalMs: 60000, order: 'order', advanceOnSwitch: false } }] },
+  expectedRev: panelSeen,
+})).value
+check('the first click is accepted', firstClick?.ok === true, JSON.stringify(firstClick?.ok))
+// What the fix does: adopt the revision the host answered with.
+panelSeen = firstClick.rev
+const secondClick = (await call('writeConfig', {
+  config: { ...(await readConfig()), rules: [...(await readConfig()).rules, { id: 'r-click-2', images: [], match: '', enabled: true, color: null, rotate: { enabled: false, intervalMs: 60000, order: 'order', advanceOnSwitch: false } }] },
+  expectedRev: panelSeen,
+})).value
+check('and the second click is accepted too, without retrying', secondClick?.ok === true,
+  JSON.stringify(secondClick?.ok))
+const afterClicks = await readConfig()
+check('so both clicks are in the file',
+  ['r-click-1', 'r-click-2'].every(id => afterClicks.rules.some(r => r.id === id)),
+  afterClicks.rules.map(r => r.id).join(','))
+// And the bug itself, reproduced: a panel that does NOT record the answer.
+const stuck = (await readConfig()).rev
+const lost = (await call('writeConfig', {
+  config: { ...afterClicks, rules: [] },
+  expectedRev: stuck - 1,
+})).value
+check('a panel that forgot the answer looks stale and is refused',
+  lost?.ok === false && lost.conflict === true, JSON.stringify(lost?.ok))
+const afterLost = await readConfig()
+check('which is exactly the edit that would have vanished',
+  afterLost.rules.length > 0, String(afterLost.rules.length))
+
 console.log('\n--- adopt_recommended: confirm first, and nothing deleted when it cannot run ---')
 // The handler needs a context; the tool's own `execute` is what carries the gate,
 // so it is called directly with a host that would blow up on use — proving the

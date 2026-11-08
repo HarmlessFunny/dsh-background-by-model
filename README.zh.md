@@ -235,7 +235,7 @@ pnpm test            # 构建 lib/、类型检查、跑十三道检查
 
 改完 `src/` 必须重新执行 `pnpm run bundle` 才会生效 —— 挂载的 profile 加载的是 `lib/`。
 
-`pnpm test` 会构建、类型检查并跑十四道校验，十四道都不需要依赖、不需要转译器、也不需要浏览器。也可以单独跑：`pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:node`：
+`pnpm test` 会构建、类型检查并跑十五道校验，十五道都不需要依赖、不需要转译器、也不需要浏览器。也可以单独跑：`pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:rev` / `pnpm check:node`：
 
 - **`check:holiday`** —— 两个节日窗口、北京时间的跨日边界、1900–2100 年间的闰八月，以及 `pickHoliday` 的四道闸门。
 - **`check:rotation`** —— `nextIndex` / `isRotating`：不走越界、随机不重复当前这张、没有可轮换的东西时绝不报「正在轮换」。
@@ -250,6 +250,7 @@ pnpm test            # 构建 lib/、类型检查、跑十三道检查
 - **`check:scheme`** —— `data-ds-dark-theme` 的交接：插件只改自己写的那个值、清掉 token 时一起交还标记、方案变了会重绘。
 - **`check:store`** —— 存储清理的两个判定：`referencedSlots` 与 `orphanSlots`。钉住「正在用的图不会被当成孤儿」与「节日槽位的文件必须可清」，外加浏览器半边传的是**规则槽位**而不是整份配置。
 - **`check:agent`** —— AI 授权与配置版本号：默认关闭、只有显式 `true` 才授予（`'yes'` / `1` / `null` 都不行）、推荐配置不替你打开、导出不带授权、版本号只增不减、以及旧配置读成 0。
+- **`check:rev`** —— 面板的版本号链：写入必须带 `expectedRev`、成功后必须记下宿主的回答、`setRev` 改写活对象、导入不得把版本号清零且要在清空之前读。少了任何一环，下一次保存就会判自己陈旧，改动在画面上自己撤销（"点一次 + 卡片闪一下后消失"）。
 - **`check:node`** —— 把构建好的 node 半边通过真实的 RPC 处理器跑一遍（`DSH_HOME` 指向临时目录、`fetch` 换成桩）：节日配置块、节日画按内容哈希的缓存与清理、三个边缘的回落、逐图颜色与逐图效果的抬升、全局切换效果、配置的原子写与备份/恢复、图片存储的用量报告与清理，以及推荐配置的七张图（含旧清单方法的消失、槽位白名单、超时与重试预算）。
 
 ## 常见问题

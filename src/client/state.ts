@@ -331,6 +331,25 @@ export function adoptConfig(raw: unknown): void {
   rotIndex = 0
 }
 
+/**
+ * Record the revision the host just wrote.
+ *
+ * Called after EVERY successful write, and it is load-bearing rather than
+ * bookkeeping: the next write names this number as the one it started from, so
+ * leaving it stale makes the very next save look like a lost race — the host
+ * refuses it, hands back the config it already has (which does not contain the
+ * edit), and the panel adopts that. That is the "click + twice" bug: the first
+ * click is refused as stale and rolled back, the second only works once a stale
+ * revision happens to match again.
+ *
+ * Mutated on the live object, never replaced: `cfg` is read through its binding
+ * everywhere, and swapping the reference would strand the modules that hold it.
+ */
+export function setRev(rev: number): void {
+  if (!isFinite(rev) || rev < 0) return
+  cfg.rev = Math.floor(rev)
+}
+
 export function resetConfig(): void {
   cfg = freshThemeConfig()
   clearImages()

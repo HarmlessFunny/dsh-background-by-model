@@ -213,7 +213,7 @@ npx @deepseek-ai/dsh web
 git clone https://github.com/HarmlessFunny/dsh-background-by-model.git
 cd dsh-background-by-model
 pnpm install
-pnpm test            # builds lib/, typechecks, runs the fourteen checks
+pnpm test            # builds lib/, typechecks, runs the fifteen checks
 ```
 
 `pnpm run bundle` rebuilds `lib/` on its own. Either has to run before the plugin can load: a fresh clone has no `lib/`.
@@ -235,7 +235,7 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
-`pnpm test` builds, typechecks and runs fourteen checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:node`:
+`pnpm test` builds, typechecks and runs fifteen checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:rev` / `pnpm check:node`:
 
 - **`check:holiday`** — the two holiday windows, the Beijing day boundary, leap eighth months across 1900–2100, and the four gates `pickHoliday` applies.
 - **`check:rotation`** — `nextIndex` / `isRotating`: no walking off the end, shuffle never repeating the image on screen, and nothing called "rotating" with nothing to rotate.
@@ -250,6 +250,7 @@ After changing anything under `src/`, run `pnpm run bundle` again — the mounte
 - **`check:scheme`** — the `data-ds-dark-theme` hand-off: the plugin only rewrites the value it wrote, hands the flag back when it drops its tokens, and repaints when the scheme moves. It no longer reaches the network: the recommended profile's manifest it used to compare against is compiled in now.
 - **`check:store`** — the two decisions behind the storage cleanup, `referencedSlots` and `orphanSlots`: a picture in use is never an orphan, a stray holiday-slot file always is, and the browser half sends RULE slots rather than the whole config.
 - **`check:agent`** — agent access and the config revision: off by default, only an explicit `true` granting it (`'yes'` / `1` / `null` do not), the recommended profile not turning it on, an export not carrying it, the revision only ever moving forward, and a config written before either field reading as revision 0.
+- **`check:rev`** — the panel's revision chain: a write carries `expectedRev`, a successful one records the host's answer, `setRev` mutates the live object, and an import neither zeroes the revision nor reads it after the wipe. Miss any link and the next save refuses itself, so an edit visibly undoes itself ("click + once, the card flashes and disappears").
 - **`check:node`** — the built node half through its real RPC handler with `DSH_HOME` redirected and `fetch` stubbed: the holiday block, the festival art's content-hash cache and its pruning, fallback across the three edges, the per-image color AND effect lifts, the global switch effect, the atomic config write with its backup and its recovery, the store's usage report and cleanup, and the recommended profile's seven pictures end to end (including the old manifest method being gone, the slot whitelist, and the retry budget).
 
 ## FAQ

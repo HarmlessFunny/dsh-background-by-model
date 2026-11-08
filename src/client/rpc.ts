@@ -1,5 +1,5 @@
 import type { FetchResult, PresetImage, PruneResult, RpcResultLike, StoreUsage } from './types'
-import { cfg } from './state'
+import { cfg, setRev } from './state'
 // The shape this bundle writes, and the one the host announces on `read`.
 import { SCHEMA_VERSION } from '../schema'
 
@@ -146,9 +146,18 @@ async function writeConfigNow(config: unknown): Promise<WriteOutcome> {
  * no longer there, and replaying it on the winner would apply a change the user
  * made against a different state. Adopting is the honest answer — the user sees
  * the new configuration and can repeat the gesture if they still want it.
+ *
+ * The SUCCESS path is the one that has to be careful: a write that lands advances
+ * the revision on disk, so this bundle's own copy must advance with it, or its next
+ * save names a revision that is already gone, gets refused, and adopts the config
+ * from BEFORE that save — which is the edit visibly undoing itself.
  */
 async function persistAndResolve(): Promise<void> {
   const outcome = await writeConfigNow(cfg)
+  if (outcome.ok) {
+    setRev(outcome.rev)
+    return
+  }
   if (outcome.conflict && outcome.config !== undefined) {
     onConflict?.(outcome.config)
   }
