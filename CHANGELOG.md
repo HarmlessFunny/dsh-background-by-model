@@ -1,6 +1,11 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.3 / v0.12.2).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.4 / v0.12.3).
+
+## v0.12.4
+
+- **The nav mark is redrawn with a gentler slope, and the sun hangs left of the first peak** — at 16px the steep hills read as a person, and a sun over the summit made the glyph a symmetric emblem rather than the landscape `icon.svg` shows.
+- **The brand tile draws it at 20px, not 17** — inside a 30px tile the old size left the ink covering 35% of the height, a ring of empty colour the eye reads as a mistake; 20 brings it to ~55%.
 
 ## v0.12.3
 

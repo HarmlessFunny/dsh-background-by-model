@@ -311,15 +311,16 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
 
+### v0.12.4
+
+- **The nav mark redrawn** — a gentler slope, and the sun moved to hang just left of the first peak, because at 16px the steep hills read as a person and a sun over the summit made a symmetric emblem instead of the landscape the store icon shows.
+- **Drawn at 20px in the brand tile, not 17** — inside a 30px tile the old size left the ink at 35% of the height, a ring of empty colour that reads as a mistake.
+
 ### v0.12.3
 
 - **The settings nav draws this plugin's own mark** — it was a DOM patch looking for the nav button whose first `<span>` read as the section label, and the host puts the icon span first, so the text was empty and the patch silently found nothing; what showed was the harness's default gear. It is a `settings.section.icon` registration now, sharing one id constant with the section so the two cannot drift.
 - **A new mark, drawn for 16px** — a sun over hills, the small counterpart of the store icon, on the 16-unit grid rather than scaled down from 36 (at nav size the larger drawing collapses). `currentColor`, so the sidebar tints it like any other row. The plain sun stays for the "follow the system theme" button.
 - **The published icon is 20% larger** — its ink sat at 70%×78% of the 36 viewBox and read 37% of the sidebar container's width against 51% for a neighbouring plugin; 1.20 puts it at the same weight and still inside the viewBox. `check:mark` pins the registration, the shared id, the absent patch and that scale.
-
-### v0.12.2
-
-- **The plugin manager and the settings pages describe this plugin properly** — `locale/en.json` and `locale/zh.json` carry its title and description in each language, and `icon.svg` (36×36, the same viewBox the built-in artwork uses) replaces the generic package glyph. Both are listed in `exports` and in `files`: the reader resolves them through Node's ESM resolver, so a locale file on disk that `exports` does not name resolves to nothing, and a file outside `files` is missing from the published tarball — both look exactly like "no locale at all" in the UI, with no error anywhere. `check:meta` pins the lot and ends by asking `readPluginMeta` itself what the card would show. The publish gate now accepts globs in `files`, so a `locale/*.json` entry no longer reads as a missing literal filename.
 
 ## Star History
 [![Star History Chart](https://api.star-history.com/chart?repos=HarmlessFunny/dsh-background-by-model&type=timeline&legend=bottom-right)](https://www.star-history.com/?repos=HarmlessFunny%2Fdsh-background-by-model&type=timeline&legend=bottom-right)

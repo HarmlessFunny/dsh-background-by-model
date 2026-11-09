@@ -19,11 +19,27 @@ export function SunIcon({ size = 16, className }: { size?: number; className?: s
  *
  * Drawn on the 16px grid rather than scaled down from the 36px icon — at this
  * size a 36px drawing's rounding and its two echo cards collapse into mush.
+ *
+ * FILLS THE GRID, which is a sizing decision rather than an aesthetic one. The
+ * nav row hands this glyph 16px, and the host's own nav icons are drawn edge to
+ * edge; an earlier version kept a couple of units of air around a smaller
+ * drawing and read as a speck beside its neighbours. The ink now spans ~15.5 x
+ * 13.1 of the 16 units.
+ *
+ * The slope is deliberately GENTLE and the sun sits clear of the summit: steep
+ * hills plus a sun resting on the ridge line read as a person (or an M), not as
+ * a landscape, at 16px.
+ *
+ * The sun's centre is at x 4.4, just LEFT of the first apex (x 5.7) — the
+ * composition `icon.svg` has, where the sun hangs over the near slope rather
+ * than over the peak. Centring it above the range (x 7.6) made the glyph read as
+ * a symmetric emblem and lost that.
+ *
  * `currentColor` throughout: the sidebar tints it with the text colour, the
  * brand tile behind the section header tints it with its own foreground.
  */
-export const MARK_PATHS = '<circle cx="5.15" cy="4.55" r="1.5" fill="currentColor"/>'
-  + '<path d="M1.75 12.1l4.35-4.8 2.15 2.45 1.6-1.75 4.4 4.1" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>'
+export const MARK_PATHS = '<circle cx="4.4" cy="3.5" r="1.95" fill="currentColor"/>'
+  + '<path d="M1.2 13.7l4.5-5.3 2.85 3.4 2.15-2.5 4.1 4.4" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round"/>'
 
 export function MarkIcon({ size = 16, className }: { size?: number; className?: string }) {
   return (

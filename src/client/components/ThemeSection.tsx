@@ -49,7 +49,11 @@ export function ThemeSection(props: ThemeSectionProps) {
                 page's footer says the same thing in words, and both open the one
                 address in `REPO_URL`. */}
             <a className="dab-brand" href={REPO_URL} target="_blank" rel="noreferrer noopener" title={t('repoLink')}>
-              <div className="dab-brand-tile"><MarkIcon size={17} /></div>
+              {/* 20px inside the 30px tile: at 17 the ink covered 35% of the
+                  tile's height and the mark floated in a ring of empty colour
+                  the eye reads as a mistake. 20 brings it to ~55%, the weight
+                  the tile is drawn for. */}
+              <div className="dab-brand-tile"><MarkIcon size={20} /></div>
               <div>
                 <div className="dab-brand-name">{t('nav')}</div>
                 <div className="dab-brand-tag">{t('brandTag')}</div>
