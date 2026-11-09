@@ -9,6 +9,28 @@ export function SunIcon({ size = 16, className }: { size?: number; className?: s
   )
 }
 
+/**
+ * The plugin's own mark: a sun over hills, the 16px counterpart of `icon.svg`.
+ *
+ * NOT `SunIcon`, which stays the plain sun because its other caller
+ * (`ModelBgPage`'s "follow the system theme" button) means a light/dark switch.
+ * This one identifies the PLUGIN, so it carries the picture motif of the store
+ * artwork: the rounded card becomes the sun, the mountain range stays.
+ *
+ * Drawn on the 16px grid rather than scaled down from the 36px icon — at this
+ * size a 36px drawing's rounding and its two echo cards collapse into mush.
+ * `currentColor` throughout: the sidebar tints it with the text colour, the
+ * brand tile behind the section header tints it with its own foreground.
+ */
+export const MARK_PATHS = '<circle cx="5.15" cy="4.55" r="1.5" fill="currentColor"/>'
+  + '<path d="M1.75 12.1l4.35-4.8 2.15 2.45 1.6-1.75 4.4 4.1" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>'
+
+export function MarkIcon({ size = 16, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" dangerouslySetInnerHTML={{ __html: MARK_PATHS }} />
+  )
+}
+
 function Glyph({ children, size = 16, className }: { children: ReactNode; size?: number; className?: string }) {
   return (
     <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

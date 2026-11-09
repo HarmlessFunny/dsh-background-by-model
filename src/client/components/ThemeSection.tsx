@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ThemeSectionProps } from '../types'
 import { ensureUiCss, NAV_ITEM_H, NAV_GAP } from './ui.css'
-import { SunIcon, LayersIcon, PhotoIcon, SlidersIcon, AlertIcon, CheckIcon } from './icons'
+import { MarkIcon, LayersIcon, PhotoIcon, SlidersIcon, AlertIcon, CheckIcon } from './icons'
 import { ErrorBoundary } from './ErrorBoundary'
 import { Portal } from './Portal'
 import { REPO_URL } from '../repo'
@@ -49,7 +49,7 @@ export function ThemeSection(props: ThemeSectionProps) {
                 page's footer says the same thing in words, and both open the one
                 address in `REPO_URL`. */}
             <a className="dab-brand" href={REPO_URL} target="_blank" rel="noreferrer noopener" title={t('repoLink')}>
-              <div className="dab-brand-tile"><SunIcon size={15} /></div>
+              <div className="dab-brand-tile"><MarkIcon size={17} /></div>
               <div>
                 <div className="dab-brand-name">{t('nav')}</div>
                 <div className="dab-brand-tag">{t('brandTag')}</div>

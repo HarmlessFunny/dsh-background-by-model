@@ -1,68 +1,52 @@
 /**
  * The settings-nav glyph.
  *
- * The harness derives every section's nav icon from its id and exposes no hook for
- * a plugin to supply one, so the mounted nav cell has to be found in the DOM and
- * its `<svg>` swapped for this plugin's sun. That is a patch on the host's markup,
- * and the two failure modes are both silent: patching too early finds no cell, and
- * patching on every mutation burns a scan of the whole document per keystroke in
- * the composer. Hence the narrow trigger below — only a settings DIALOG arriving
- * in the tree starts a scan.
+ * The harness renders each settings section's nav icon from a slot,
+ * `settings.section.icon`, whose registration id must EQUAL the section's id
+ * (`dsh-client-ui-settings-general`, `renderSlot('settings.section.icon', …,
+ * { only: row.id, fallback: navIcon(row.id) })`). The fallback is
+ * `IconSettingsOutlineMedium` — a gear — which is why a section with no icon
+ * registered shows a gear.
+ *
+ * THIS USED TO BE A DOM PATCH, and it never worked. It looked for the nav
+ * button whose first `<span>` read as the section label, but the host's markup is
+ * `<button><span class="navIcon"><svg/></span><span class="navLabel">…</span>`,
+ * so `querySelector('span')` returned the ICON span — text content `''` — the
+ * label never matched, and the gear stayed. Nothing reported it: the patch simply
+ * found no cell and returned. A slot is both the supported route and the honest
+ * one, so the observer, the markup scan and the DOM surgery are all gone.
  */
-import { SUN_PATHS } from './components/icons'
+import { createElement } from 'react'
+import { MarkIcon } from './components/icons'
 
-/** The host's settings dialog, the only place this section's nav exists. */
-const DIALOG_SEL = '[role="dialog"][aria-modal="true"][aria-labelledby]'
-const MARK = 'dabNavIcon'
+/** The id the section is registered under; the icon's id has to match it. */
+export const SECTION_ID = 'dsh-background-by-model'
 
 /**
- * Replace the nav glyph of the section whose label is `navLabel()`.
+ * Register the section's nav icon.
  *
- * Reads the label on every scan rather than capturing it: the section is rebuilt
- * when the language changes, and a stale label would simply stop matching.
+ * `active` arrives from the host on every render, so the mark can react to the
+ * section being selected without re-registering.
  */
-export function applyNavIcon(navLabel: string): void {
-  const panel = document.querySelector<HTMLElement>(DIALOG_SEL)
-  const nav = panel?.querySelector('nav')
-  if (!nav) return
-  for (const cell of Array.from(nav.querySelectorAll('button'))) {
-    const label = cell.querySelector('span')
-    if (label === null || label.textContent?.trim() !== navLabel) continue
-    const svg = cell.querySelector('svg')
-    // Already ours (a re-scan of the same cell): nothing to do, and replacing it
-    // again would restart the icon's animation on every mutation.
-    if (svg !== null && svg.dataset[MARK] === '1') return
-    const sun = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    sun.setAttribute('width', '16')
-    sun.setAttribute('height', '16')
-    sun.setAttribute('viewBox', '0 0 16 16')
-    sun.setAttribute('fill', 'none')
-    sun.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-    sun.dataset[MARK] = '1'
-    sun.innerHTML = SUN_PATHS
-    svg?.replaceWith(sun)
-    if (svg === null) cell.prepend(sun)
-    return
+export function registerNavIcon(ctx: {
+  slots: {
+    inject(name: string, apply: () => unknown): unknown
+    register(options: Record<string, unknown>, component: unknown): unknown
   }
-}
-
-/** Watch for the settings dialog (re)appearing; returns the disposer. */
-export function watchNavIcon(navLabel: () => string): () => void {
-  if (typeof MutationObserver === 'undefined') return () => undefined
-  const observer = new MutationObserver(records => {
-    // React only when the DIALOG (or its inner nav) is (re)created, so chat-content
-    // mutations do not trigger a scan.
-    const relevant = records.some(r => {
-      for (const n of r.addedNodes) {
-        if (n.nodeType !== 1) continue
-        const el = n as Element
-        if (el.matches?.(DIALOG_SEL) || el.querySelector?.(DIALOG_SEL)) return true
-      }
-      return false
-    })
-    if (relevant) applyNavIcon(navLabel())
-  })
-  observer.observe(document.body, { childList: true, subtree: true })
-  applyNavIcon(navLabel())
-  return () => observer.disconnect()
+}): void {
+  ctx.slots.inject('settings.section.icon', () => ctx.slots.register(
+    {
+      name: 'settings.section.icon',
+      // Must equal the section's own id: an icon registered under any other id
+      // never renders (`only: row.id` filters it out).
+      id: SECTION_ID,
+      order: 35,
+      // Not displayed for icons; the owner supplies its own label.
+      label: () => '',
+    },
+    // The host supplies `{ size, active }`. `size` is the square edge it wants
+    // (16 in the nav), so the glyph scales with the row instead of being pinned.
+    (props: { size?: number; active?: boolean }) =>
+      createElement(MarkIcon, { size: props.size ?? 16, className: props.active ? 'dab-nav-mark is-active' : 'dab-nav-mark' }),
+  ))
 }

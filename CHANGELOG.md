@@ -1,6 +1,14 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.2 / v0.12.1).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.3 / v0.12.2).
+
+## v0.12.3
+
+- **The settings nav shows this plugin's mark, not the harness's default gear** — the glyph was patched into the mounted DOM cell, and the patch looked for the nav button whose first `<span>` read as the section label. The host's markup puts the icon span first, so that span's text was empty, the label never matched and the patch returned having found nothing. It is now a `settings.section.icon` registration, which is the supported route.
+- **The nav icon and the section share one id** — the icon's registration id must equal the section's (`only: row.id` filters everything else out), so both read it from a single constant instead of two literals that can drift.
+- **A new mark: a sun over hills, the 16px counterpart of the store icon** — drawn on the 16-unit grid rather than scaled down from 36, because at nav size the larger drawing's rounding and its echo cards collapse. `currentColor` throughout, so the sidebar tints it like any other row and the brand tile supplies its own foreground. The plain sun stays, since its other caller is the "follow the system theme" button.
+- **The published icon is 20% larger** — its ink covered 70%×78% of the 36 viewBox, so it sat noticeably smaller in the plugin manager than the other plugins' artwork. Measured against the sidebar strip, ours read 37% of the container width against 51% for a neighbouring plugin; 1.20 brings it to the same weight while staying inside the viewBox (1.277 is the vertical limit).
+- **`check:mark`** — the slot registration, the shared id, the absence of the DOM patch, the mark's `currentColor` and grid, and the artwork's scale staying under its clipping limit. Verified to fail when the id is wrong, when the observer comes back, and when the section names a literal.
 
 ## v0.12.2
 

@@ -14,7 +14,7 @@ import { holidayRollover, themeWatchdog } from './appearance-checks'
 import { hydrateBoot, loadSlot } from './boot'
 import { createModelTracker } from './model-state'
 import { createRotation } from './rotation-timer'
-import { watchNavIcon } from './nav-icon'
+import { registerNavIcon, SECTION_ID } from './nav-icon'
 import { applyThemeFile, buildThemeFile, saveThemeFile } from './theme-file'
 import { createSchedule } from './watchdogs'
 import { REV_POLL_MS } from './cadence'
@@ -1047,15 +1047,18 @@ export function apply(ctx: Ctx): void {
     }
   }
   ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section', id: 'dsh-background-by-model', order: 35,
+    // `SECTION_ID` rather than a literal: the nav icon has to register under the
+    // very same id, and two literals drifting apart would put the gear back with
+    // nothing failing anywhere.
+    name: 'settings.section', id: SECTION_ID, order: 35,
     label: () => ctx.locale.bind(NS)('nav'),
     locale: NS, store, inject: sectionInject,
   }, ThemeSection as any))
 
   // ── 9. Settings-nav icon ──────────────────────────────────────────────────
-  // The harness derives the nav glyph from the section id and offers no plugin
-  // hook, so the mounted cell is patched in place (see ./nav-icon).
-  ctx.effect(() => watchNavIcon(() => ctx.locale.bind(NS)('nav')), 'dsh-background-by-model: nav icon watch')
+  // A slot, not a DOM patch: the harness offers `settings.section.icon`, and an
+  // icon registered under the section's own id replaces its default gear.
+  registerNavIcon(ctx)
 
   // ── 10. Theme-reset watch: re-assert the forced scheme the host strips ────
   const disposeThemeResets = watchThemeResets()
