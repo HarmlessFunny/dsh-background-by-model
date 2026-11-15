@@ -15,6 +15,8 @@ import { hydrateBoot, loadSlot } from './boot'
 import { createModelTracker } from './model-state'
 import { createRotation } from './rotation-timer'
 import { registerNavIcon, SECTION_ID } from './nav-icon'
+import { PEEK_ID, registerPeek } from './peek'
+import { PeekButton } from './components/PeekButton'
 import { applyThemeFile, buildThemeFile, saveThemeFile } from './theme-file'
 import { createSchedule } from './watchdogs'
 import { REV_POLL_MS } from './cadence'
@@ -57,7 +59,7 @@ import {
 import { extractWallpaperColor } from './utils/color'
 import { matchRule, watchModel } from './modelbg'
 import { ThemeSection } from './components/ThemeSection'
-import { markOwnSheet } from './components/ui.css'
+import { ensureUiCss, markOwnSheet } from './components/ui.css'
 
 export const name = 'dsh-background-by-model'
 export const inject = ['slots', 'locale', 'theme', 'connection']
@@ -1060,11 +1062,32 @@ export function apply(ctx: Ctx): void {
   // icon registered under the section's own id replaces its default gear.
   registerNavIcon(ctx)
 
-  // ── 10. Theme-reset watch: re-assert the forced scheme the host strips ────
+  // ── 10. "Wallpaper only": the header eye, and the mode it drives ──────────
+  // The mode itself is a document attribute plus one stylesheet rule (./peek).
+  // Registered here rather than from the section, because the header exists
+  // whether or not the settings page has ever been opened — which also means the
+  // design-system stylesheet cannot wait for the section to inject it.
+  ensureUiCss()
+  registerPeek(ctx)
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+    name: 'conversation.session.header.utilities',
+    // A LIST slot: an id of our own is added BESIDE the shipped controls, while
+    // reusing one of their ids (`schedule-catalog`, `forge-panel`) would take
+    // over that cell and replace it.
+    id: PEEK_ID,
+    // Order 0 is just left of the overflow ("…") menu, which carries no order of
+    // its own, and right of the shipped utilities (-8, -5).
+    order: 0,
+    // `t` is bound from this namespace by the slot host, so the button's label
+    // follows the active locale without re-registering.
+    locale: NS,
+  }, PeekButton as any))
+
+  // ── 11. Theme-reset watch: re-assert the forced scheme the host strips ────
   const disposeThemeResets = watchThemeResets()
   ctx.effect(() => () => { disposeThemeResets() }, 'dsh-background-by-model: theme resets watch')
 
-  // ── 11. Flush pending writes on page hide ─────────────────────────────────
+  // ── 12. Flush pending writes on page hide ─────────────────────────────────
   const onPageHide = (): void => { flushSave(); drainDeferredDeletes() }
   window.addEventListener('pagehide', onPageHide)
   ctx.effect(() => () => window.removeEventListener('pagehide', onPageHide), 'dsh-background-by-model: pagehide flush')

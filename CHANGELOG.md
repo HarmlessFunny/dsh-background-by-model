@@ -1,6 +1,14 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.4 / v0.12.3).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.5 / v0.12.4).
+
+## v0.12.5
+
+- **A "wallpaper only" mode: an eye in the conversation header hides every interface component and leaves the picture** — the whole app is one subtree, so hiding it is one attribute, and the wallpaper is painted beside that subtree rather than inside it.
+- **The mode is left by a click or any key** — no control survives it. Dismissing the screen is the gesture a full-screen picture is expected to accept, and it means nothing floats on a wallpaper the plugin did not choose.
+- **`visibility` rather than `display`** — the tree stays mounted and laid out, so nothing is lost on the way back: no scroll position, no draft, no component state.
+- **Every descendant is hidden, not just the mount point** — `visibility` is inherited, and the harness re-asserts `visible` in eight of its own stylesheets; `!important` on the root does not help, because an inherited value loses to any declaration a descendant makes for itself.
+- **`check:peek`** — the slot registration, both halves naming one attribute, the subtree rule reaching every node, both exits, and the mode never being written to the config. Verified against six mutations, including restoring the button and leaving on `pointerdown`.
 
 ## v0.12.4
 

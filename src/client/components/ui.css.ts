@@ -6,7 +6,7 @@
  * reveals, the rotating orb ring) and pseudo-element effects cannot be
  * expressed as React inline styles. Every color reads the host's
  * --dsw-alias-* tokens so the panel follows the user's custom theme color and
- * light/dark scheme automatically; `color-mix` tints carry a plain-token
+ * light/dark scheme automatically; color-mix tints carry a plain-token
  * fallback first for older engines.
  */
 export const NAV_ITEM_H = 38
@@ -453,6 +453,54 @@ export const UI_CSS = `
 /* Only a label: the whole feature is one switch, and dab-toggle already exists.
    The per-holiday cards that used to live here are gone by design. */
 .dab-holiday-label{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+
+/* ── "wallpaper only" ────────────────────────────────────────────────────────
+ * The header eye hides every interface component and leaves the wallpaper.
+ *
+ * The host paints the app into #root, and the wallpaper is its SIBLING
+ * (body > div[data-dab-wp], z-index -1), so hiding that one subtree hides the
+ * whole interface and nothing else. visibility rather than display: the tree stays
+ * mounted and laid out, so leaving the mode costs one attribute and loses no
+ * scroll position, no draft and no component state — and a hidden subtree is out
+ * of hit-testing, so the invisible interface cannot be clicked through.
+ *
+ * WHY HIDING #root ALONE WAS NOT ENOUGH. visibility is inherited, and a
+ * descendant may re-assert visible — which the harness does, in eight of its own
+ * stylesheets. The ones that showed were the workspace header's section label and
+ * its two action buttons: "工作区" and two icons stayed floating over the picture.
+ *
+ * The important part is WHY !important on #root does not fix that: an important
+ * declaration is only important for the element that declares it. Descendants
+ * still INHERIT the value, and an inherited value loses to any declaration a
+ * descendant makes for itself — importance does not travel down the tree. So the
+ * rule has to reach every node the host might light up, and be !important on each
+ * of them (#root *), which is what the second line does. The host ships no
+ * !important visibility anywhere (checked), so nothing can out-rank it.
+ *
+ * #root is the id the Web entry looks up itself (dsh-web-frontend's main.ts);
+ * peek.ts warns in the console when it is missing instead of hiding nothing.
+ *
+ * The exception is the way BACK, and it is a DOM listener rather than a selector:
+ * a click or any key press leaves the mode (peek.ts). An earlier version handed
+ * the eye visibility:visible back instead, so it kept floating alone on the
+ * user's wallpaper as the exit — a control nobody asked for, on a picture the
+ * plugin did not choose, which made "keep it legible over an unknowable
+ * background" a problem with no good answer. Leaving is now the gesture a
+ * full-screen picture is expected to accept, and the screen really is empty
+ * apart from the picture.
+ *
+ * So the subtree rule below is the LAST word on visibility, with no exception
+ * anywhere in the tree — not even the plugin's own button. */
+html[data-dab-peek] #root,
+html[data-dab-peek] #root *{visibility:hidden!important}
+/* The button matches the overflow control it sits beside (28px, 15px glyph, the
+   secondary label colour) so the trailing cluster keeps one rhythm. It is styled
+   ONLY here: there is no hidden-state variant to keep in step, because the button
+   is not on screen in that state. */
+.dab-peek-btn{flex:none;display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary));cursor:pointer;transition:color .2s ease,background .2s ease,opacity .2s ease}
+.dab-peek-btn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
+.dab-peek-btn:active{transform:scale(.94)}
+.dab-peek-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 
 /* ── keyframes ───────────────────────────────────────────────────────────── */
 @keyframes dab-fade-in{from{opacity:0}to{opacity:1}}

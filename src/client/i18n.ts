@@ -214,6 +214,12 @@ export const zh: Record<string, string> = {
   trPreview: '试放',
   trHint: '效果对所有换图生效：切模型、轮换、手动下一张、节日。「直接切换」和 0 秒一样是硬切',
   trReducedHint: '系统开启了「减少动态效果」，实际切换不会播放动画',
+
+  // ── The header eye ("wallpaper only") ─────────────────────────────────────
+  // Only the ENTRY is labelled: the mode is left by a click or any key, and a
+  // label cannot explain a screen with nothing on it. "只看壁纸" states what the
+  // click does, which is the only question a user has at that point.
+  peekHide: '只看壁纸',
 }
 
 export const en: Record<string, string> = {
@@ -426,4 +432,6 @@ export const en: Record<string, string> = {
   trPreview: 'Preview',
   trHint: 'The effect applies to every change: model switch, rotation, manual next, holidays. “Instant” and 0 s are the same hard cut',
   trReducedHint: 'Your system asks for reduced motion, so a real switch will not animate',
+
+  peekHide: 'Wallpaper only',
 }

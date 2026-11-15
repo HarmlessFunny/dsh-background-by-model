@@ -176,3 +176,20 @@ export const ChevronDownIcon = ({ size, className }: { size?: number; className?
   <Glyph size={size} className={className}><path d="M4.3 6.4 8 10.1l3.7-3.7" /></Glyph>
 )
 
+/**
+ * "Hide the interface" — a whole eye, open.
+ *
+ * The header is a 15px seat, and at that size an eye lives or dies on the pupil, so
+ * the lids are two plain arcs and the iris is a filled disc rather than a stroked
+ * ring (a ring this small closes up). There is no crossed-out twin: the button is
+ * hidden along with the rest of the interface while the mode is on, so nothing
+ * ever needs to draw the "off" state.
+ */
+export const EyeIcon = ({ size, className }: { size?: number; className?: string }) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1.5 8S3.9 3.9 8 3.9 14.5 8 14.5 8 12.1 12.1 8 12.1 1.5 8 1.5 8z" />
+    <circle cx="8" cy="8" r="1.95" fill="currentColor" stroke="none" />
+  </svg>
+)
+
+
