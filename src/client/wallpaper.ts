@@ -439,6 +439,12 @@ function applyCustomTokensNow(ops: PartOpacities): void {
         const opVar = OPACITY_VARS[name]
         decls.push(`${name}:${opVar !== undefined ? `var(${opVar})` : value}!important`)
       }
+      // The base surface colour BEFORE any opacity is applied, kept as its own
+      // variable: the host's two paint bands (composer mask, page bar) need a fill
+      // that hides live text, and re-deriving it from the translucent token is not
+      // possible in CSS. Written here, the one place the palette is known.
+      const opaqueBg = tokens['--dsw-alias-bg-base']
+      if (opaqueBg !== undefined) decls.push(`--dsh-any-opaque-bg:${opaqueBg}!important`)
       // `:root` as well as `body`, and not for symmetry: the host declares a few
       // of its OWN variables on `:root` as `var()` references into our tokens, and
       // a custom property is substituted where it is DECLARED. So
@@ -1164,6 +1170,10 @@ let partsObserver: MutationObserver | null = null
 export function watchParts(): void {
   if (partsObserver !== null || typeof MutationObserver === 'undefined') return
   partsObserver = new MutationObserver(() => {
+    // Cheap convergence: a band that appeared is caught here, and once every spec
+    // has its copy this stops asking — a streaming reply mutates the body on every
+    // frame and must not force a layout read each time.
+    if (seamEntries.size < SEAM_SPECS.length) scheduleSeams()
     if (frameEl !== null && centerEl !== null && detailsEl !== null && document.body.contains(frameEl)
       // Keep re-applying while any card host is absent or was swapped by the host.
       && viewTargets.every(el => el !== null && document.body.contains(el))) return
@@ -1698,6 +1708,9 @@ export function applyWp(): void {
   applyTrajectoryOverrides(rTrajectoryOpacity())
   applyRightbarOverrides(rRightbarOpacity())
   applyInterfaceParts(paletteMoved)
+  // Bands are re-derived on the same beat as the surfaces they copy: a rule
+  // switch can change the picture, its framing, its brightness and its blur.
+  scheduleSeams()
 }
 
 export function teardownWp(): void {
@@ -1721,6 +1734,8 @@ export function teardownWp(): void {
   pendingOps = null
   tableFixStyleEl?.remove(); tableFixStyleEl = null
   stopWatchingParts()
+  removeSeams()
+  stopWatchingSeams()
 }
 
 /** Live wallpaper-opacity updates during slider drag (no full re-apply).
@@ -1731,6 +1746,7 @@ export function teardownWp(): void {
 export function setWpOpacity(v: number): void {
   wpAlpha = v
   if (wpEl) wpEl.style.opacity = String(v)
+  scheduleSeams()
 }
 
 /**
@@ -1755,4 +1771,314 @@ export function setWpFilter(): void {
     l.blur = rBl()
     applyLayerEffects(l)
   }
+  scheduleSeams()
+}
+
+// ── Wallpaper copies behind the host's paint bands ───────────────────────────
+// Two host surfaces cover content with a FLAT fill, and a flat fill cuts the
+// wallpaper off at their edge: the composer seat's input mask (transparent at
+// its top, solid below) and the plugin page bar's `::before`. Both read
+// `--dsw-alias-bg-base`, which this plugin re-emits as a translucent token, so
+// both surfaces bleed the text underneath them straight through the wallpaper.
+//
+// The fix is not to make the bands opaque — that hides the picture behind a
+// grey slab, which is exactly what the user sees as "the background stops
+// here". Each band instead carries a clipped COPY of the wallpaper layer,
+// aligned to the viewport and painted UNDER the band's own text, plus the
+// page's own wash on top of it. The band then looks like the page behind it
+// while still hiding what it hid.
+//
+// The copy is a CHILD of the band with a negative z-index, never a fixed layer:
+// the seat carries `will-change: transform`, which makes it the containing
+// block for fixed descendants, so a fixed copy would be positioned against the
+// seat and not the viewport — and a child can never escape the band to cover
+// the interface, which is the failure mode worth designing out.
+export const SEAM_HOST_ATTR = 'data-dab-seam-host'
+
+interface SeamSpec {
+  /** Host selectors whose elements get a copy each. */
+  sel: string
+  /** The band covers content at its TOP edge (a page bar) rather than its bottom. */
+  top: boolean
+  /** Height of the band's fade, in px; 0 for a band with a hard edge. */
+  ramp: number
+  /** The wash the page paints over the wallpaper, as a CSS colour expression.
+   *  Read as a token, so a slider drives the copy with no repaint. */
+  tint: string
+}
+
+/**
+ * The two bands, and the wash each one needs — they are NOT the same colour.
+ *
+ * The composer's band sits inside the centre column, and the columns carry the
+ * "main background" alpha while the frame itself is transparent (see
+ * `applyPartOpacities`), so it takes `--dsh-any-op-bg`.
+ *
+ * A function page paints itself at the PAGE opacity instead (see
+ * `applyPageSurfaces`), so its bar takes `--dsh-any-bg-page` — and stays fully
+ * transparent when the page is unpainted, which is also how the page looks then.
+ */
+const SEAM_SPECS: SeamSpec[] = [
+  {
+    sel: `[data-phase="active"] [data-composer-seat], [data-content-phase="active"] [data-composer-seat]`,
+    top: false,
+    ramp: 36,
+    tint: 'var(--dsh-any-op-bg,var(--dsh-any-opaque-bg))',
+  },
+  {
+    sel: '[data-plugin-bar][data-natural]',
+    top: true,
+    ramp: 0,
+    tint: 'var(--dsh-any-bg-page,transparent)',
+  },
+]
+
+/**
+ * The band's own fallback, kept as one rule so a host restyle cannot silently
+ * turn a band into a transparent hole: with a copy the band paints nothing and
+ * the copy shows; without one it falls back to the opaque base colour, which is
+ * what kept the text legible before this section existed.
+ */
+export const SEAM_STYLE_RULE =
+  `[data-phase=active] [data-composer-seat]:not([${SEAM_HOST_ATTR}]),[data-content-phase=active] [data-composer-seat]:not([${SEAM_HOST_ATTR}]){background:linear-gradient(180deg,color-mix(in srgb,var(--dsh-any-opaque-bg,var(--dsw-alias-bg-base)) 0%,transparent) 0px,var(--dsh-any-opaque-bg,var(--dsw-alias-bg-base)) 36px)!important}`
+  + `[data-phase=active] [data-composer-seat][${SEAM_HOST_ATTR}],[data-content-phase=active] [data-composer-seat][${SEAM_HOST_ATTR}]{background:transparent!important}`
+  + `[data-plugin-bar][data-natural]:not([${SEAM_HOST_ATTR}])::before{background:var(--dsh-any-opaque-bg,var(--dsw-alias-bg-base))!important}`
+  + `[data-plugin-bar][data-natural][${SEAM_HOST_ATTR}]::before{background:transparent!important}`
+
+interface SeamEntry {
+  host: HTMLElement
+  spec: SeamSpec
+  wrap: HTMLDivElement
+  img: HTMLDivElement
+  /** Fingerprint of the last paint, so a scroll that changes nothing writes nothing. */
+  sig: string
+  /** Display URL of the picture the copy currently paints. */
+  url: string | null
+}
+
+let seamRaf = 0
+let seamBound = false
+let seamResize: ResizeObserver | null = null
+const seamEntries = new Map<HTMLElement, SeamEntry>()
+
+function createSeam(spec: SeamSpec): { wrap: HTMLDivElement; img: HTMLDivElement } {
+  const wrap = document.createElement('div')
+  wrap.dataset.dabSeam = ''
+  wrap.style.cssText = 'position:absolute;left:0;top:0;right:0;overflow:hidden;pointer-events:none;z-index:-1;display:none;'
+  if (spec.ramp > 0) {
+    // The fade is the band's own shape: the copy is transparent exactly where
+    // the band's fill is, so the two edges agree to the pixel.
+    const mask = `linear-gradient(180deg,transparent 0px,#000 ${spec.ramp}px)`
+    wrap.style.maskImage = mask
+    wrap.style.setProperty('-webkit-mask-image', mask)
+  }
+  // Bottom layer: the host's own base colour, opaque. It is what guarantees a
+  // band never lets live text through, whatever happens to the picture above it.
+  const color = document.createElement('div')
+  color.dataset.dabSeamColor = ''
+  color.style.cssText = 'position:absolute;inset:0;background:var(--dsh-any-opaque-bg,var(--dsw-alias-bg-base));'
+  // Middle layer: the wallpaper, placed from the same reads the main layer uses.
+  const img = document.createElement('div')
+  img.dataset.dabSeamImg = ''
+  img.style.cssText = 'position:absolute;background-repeat:no-repeat;background-position:center;'
+  // Top layer: the wash the page paints over the picture outside the band.
+  const tint = document.createElement('div')
+  tint.dataset.dabSeamTint = ''
+  tint.style.cssText = `position:absolute;inset:0;background:${spec.tint};`
+  wrap.append(color, img, tint)
+  return { wrap, img }
+}
+
+/**
+ * Whether the host still paints OVER our copy.
+ *
+ * The copy sits at `z-index:-1` inside the band, which only renders above the
+ * band's own background when the band forms a stacking context. Both hosts do
+ * (`z-index:9` on the seat, `z-index:2` on the bar), but a host restyle must
+ * never turn into a transparent band over live text — so the copy only takes
+ * over while that is still true, and otherwise the opaque fallback rule wins.
+ */
+function hostStacks(host: HTMLElement): boolean {
+  const cs = getComputedStyle(host)
+  if (cs.zIndex !== 'auto') return true
+  return /transform|opacity|filter|will-change/.test(cs.willChange + (cs.transform === 'none' ? '' : ' transform') + (cs.filter === 'none' ? '' : ' filter'))
+}
+
+/** The band's height in px: a page bar paints taller than its own box. */
+function seamBandHeight(host: HTMLElement, spec: SeamSpec): number {
+  const box = host.getBoundingClientRect().height
+  if (!spec.top) return box
+  const cs = getComputedStyle(host)
+  const raw = cs.getPropertyValue('--plugin-header-paint-height').trim()
+    || cs.getPropertyValue('--plugin-header-rest-height').trim()
+  const n = parseFloat(raw)
+  return Number.isFinite(n) && n > 0 ? n : box
+}
+
+/** Hand the band back to the opaque fallback rule. Never leaves a hole. */
+function hideSeam(e: SeamEntry): void {
+  if (e.wrap.style.display !== 'none') e.wrap.style.display = 'none'
+  if (e.host.hasAttribute(SEAM_HOST_ATTR)) e.host.removeAttribute(SEAM_HOST_ATTR)
+  e.sig = ''
+}
+
+/**
+ * Paint the copy from the SAME reads the main layer uses, so the two can never
+ * disagree: same box (the wallpaper container's rect, grown by the blur pad),
+ * same framing, same brightness, same blur, same opacity. Only the clip differs.
+ */
+function paintSeam(e: SeamEntry): void {
+  const { host, spec, wrap, img } = e
+  // A host re-render can drop the copy without telling us (React removes
+  // children it did not create). Re-attach before anything else, and never touch
+  // a host that has left the document.
+  if (!host.contains(wrap)) {
+    if (!document.body.contains(host)) {
+      hideSeam(e)
+      return
+    }
+    host.append(wrap)
+    e.sig = ''
+  }
+  const layer = wpEl
+  const url = layer === null ? null : rWp()
+  if (layer === null || url === null || !document.body.contains(host) || !hostStacks(host)) {
+    hideSeam(e)
+    return
+  }
+  const hr = host.getBoundingClientRect()
+  const cr = layer.getBoundingClientRect()
+  const bandH = seamBandHeight(host, spec)
+  if (hr.width <= 0 || cr.width <= 0 || !(bandH > 0)) {
+    hideSeam(e)
+    return
+  }
+  const mode = rBgMode()
+  const bg = rBgState()
+  const brightness = rBrightness()
+  const blur = rBl()
+  const sig = [
+    Math.round(hr.left), Math.round(hr.top), Math.round(hr.width), Math.round(hr.height),
+    Math.round(bandH), Math.round(cr.width), Math.round(cr.height),
+    window.innerWidth, window.innerHeight, url, mode,
+    bg.iw, bg.ih, bg.x, bg.y, bg.zoom, wpAlpha, brightness, blur,
+  ].join('|')
+  if (e.sig === sig && wrap.style.display === 'block') return
+  e.sig = sig
+  e.url = url
+  wrap.style.display = 'block'
+  wrap.style.height = `${bandH}px`
+  host.setAttribute(SEAM_HOST_ATTR, '1')
+  // The copy's box is the wallpaper container's, expressed in the BAND's own
+  // coordinate system (the band is the containing block, not the viewport).
+  const wr = wrap.getBoundingClientRect()
+  const pad = wpBlurPad(blur)
+  img.style.left = `${cr.left - wr.left - pad}px`
+  img.style.top = `${cr.top - wr.top - pad}px`
+  img.style.width = `${cr.width + pad * 2}px`
+  img.style.height = `${cr.height + pad * 2}px`
+  img.style.backgroundImage = `url("${url}")`
+  let posX: number | null = null
+  let posY: number | null = null
+  if (mode === 'fit') {
+    img.style.backgroundRepeat = 'no-repeat'
+    if (bg.iw > 0) {
+      const fit = Math.min(window.innerWidth / bg.iw, window.innerHeight / bg.ih)
+      const w = bg.iw * fit * bg.zoom
+      const h = bg.ih * fit * bg.zoom
+      img.style.backgroundSize = `${w}px ${h}px`
+      posX = bg.x * window.innerWidth - w / 2
+      posY = bg.y * window.innerHeight - h / 2
+    } else {
+      img.style.backgroundSize = 'contain'
+    }
+  } else if (mode === 'fill') {
+    img.style.backgroundRepeat = 'no-repeat'
+    img.style.backgroundSize = 'cover'
+  } else if (mode === 'stretch') {
+    img.style.backgroundRepeat = 'no-repeat'
+    img.style.backgroundSize = '100% 100%'
+  } else if (mode === 'tile') {
+    img.style.backgroundRepeat = 'repeat'
+    img.style.backgroundSize = 'auto'
+    posX = 0
+    posY = 0
+  } else {
+    img.style.backgroundRepeat = 'no-repeat'
+    img.style.backgroundSize = 'contain'
+    imageNatSize(url, (w, h) => {
+      if (e.url !== url || rBgMode() !== 'center') return
+      if (w > 0 && h > 0) img.style.backgroundSize = `${w}px ${h}px`
+    })
+  }
+  // A numeric placement belongs to the UNGROWN box; the grown box's origin moved
+  // by -pad, so the placement moves by +pad to land on the same pixel (the same
+  // relationship `writeLayerBox` keeps for the main layer).
+  img.style.backgroundPosition = posX === null || posY === null ? 'center' : `${posX + pad}px ${posY + pad}px`
+  img.style.filter = wpFilter(brightness, blur)
+  img.style.opacity = String(wpAlpha)
+}
+
+export function refreshSeams(): void {
+  seamRaf = 0
+  const seen = new Set<HTMLElement>()
+  for (const spec of SEAM_SPECS) {
+    for (const host of Array.from(document.querySelectorAll(spec.sel))) {
+      if (!(host instanceof HTMLElement)) continue
+      seen.add(host)
+      let e = seamEntries.get(host)
+      if (e === undefined) {
+        const { wrap, img } = createSeam(spec)
+        e = { host, spec, wrap, img, sig: '', url: null }
+        host.append(wrap)
+        seamEntries.set(host, e)
+        seamResize?.observe(host)
+      }
+      paintSeam(e)
+    }
+  }
+  // A band that unmounted (a navigation, a phase change) takes its copy with it.
+  for (const [host, e] of seamEntries) {
+    if (seen.has(host) && document.body.contains(host)) continue
+    e.wrap.remove()
+    seamResize?.unobserve(host)
+    host.removeAttribute(SEAM_HOST_ATTR)
+    seamEntries.delete(host)
+  }
+}
+
+/** One repaint per frame, however many callers ask. */
+function scheduleSeams(): void {
+  if (seamRaf !== 0) return
+  seamRaf = requestAnimationFrame(refreshSeams)
+}
+
+export function watchSeams(): void {
+  if (seamBound) return
+  seamBound = true
+  window.addEventListener('resize', scheduleSeams)
+  document.addEventListener('scroll', scheduleSeams, true)
+  if (typeof ResizeObserver !== 'undefined') seamResize = new ResizeObserver(() => scheduleSeams())
+}
+
+export function stopWatchingSeams(): void {
+  if (!seamBound) return
+  seamBound = false
+  window.removeEventListener('resize', scheduleSeams)
+  document.removeEventListener('scroll', scheduleSeams, true)
+  seamResize?.disconnect()
+  seamResize = null
+}
+
+/** Take every copy out and hand both bands back to the fallback rule. */
+export function removeSeams(): void {
+  if (seamRaf !== 0) {
+    cancelAnimationFrame(seamRaf)
+    seamRaf = 0
+  }
+  for (const [host, e] of seamEntries) {
+    e.wrap.remove()
+    host.removeAttribute(SEAM_HOST_ATTR)
+  }
+  seamEntries.clear()
 }

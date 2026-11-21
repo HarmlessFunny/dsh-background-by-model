@@ -54,7 +54,7 @@ import {
 import {
   applyWp, teardownWp, applySettingsOverrides, applyRightbarOverrides, SETTINGS_STYLE_RULE, TRAJECTORY_STYLE_RULE,
   RIGHTBAR_STYLE_RULE, PAGE_STYLE_RULE, INPUT_STYLE_RULE, PLACEHOLDER_RULE, OWN_SCHEME,
-  watchParts, watchThemeResets,
+  SEAM_STYLE_RULE, watchParts, watchThemeResets, watchSeams, refreshSeams,
 } from './wallpaper'
 import { extractWallpaperColor } from './utils/color'
 import { matchRule, watchModel } from './modelbg'
@@ -113,7 +113,7 @@ export function apply(ctx: Ctx): void {
   markOwnSheet(styleEl)
   // The gradient only applies while applyCustomTokens marks the body with the
   // plugin's own dark-mode value, avoiding matches against the host's attribute.
-  styleEl.textContent = `body[data-ds-dark-theme="${OWN_SCHEME}"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${RIGHTBAR_STYLE_RULE}${PAGE_STYLE_RULE}${INPUT_STYLE_RULE}` + PLACEHOLDER_RULE
+  styleEl.textContent = `body[data-ds-dark-theme="${OWN_SCHEME}"]::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(255,255,255,0.03) 0%,transparent 60%)}${SETTINGS_STYLE_RULE}${TRAJECTORY_STYLE_RULE}${RIGHTBAR_STYLE_RULE}${PAGE_STYLE_RULE}${INPUT_STYLE_RULE}` + PLACEHOLDER_RULE + SEAM_STYLE_RULE
   document.head.appendChild(styleEl)
   ctx.effect(() => () => { styleEl?.parentNode?.removeChild(styleEl) }, 'dsh-background-by-model: gradient')
 
@@ -294,6 +294,8 @@ export function apply(ctx: Ctx): void {
   applyWp()
   sync()
   watchParts()
+  watchSeams()
+  refreshSeams()
 
   // ── 5. Model watch ────────────────────────────────────────────────────────
   // The session's own durable model selection is the authority; the host default
