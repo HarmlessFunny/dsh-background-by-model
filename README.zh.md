@@ -215,7 +215,7 @@ npx @deepseek-ai/dsh web
 git clone https://github.com/HarmlessFunny/dsh-background-by-model.git
 cd dsh-background-by-model
 pnpm install
-pnpm test            # 构建 lib/、类型检查、跑十三道检查
+pnpm test            # 构建 lib/、类型检查、跑十九道检查
 ```
 
 `pnpm run bundle` 只重建 `lib/`。两者都必须在插件能加载之前先跑一次：新 clone 出来没有 `lib/`。
@@ -311,16 +311,16 @@ pnpm test            # 构建 lib/、类型检查、跑十三道检查
 
 > 这里只列最近两个版本；更早的版本见 [CHANGELOG.zh.md](./CHANGELOG.zh.md)。
 
+### v0.12.6
+
+- **壁纸穿过宿主那两条 paint band** —— 输入框的输入遮罩与插件页顶栏都会把画面在一条直线上切平；现在两条 band 各自带一份被裁剪的壁纸副本、垫在不透明基色之上，所以任何一条 band 都不会让实时文字透出来。
+- **副本是 band 的子元素，永远不是 fixed 层** —— 输入框座位的 `will-change: transform` 会把它当成包含块。`check:seam` 钉住两种 wash、层叠上下文闸门和不透明背景变量。
+
 ### v0.12.5
 
 - **新增「只看壁纸」** —— 对话页头部一个眼睛，点一下隐藏全部界面、只留壁纸；点鼠标或按任意键恢复，隐藏期间不留任何控件。
 - **用 `visibility`，所以什么都不丢** —— 整个应用的子树保持挂载、保持布局，滚动位置、输入草稿、组件状态都在。壁纸画在这棵子树旁边，不在里面。
 - **隐藏的是每个后代，不只是挂载点** —— 宿主有八处样式表主动重申 `visible`，而在根上加 `!important` 挡不住：继承来的值永远输给后代自己写的声明。`check:peek` 钉住这条，以及两条退出路径。
-
-### v0.12.4
-
-- **导航标记重画** —— 坡更缓，太阳挪到第一个峰的左边：16px 下原来的陡坡看着像个人，太阳压在峰顶又让字形成了对称徽标，而不是商店图标里那座山。
-- **品牌方块里按 20px 画，不再是 17** —— 在 30px 方块里，原来墨迹只占高度 35%，四周那一圈空看着像出了错。
 
 ## Star History
 

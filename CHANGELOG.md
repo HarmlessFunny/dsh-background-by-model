@@ -1,6 +1,13 @@
 # Changelog
 
-> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.5 / v0.12.4).
+> The full release history lives here; the **Recent optimizations** section of [README.md](./README.md#recent-optimizations) lists only the two most recent releases (v0.12.6 / v0.12.5).
+
+## v0.12.6
+
+- **The wallpaper shows through the host's two paint bands instead of stopping at their edge** — the composer seat's input mask and the plugin page bar paint a flat fill that cuts the picture off; each now carries a clipped copy of the layer, with the opaque base colour beneath it so no band can let live text through.
+- **The copy is a child of the band, never a fixed layer** — the seat carries `will-change: transform`, which would have made it the containing block for a fixed copy.
+- **`check:seam`** — the two bands and their two different washes, the child-not-fixed rule, the stacking-context gate, and the opaque-background variable every fallback reads.
+- **The seam guard no longer schedules a pass on every frame of a streamed reply** — it compared the number of copies against the number of band selectors, and the two bands are alternatives, so the test never settled; it now asks only when a mutation could have added or removed a band.
 
 ## v0.12.5
 

@@ -1169,11 +1169,18 @@ let partsObserver: MutationObserver | null = null
  *  shell renders after this plugin's apply. */
 export function watchParts(): void {
   if (partsObserver !== null || typeof MutationObserver === 'undefined') return
-  partsObserver = new MutationObserver(() => {
-    // Cheap convergence: a band that appeared is caught here, and once every spec
-    // has its copy this stops asking — a streaming reply mutates the body on every
-    // frame and must not force a layout read each time.
-    if (seamEntries.size < SEAM_SPECS.length) scheduleSeams()
+  partsObserver = new MutationObserver(records => {
+    // Cheap convergence: only a mutation that could have changed WHICH bands exist
+    // asks for another pass. A streaming reply appends text — it cannot add or
+    // remove a band — so it now schedules nothing at all, where it used to
+    // schedule one pass per frame.
+    //
+    // The old guard compared the entry count against the number of specs, which is
+    // not a completeness question: the two bands are ALTERNATIVES (a conversation
+    // shows the composer seat, the plugin manager the page bar), so a healthy page
+    // holds one entry against two specs and the test stayed permanently true —
+    // in exactly the state it was written to settle down in.
+    if (mutationTouchesSeams(records)) scheduleSeams()
     if (frameEl !== null && centerEl !== null && detailsEl !== null && document.body.contains(frameEl)
       // Keep re-applying while any card host is absent or was swapped by the host.
       && viewTargets.every(el => el !== null && document.body.contains(el))) return
@@ -1860,6 +1867,34 @@ let seamRaf = 0
 let seamBound = false
 let seamResize: ResizeObserver | null = null
 const seamEntries = new Map<HTMLElement, SeamEntry>()
+
+/**
+ * Whether a mutation batch could have changed which bands exist — the only
+ * question worth re-scanning for.
+ *
+ * Answered from the records themselves rather than from the DOM: an added or
+ * removed node is checked against the band selectors and against the copy's own
+ * marker, so a reply appending text (text nodes, or spans inside the transcript)
+ * costs a `nodeType` test each and nothing else. Re-scanning on every mutation
+ * would put `getComputedStyle` + `getBoundingClientRect` on every frame of a
+ * streaming reply, which is the layout read this guard exists to avoid.
+ *
+ * A copy is matched as well as a band: React drops children it did not create, so
+ * the wrapper can vanish under a re-render and `paintSeam` has to be told.
+ */
+function mutationTouchesSeams(records: MutationRecord[]): boolean {
+  for (const record of records) {
+    for (const node of [...record.addedNodes, ...record.removedNodes]) {
+      if (!(node instanceof Element)) continue
+      if (node.matches(`[${SEAM_HOST_ATTR}], [data-dab-seam]`)
+        || node.querySelector(`[${SEAM_HOST_ATTR}], [data-dab-seam]`) !== null) return true
+      for (const spec of SEAM_SPECS) {
+        if (node.matches(spec.sel) || node.querySelector(spec.sel) !== null) return true
+      }
+    }
+  }
+  return false
+}
 
 function createSeam(spec: SeamSpec): { wrap: HTMLDivElement; img: HTMLDivElement } {
   const wrap = document.createElement('div')

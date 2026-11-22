@@ -215,7 +215,7 @@ npx @deepseek-ai/dsh web
 git clone https://github.com/HarmlessFunny/dsh-background-by-model.git
 cd dsh-background-by-model
 pnpm install
-pnpm test            # builds lib/, typechecks, runs the fifteen checks
+pnpm test            # builds lib/, typechecks, runs the nineteen checks
 ```
 
 `pnpm run bundle` rebuilds `lib/` on its own. Either has to run before the plugin can load: a fresh clone has no `lib/`.
@@ -237,7 +237,7 @@ To mount a working copy into a profile instead, add it to the profile's `package
 
 After changing anything under `src/`, run `pnpm run bundle` again — the mounted profile loads `lib/`, so edits do not take effect until the bundle is rebuilt.
 
-`pnpm test` builds, typechecks and runs seventeen checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:rev` / `pnpm check:meta` / `pnpm check:mark` / `pnpm check:node`:
+`pnpm test` builds, typechecks and runs nineteen checks, none of which needs a dependency, a transformer or a browser. Each can also be run on its own with `pnpm check:holiday` / `pnpm check:rotation` / `pnpm check:transition` / `pnpm check:repaint` / `pnpm check:code-plate` / `pnpm check:image-mode` / `pnpm check:rules` / `pnpm check:preset` / `pnpm check:ui` / `pnpm check:watchdogs` / `pnpm check:scheme` / `pnpm check:store` / `pnpm check:agent` / `pnpm check:rev` / `pnpm check:meta` / `pnpm check:mark` / `pnpm check:peek` / `pnpm check:seam` / `pnpm check:node`:
 
 - **`check:holiday`** — the two holiday windows, the Beijing day boundary, leap eighth months across 1900–2100, and the four gates `pickHoliday` applies.
 - **`check:rotation`** — `nextIndex` / `isRotating`: no walking off the end, shuffle never repeating the image on screen, and nothing called "rotating" with nothing to rotate.
@@ -311,16 +311,16 @@ The effect is **Instant**, or the duration is `0` — an effect and a duration a
 
 > Only the two most recent releases are listed here; older ones live in [CHANGELOG.md](./CHANGELOG.md).
 
+### v0.12.6
+
+- **The wallpaper shows through the host's two paint bands** — the composer seat's mask and the plugin page bar cut the picture off at a flat edge; each now carries a clipped copy of the layer, over an opaque base colour, so a band never lets live text through.
+- **The copy is a child of the band, never a fixed layer** — the seat's `will-change: transform` would have made it the containing block. `check:seam` pins the two washes, the stacking-context gate and the opaque-background variable.
+
 ### v0.12.5
 
 - **"Wallpaper only"** — an eye in the conversation header hides every interface component and leaves the picture. A click or any key brings it back; no control survives the mode.
 - **`visibility`, so nothing is lost** — the app's subtree stays mounted and laid out, which keeps the scroll position, the draft and every component's state. The wallpaper is painted beside that subtree, not inside it.
 - **Every descendant is hidden, not just the mount point** — the harness re-asserts `visible` in eight of its own stylesheets, and `!important` on the root cannot stop that: an inherited value loses to any declaration a descendant makes for itself. `check:peek` pins it, along with both exits.
-
-### v0.12.4
-
-- **The nav mark redrawn** — a gentler slope, and the sun moved to hang just left of the first peak, because at 16px the steep hills read as a person and a sun over the summit made a symmetric emblem instead of the landscape the store icon shows.
-- **Drawn at 20px in the brand tile, not 17** — inside a 30px tile the old size left the ink at 35% of the height, a ring of empty colour that reads as a mistake.
 
 ## Star History
 [![Star History Chart](https://api.star-history.com/chart?repos=HarmlessFunny/dsh-background-by-model&type=timeline&legend=bottom-right)](https://www.star-history.com/?repos=HarmlessFunny%2Fdsh-background-by-model&type=timeline&legend=bottom-right)
